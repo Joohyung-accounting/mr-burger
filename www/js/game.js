@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Mr. Burger - the kitchen.
  *
  * The whole game is one room. Stations live at fixed places on the floor and the
@@ -30,6 +30,15 @@
   function easeOutBack(t) {
     var c1 = 1.70158, c3 = c1 + 1;
     return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+  }
+  function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+  /** Catmull-Rom through p1..p2, using p0 and p3 to pick the tangents. */
+  function catmull(p0, p1, p2, p3, t) {
+    var t2 = t * t, t3 = t2 * t;
+    return 0.5 * ((2 * p1) +
+      (-p0 + p2) * t +
+      (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+      (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
   }
   function buzz(ms) {
     if (!S.muted && navigator.vibrate) { try { navigator.vibrate(ms); } catch (e) {} }
@@ -74,6 +83,8 @@
     coopStarted: false,
     snapInterval: 80,    // measured ms between host snapshots
     lastSnapAt: 0,
+    clockOff: null,      // host clock -> ours; see hostToLocal()
+    renderT: null,       // the moment in the buffer we are showing; playoutTime()
 
     floats: [], sparks: [], banner: null, shake: 0,
     flyers: [], cratePop: [],
@@ -229,6 +240,7 @@
 
   function layout() {
     var W = cv.clientWidth, H = cv.clientHeight;
+    var oldFloor = L.floor;          // to carry the cooks across, see below
     L.W = W; L.H = H;
     L.pad = 8;
 
@@ -310,17 +322,52 @@
     L.walkScale = clamp(diag / REF_FLOOR_DIAG, 0.6, 2.2);
     L.stride = Math.max(10, diag / STRIDES_PER_DIAG);
 
-    // drop any cook who has not been placed yet into the middle of the floor,
-    // spread apart so two of them do not start on top of each other
+    /*
+     * Carry the cooks across the relayout.
+     *
+     * A cook's x/y are absolute pixels, so when the room moves underneath them
+     * - which a phone does constantly, because the address bar slides away the
+     * moment you tap PLAY and keeps resizing the viewport for a few hundred
+     * milliseconds - they used to stay nailed to their old screen position and
+     * visibly skate around the kitchen. Worse, tx/ty were snapshotted from the
+     * station rect back when the walk was ordered, so the cook was heading for
+     * a spot the counter had since moved away from, then snapped when it
+     * arrived. That is the stutter in the opening seconds.
+     *
+     * Remap position by where they were in the old floor, and re-derive the
+     * target from the station itself, which is authoritative.
+     */
     for (var ci = 0; ci < S.chefs.length; ci++) {
       var c = S.chefs[ci];
-      if (c.x) continue;
-      var span = L.floor.x1 - L.floor.x0;
-      var frac = S.chefs.length > 1 ? (ci === 0 ? 0.35 : 0.65) : 0.5;
-      c.x = L.floor.x0 + span * frac;
-      c.y = (L.floor.y0 + L.floor.y1) / 2;
-      c.tx = c.x; c.ty = c.y;
+      if (!c.x) {
+        // never placed: middle of the floor, spread apart so two cooks do not
+        // start standing on top of each other
+        var frac = S.chefs.length > 1 ? (ci === 0 ? 0.35 : 0.65) : 0.5;
+        c.x = L.floor.x0 + (L.floor.x1 - L.floor.x0) * frac;
+        c.y = (L.floor.y0 + L.floor.y1) / 2;
+        c.tx = c.x; c.ty = c.y;
+        c.px = c.x;
+        continue;
+      }
+      if (oldFloor) {
+        c.x = remap(c.x, oldFloor.x0, oldFloor.x1, L.floor.x0, L.floor.x1);
+        c.y = remap(c.y, oldFloor.y0, oldFloor.y1, L.floor.y0, L.floor.y1);
+        c.px = c.x;
+      }
+      if (c.target) {
+        var p = standPoint(c.target);
+        c.tx = p.x; c.ty = p.y;
+      } else if (oldFloor) {
+        c.tx = c.x; c.ty = c.y;
+      }
     }
+  }
+
+  /** Same relative spot, new box. Degenerate boxes just take the new middle. */
+  function remap(v, a0, a1, b0, b1) {
+    var span = a1 - a0;
+    if (!(span > 0.001)) return (b0 + b1) / 2;
+    return b0 + ((v - a0) / span) * (b1 - b0);
   }
 
   function crateRect(i) {
@@ -795,6 +842,8 @@
     // positions the host last sent instead.
     var walkSpeed = S.fx.speed * (L.walkScale || 1);
     var stride = L.stride || 70;
+    var frameNow = nowMs();
+    var render = S.role === 'guest' ? playoutTime(dt * 1000) : 0;
     for (var ci = 0; ci < S.chefs.length; ci++) {
       var c = S.chefs[ci];
       c.blinkIn -= dt;
@@ -804,22 +853,54 @@
 
       if (S.role === 'guest') {
         /*
-         * Interpolate between the last two snapshots instead of chasing the
-         * newest one. Chasing covered the gap in 90ms and then sat still until
-         * the next packet ~83ms later, which is exactly what the stutter was.
-         * Running a shade slower than the packet rate means the cook is always
-         * still moving when the next one lands.
+         * Render a fixed delay behind live and interpolate linearly between the
+         * two real samples that straddle that moment.
+         *
+         * Easing toward "the newest packet" - what this used to do - restarts a
+         * curve on every arrival, so any jitter in packet spacing turns into a
+         * speed change you can see. Reading from a buffer at a steady offset
+         * gives constant velocity between samples and survives both jittery
+         * packets and dropped frames, because it is keyed off the clock rather
+         * than off dt.
          */
-        var span = Math.max(60, S.snapInterval * 1.25);
-        c.lerp = Math.min(1, c.lerp + (dt * 1000) / span);
-        var e = c.lerp * c.lerp * (3 - 2 * c.lerp);        // smoothstep
-        var px = c.px + (c.tx - c.px) * e;
-        var py = c.py + (c.ty - c.py) * e;
-        var moved = Math.hypot(px - c.x, py - c.y);
-        c.x = px; c.y = py;
-        if (moved > 0.25) {
+        var b = c.buf;
+        if (!b || !b.length) { c.phase = 0; continue; }
+        var ax = c.x, ay = c.y;
+
+        if (render <= b[0].t) {
+          ax = b[0].x; ay = b[0].y;
+        } else {
+          var j = b.length - 1;
+          while (j > 0 && b[j].t > render) j--;
+          var s0 = b[j], s1 = b[j + 1];
+          if (!s1) {
+            // starved of packets: hold the last known spot rather than guess
+            ax = s0.x; ay = s0.y;
+          } else {
+            var k2 = clamp((render - s0.t) / Math.max(1, s1.t - s0.t), 0, 1);
+            /*
+             * A straight line between samples is continuous in position but not
+             * in velocity: the cook changes direction, in one frame, at every
+             * sample boundary. On a curved path that reads as a faint tick
+             * twenty times a second - the last of the roughness. Run a
+             * Catmull-Rom spline through the neighbours instead, which matches
+             * the velocity across the join. Falls back to the straight line at
+             * the ends of the buffer, where there is no neighbour to use.
+             */
+            var sm1 = b[j - 1] || s0, s2 = b[j + 2] || s1;
+            ax = catmull(sm1.x, s0.x, s1.x, s2.x, k2);
+            ay = catmull(sm1.y, s0.y, s1.y, s2.y, k2);
+          }
+          // keep one sample behind the render point so the spline has a "before"
+          while (b.length > 3 && b[2].t < render) b.shift();
+        }
+
+        var moved = Math.hypot(ax - c.x, ay - c.y);
+        c.x = ax; c.y = ay;
+        if (moved > 0.15) {
           c.phase = (c.phase + moved / stride) % 1;
-          if (Math.abs(c.tx - c.px) > 2) c.face = c.tx > c.px ? 1 : -1;
+          if (moved > 0.6) c.face = ax > c.px ? 1 : -1;
+          c.px = ax;
         } else {
           c.phase = 0;
         }
@@ -978,51 +1059,83 @@
     ctx.restore();
   }
 
+  /*
+   * The room never moves, but painting it cost ~110 floor tiles plus the wall
+   * grid on every single frame - the largest fixed cost in the loop, and pure
+   * waste. Bake it once per layout and blit it. Keyed on the layout numbers it
+   * actually reads, so a resize rebuilds it and nothing else does.
+   */
+  var roomCache = null;
   function drawRoom() {
+    var key = L.W + 'x' + L.H + ':' + L.cratesBottom + ':' + (L.k || 1);
+    if (!roomCache || roomCache.key !== key) roomCache = bakeRoom(key);
+    if (roomCache.cv) ctx.drawImage(roomCache.cv, 0, 0, L.W, L.H);
+    else paintRoom(ctx);          // no offscreen canvas available, paint direct
+  }
+
+  function bakeRoom(key) {
+    var made = { key: key, cv: null };
+    if (!L.W || !L.H) return made;
+    var off, g;
+    try {
+      off = document.createElement('canvas');
+      var dpr = Math.min(window.devicePixelRatio || 1, 3);
+      off.width = Math.round(L.W * dpr);
+      off.height = Math.round(L.H * dpr);
+      g = off.getContext('2d');
+      if (!g) return made;
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    } catch (e) { return made; }
+    paintRoom(g);
+    made.cv = off;
+    return made;
+  }
+
+  function paintRoom(g) {
     var floorTop = L.cratesBottom + 8;
 
     // --- tiled back wall
-    var wg = ctx.createLinearGradient(0, 0, 0, floorTop);
+    var wg = g.createLinearGradient(0, 0, 0, floorTop);
     wg.addColorStop(0, K.wallA);
     wg.addColorStop(1, K.wallB);
-    ctx.fillStyle = wg;
-    ctx.fillRect(0, 0, L.W, floorTop);
-    ctx.strokeStyle = K.wallTile;
-    ctx.lineWidth = 1;
+    g.fillStyle = wg;
+    g.fillRect(0, 0, L.W, floorTop);
+    g.strokeStyle = K.wallTile;
+    g.lineWidth = 1;
     var t = 18 * (L.k || 1);
     for (var wy = t; wy < floorTop; wy += t) {
-      ctx.beginPath(); ctx.moveTo(0, wy); ctx.lineTo(L.W, wy); ctx.stroke();
+      g.beginPath(); g.moveTo(0, wy); g.lineTo(L.W, wy); g.stroke();
     }
     for (var wx = t * 1.6; wx < L.W; wx += t * 1.6) {
-      ctx.beginPath(); ctx.moveTo(wx, 0); ctx.lineTo(wx, floorTop); ctx.stroke();
+      g.beginPath(); g.moveTo(wx, 0); g.lineTo(wx, floorTop); g.stroke();
     }
 
     // --- checkerboard floor running to the bottom of the room
     var y1 = L.H;
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, floorTop, L.W, y1 - floorTop);
-    ctx.clip();
+    g.save();
+    g.beginPath();
+    g.rect(0, floorTop, L.W, y1 - floorTop);
+    g.clip();
     var tile = Math.max(22, L.W / 10);
     for (var y = floorTop; y < y1; y += tile) {
       for (var x = -tile; x < L.W + tile; x += tile) {
         var odd = (Math.floor(x / tile) + Math.floor((y - floorTop) / tile)) % 2;
-        ctx.fillStyle = odd ? K.floorB : K.floorA;
-        ctx.fillRect(x, y, tile, tile);
+        g.fillStyle = odd ? K.floorB : K.floorA;
+        g.fillRect(x, y, tile, tile);
       }
     }
     // the counter casts onto the floor, and the light falls off toward the back
-    var vg = ctx.createLinearGradient(0, floorTop, 0, floorTop + 46);
+    var vg = g.createLinearGradient(0, floorTop, 0, floorTop + 46);
     vg.addColorStop(0, 'rgba(95,62,42,0.30)');
     vg.addColorStop(1, 'rgba(95,62,42,0)');
-    ctx.fillStyle = vg;
-    ctx.fillRect(0, floorTop, L.W, 46);
-    var lg = ctx.createLinearGradient(0, floorTop, 0, y1);
+    g.fillStyle = vg;
+    g.fillRect(0, floorTop, L.W, 46);
+    var lg = g.createLinearGradient(0, floorTop, 0, y1);
     lg.addColorStop(0, 'rgba(255,255,255,0.0)');
     lg.addColorStop(1, 'rgba(255,255,255,0.30)');
-    ctx.fillStyle = lg;
-    ctx.fillRect(0, floorTop, L.W, y1 - floorTop);
-    ctx.restore();
+    g.fillStyle = lg;
+    g.fillRect(0, floorTop, L.W, y1 - floorTop);
+    g.restore();
   }
 
   function drawCounter() {
@@ -1446,30 +1559,47 @@
     ctx.restore();
   }
 
+  /*
+   * The band used to be scaled along with the text, so during the pop-in it was
+   * narrower than the screen - a dark stripe hanging in mid-air - and then
+   * easeOutBack overshot it past both edges, which pushed its soft ends off
+   * screen and turned them into hard cuts. Read as the card "coming up wrong".
+   * The band now stays exactly screen-width and opens vertically; only the
+   * lettering pops.
+   */
   function drawBanner() {
     if (!S.banner) return;
     var b = S.banner, t = b.t / b.max;
-    var scale = t < 0.2 ? easeOutBack(t / 0.2) : 1;
-    var alpha = t > 0.72 ? 1 - (t - 0.72) / 0.28 : 1;
+    var open = t < 0.16 ? easeOutCubic(t / 0.16) : 1;         // band shutter
+    var pop = t < 0.30 ? easeOutBack(clamp(t / 0.30, 0, 1)) : 1;  // lettering
+    var alpha = t > 0.72 ? clamp(1 - (t - 0.72) / 0.28, 0, 1) : 1;
+
+    var size = Math.min(L.W * 0.07, 24);
+    var bh = size * (b.sub ? 2.5 : 1.7);
+    var cy = (L.floor.y0 + L.floor.y1) / 2;
 
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.translate(L.W / 2, (L.floor.y0 + L.floor.y1) / 2);
-    ctx.scale(scale, scale);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
 
-    var size = Math.min(L.W * 0.07, 24);
-    ctx.font = '900 ' + size + 'px "Trebuchet MS", system-ui, sans-serif';
-    var bh = size * (b.sub ? 2.5 : 1.7);
-    var band = ctx.createLinearGradient(-L.W / 2, 0, L.W / 2, 0);
+    var band = ctx.createLinearGradient(0, 0, L.W, 0);
     band.addColorStop(0, 'rgba(12,7,5,0)');
     band.addColorStop(0.18, 'rgba(12,7,5,0.92)');
     band.addColorStop(0.82, 'rgba(12,7,5,0.92)');
     band.addColorStop(1, 'rgba(12,7,5,0)');
     ctx.fillStyle = band;
-    ctx.fillRect(-L.W / 2, -bh * 0.42, L.W, bh);
+    ctx.fillRect(0, cy - bh * 0.42 * open, L.W, bh * open);
 
+    // clip the lettering to the band so it cannot spill out while it opens
+    ctx.beginPath();
+    ctx.rect(0, cy - bh * 0.42 * open, L.W, bh * open);
+    ctx.clip();
+
+    ctx.translate(L.W / 2, cy);
+    ctx.scale(pop, pop);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    ctx.font = '900 ' + size + 'px "Trebuchet MS", system-ui, sans-serif';
     ctx.lineWidth = 5;
     ctx.strokeStyle = 'rgba(12,7,5,0.92)';
     ctx.strokeText(b.title, 0, 0);
@@ -1507,19 +1637,34 @@
   }
 
   /* -------------------------------------------------------------- HUD/DOM */
+  /*
+   * Only touches the DOM when a value actually changed. A guest calls this on
+   * every state packet, and rewriting the hearts markup several times a second
+   * is exactly the sort of thing a phone stutters on.
+   */
+  var hudLast = {};
   function syncHud() {
     var total = S.sales + S.tips;
-    el.dayNum.textContent = S.day;
-    el.goalText.textContent = Core.money(total) + ' / ' + Core.money(S.rent);
-    el.goalFill.style.width = (S.rent ? clamp(total / S.rent, 0, 1) * 100 : 0) + '%';
-    el.goalFill.classList.toggle('met', total >= S.rent);
-    el.goalText.classList.toggle('met', total >= S.rent);
+    if (hudLast.day !== S.day) { hudLast.day = S.day; el.dayNum.textContent = S.day; }
 
-    var hearts = '';
-    for (var i = 0; i < Core.START_HEARTS; i++) {
-      hearts += '<span class="h' + (i < S.hearts ? '' : ' lost') + '">❤</span>';
+    var goal = Core.money(total) + ' / ' + Core.money(S.rent);
+    if (hudLast.goal !== goal) {
+      hudLast.goal = goal;
+      el.goalText.textContent = goal;
+      var met = total >= S.rent;
+      el.goalFill.style.width = (S.rent ? clamp(total / S.rent, 0, 1) * 100 : 0) + '%';
+      el.goalFill.classList.toggle('met', met);
+      el.goalText.classList.toggle('met', met);
     }
-    el.hearts.innerHTML = hearts;
+
+    if (hudLast.hearts !== S.hearts) {
+      hudLast.hearts = S.hearts;
+      var hearts = '';
+      for (var i = 0; i < Core.START_HEARTS; i++) {
+        hearts += '<span class="h' + (i < S.hearts ? '' : ' lost') + '">❤</span>';
+      }
+      el.hearts.innerHTML = hearts;
+    }
   }
 
   var MINI_W = 44, MINI_H = 50;
@@ -1750,6 +1895,21 @@
     connectRoom();
   }
 
+  /*
+   * Everything the interpolator learned belongs to one socket: the offset
+   * between the two clocks, the measured packet spacing, and the samples in
+   * flight. Carrying them into a fresh connection makes the first second after
+   * a reconnect read from a timeline that no longer exists.
+   */
+  function resetSync() {
+    S.clockOff = null;
+    S.lastSnapAt = 0;
+    S.snapInterval = 80;
+    S.snapN = 0;
+    S.renderT = null;
+    S.chefs.forEach(function (c) { c.buf = null; });
+  }
+
   function connectRoom() {
     var code = S.roomCode;
     if (!code) return;
@@ -1759,6 +1919,7 @@
         S.me = role === 'host' ? 0 : 1;
         S.peer = false;
         S.reconnectTries = 0;
+        resetSync();
         el.coopNote.textContent = role === 'host'
           ? 'Room ' + code + ' is open. Waiting for your friend…'
           : 'Joined room ' + code + '. Waiting for the host…';
@@ -1824,6 +1985,7 @@
     S.roomCode = null;
     S.reconnectTries = 0;
     S.coopStarted = false;
+    resetSync();
     S.chefs.length = 1;
     if (was === 'host' || was === 'guest') {
       banner('CO-OP ENDED', why || '', '#d1493a');
@@ -1857,8 +2019,63 @@
    * Cook positions travel normalised to the floor rect, so the two devices can
    * have completely different screen sizes.
    */
-  var SNAP_HZ = 15;
-  var snapTimer = 0;
+  /*
+   * Two packet rates. Motion needs a fast sample rate to look right, but plates
+   * and tickets barely change - sending everything at motion rate was both
+   * wasteful on mobile data and, because each packet restarted an ease, the
+   * source of the remaining judder.
+   */
+  var POS_HZ = 20;      // cook positions only, ~80 bytes
+  var STATE_HZ = 8;     // the whole kitchen
+  var posTimer = 0, stateTimer = 0;
+
+  // How far behind live the guest renders. One packet of slack absorbs jitter;
+  // any less and a late packet shows up as a stall.
+  function interpDelay() { return clamp(S.snapInterval * 1.7, 90, 260); }
+
+  /*
+   * The moment in the buffer we are showing right now.
+   *
+   * Deriving it as "now minus the delay" every frame sounds equivalent, but the
+   * delay is an estimate off a running average of packet spacing - so it moves,
+   * and every time it moves the render point jumps backwards or forwards
+   * through the samples. On a phone joining a room that estimate travels a long
+   * way in the first second, and the cook visibly stalls and lurches while it
+   * settles. That was the last of the judder.
+   *
+   * Instead run a clock of our own and correct it the way audio playout does:
+   * never jump, just run it a few percent fast or slow until it is back where
+   * it belongs. A few percent is invisible; a jump is not.
+   */
+  var MAX_WARP = 0.08;         // +/-8% of real time
+  var RESEAT_MS = 800;         // past this it is a stall, not drift
+  function playoutTime(dtMs) {
+    var newest = 0;
+    for (var i = 0; i < S.chefs.length; i++) {
+      var b = S.chefs[i].buf;
+      if (b && b.length) newest = Math.max(newest, b[b.length - 1].t);
+    }
+    if (!newest) { S.renderT = null; return 0; }
+
+    var target = newest - interpDelay();
+    if (S.renderT == null || Math.abs(target - S.renderT) > RESEAT_MS) {
+      S.renderT = target;               // first packet, or we lost the thread
+      return S.renderT;
+    }
+    var drift = target - S.renderT;
+    var warp = clamp(drift / 600, -MAX_WARP, MAX_WARP);
+    S.renderT += Math.max(0, dtMs) * (1 + warp);
+    return S.renderT;
+  }
+
+  // Single clock for everything interpolation-related. Overridable so the
+  // smoke test can drive it deterministically instead of sleeping.
+  var clockFn = null;
+  function nowMs() {
+    if (clockFn) return clockFn();
+    return (typeof performance !== 'undefined' && performance.now)
+      ? performance.now() : Date.now();
+  }
 
   function packHold(h) {
     if (!h) return null;
@@ -1876,6 +2093,7 @@
     var fh = Math.max(1, L.floor.y1 - L.floor.y0);
     return {
       type: 'state',
+      t: Math.round(nowMs()),
       day: S.day, hearts: S.hearts, sales: S.sales, tips: S.tips, rent: S.rent,
       screen: S.screen, menu: S.menu, concurrent: S.cfg ? S.cfg.concurrent : 3,
       plates: S.plates.map(function (p) { return p.stack; }),
@@ -1897,6 +2115,13 @@
   Core.CUSTOMERS.forEach(function (c) { ARCH_BY_ID[c.id] = c; });
 
   function applySnapshot(m) {
+    // Anything that changes the size or count of a station changes the room.
+    var shapeChanged =
+      (S.menu || []).length !== (m.menu || []).length ||
+      S.plates.length !== m.plates.length ||
+      S.grill.length !== m.grill.length ||
+      S.day !== m.day;
+
     S.day = m.day; S.hearts = m.hearts; S.sales = m.sales; S.tips = m.tips; S.rent = m.rent;
     S.menu = m.menu;
     if (!S.cfg || S.cfg.day !== m.day) S.cfg = Core.dayConfig(m.day);
@@ -1922,29 +2147,14 @@
       return tk;
     });
 
-    // Measure the real packet spacing and smooth it, so one late frame does not
-    // make the cooks lurch. Clamped in case the tab was backgrounded.
-    var now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
-    if (S.lastSnapAt) {
-      var gapMs = clamp(now - S.lastSnapAt, 40, 400);
-      S.snapInterval = S.snapInterval ? S.snapInterval * 0.8 + gapMs * 0.2 : gapMs;
-    }
-    S.lastSnapAt = now;
+    // The day's shape drives the layout: if the host has more plates, more
+    // burners or a different line than we last laid out for, the room has to be
+    // rebuilt or we draw yesterday's kitchen with today's contents.
+    if (shapeChanged) resize();
 
-    while (S.chefs.length < m.chefs.length) S.chefs.push(makeChef());
-    S.chefs.length = m.chefs.length;
-    var fw = Math.max(1, L.floor.x1 - L.floor.x0);
-    var fh = Math.max(1, L.floor.y1 - L.floor.y0);
+    bufferPositions(m.chefs, m.t);
     m.chefs.forEach(function (snap, i) {
-      var c = S.chefs[i];
-      // where we are now becomes the start of the next interpolation leg
-      c.px = c.x; c.py = c.y;
-      c.tx = L.floor.x0 + snap.x * fw;
-      c.ty = L.floor.y0 + snap.y * fh;
-      if (!c.x) { c.x = c.px = c.tx; c.y = c.py = c.ty; }
-      c.lerp = 0;
-      c.face = snap.f;
-      c.holding = unpackHold(snap.h);
+      S.chefs[i].holding = unpackHold(snap.h);
     });
 
     if (m.banner && m.banner.n !== S.lastBannerId) {
@@ -1958,13 +2168,113 @@
     }
   }
 
+  /** Just where the cooks are - the part that has to arrive often. */
+  function posPacket() {
+    var fw = Math.max(1, L.floor.x1 - L.floor.x0);
+    var fh = Math.max(1, L.floor.y1 - L.floor.y0);
+    return {
+      type: 'pos',
+      t: Math.round(nowMs()),
+      c: S.chefs.map(function (c) {
+        return {
+          x: Math.round((c.x - L.floor.x0) / fw * 1000) / 1000,
+          y: Math.round((c.y - L.floor.y0) / fh * 1000) / 1000,
+          f: c.face
+        };
+      })
+    };
+  }
+
+  /*
+   * Put a host timestamp on our own clock.
+   *
+   * Stamping samples with the moment they arrived bakes the network's jitter
+   * straight into the timeline: the host sends on an exact 50ms beat, but the
+   * packets land at 45, 58, 47, 60ms, so interpolating between arrival times
+   * replays that wobble as a speed change. The host now says when it sent each
+   * one, and we only need the offset between the two clocks.
+   *
+   * (arrival - sent) is that offset plus the trip time, so it is always an
+   * over-estimate, and the smallest one we have seen is the closest to the
+   * truth. Track the minimum, drop to it quickly, and let it drift back up
+   * slowly so a genuinely slow clock or a route change is still followed.
+   */
+  function hostToLocal(hostT, localT) {
+    if (!hostT) return localT;                    // peer predates the timestamp
+    var obs = localT - hostT;
+    if (S.clockOff == null || Math.abs(obs - S.clockOff) > 2000) {
+      S.clockOff = obs;                           // first packet, or a new route
+      return hostT + S.clockOff;
+    }
+    var before = S.clockOff;
+    if (obs < S.clockOff) S.clockOff = S.clockOff * 0.3 + obs * 0.7;
+    else S.clockOff = S.clockOff * 0.995 + obs * 0.005;
+    /*
+     * Revising the offset would otherwise leave the samples already in the
+     * buffer stamped against the old one - so the segment either side of the
+     * revision is stretched or squashed, and the cook lurches. That is most of
+     * what a guest sees in its first second, while the estimate is still
+     * settling. Move the whole timeline together and the revision costs nothing.
+     */
+    var delta = S.clockOff - before;
+    if (delta) {
+      for (var i = 0; i < S.chefs.length; i++) {
+        var b = S.chefs[i].buf;
+        if (!b) continue;
+        for (var j = 0; j < b.length; j++) b[j].t += delta;
+      }
+      if (S.lastSnapAt) S.lastSnapAt += delta;
+      if (S.renderT != null) S.renderT += delta;
+    }
+    return hostT + S.clockOff;
+  }
+
+  /** Feed one sample per cook into the guest's interpolation buffers. */
+  function bufferPositions(list, hostT) {
+    var now = nowMs();
+    var t = hostToLocal(hostT, now);
+    if (S.lastSnapAt) {
+      var gapMs = clamp(t - S.lastSnapAt, 20, 400);
+      // The seed is a guess; lean hard on the first few real measurements so the
+      // render delay is right within a couple of packets rather than a second.
+      S.snapN = (S.snapN || 0) + 1;
+      var a = S.snapN < 5 ? 0.6 : 0.25;
+      S.snapInterval = S.snapInterval * (1 - a) + gapMs * a;
+    }
+    // out-of-order or duplicate packet: it would fold the buffer back on itself
+    if (S.lastSnapAt && t <= S.lastSnapAt) return;
+    S.lastSnapAt = t;
+
+    var fw = Math.max(1, L.floor.x1 - L.floor.x0);
+    var fh = Math.max(1, L.floor.y1 - L.floor.y0);
+    while (S.chefs.length < list.length) S.chefs.push(makeChef());
+    S.chefs.length = list.length;
+
+    list.forEach(function (snap, i) {
+      var c = S.chefs[i];
+      var x = L.floor.x0 + snap.x * fw;
+      var y = L.floor.y0 + snap.y * fh;
+      c.face = snap.f;
+      c.buf = c.buf || [];
+      c.buf.push({ t: t, x: x, y: y });
+      if (c.buf.length > 8) c.buf.shift();
+      if (!c.x) { c.x = x; c.y = y; }        // first sample: no easing in from 0,0
+    });
+  }
+
   function pumpNetwork(dt) {
     if (S.role !== 'host' || !S.peer) return;
-    snapTimer -= dt;
-    if (snapTimer > 0) return;
-    snapTimer = 1 / SNAP_HZ;
-    S.snapSeq++;
-    Net.send(snapshot());
+    posTimer -= dt;
+    if (posTimer <= 0) {
+      posTimer = 1 / POS_HZ;
+      Net.send(posPacket());
+    }
+    stateTimer -= dt;
+    if (stateTimer <= 0) {
+      stateTimer = 1 / STATE_HZ;
+      S.snapSeq++;
+      Net.send(snapshot());
+    }
   }
 
   function onCoopMessage(m) {
@@ -1974,7 +2284,9 @@
       if (S.chefs.length > 1) sendChef(m.target, 1);
       return;
     }
-    if (S.role === 'guest' && m.type === 'state') applySnapshot(m);
+    if (S.role !== 'guest') return;
+    if (m.type === 'pos' && m.c) bufferPositions(m.c, m.t);
+    else if (m.type === 'state') applySnapshot(m);
   }
 
   /* ----------------------------------------------------------------- input */
@@ -2142,13 +2454,46 @@
 
   /* ------------------------------------------------------------------ boot */
   var last = 0;
+  var sizeOffSince = 0;
+
+  /*
+   * The resize *event* is debounced, but this per-frame safety net used to call
+   * resize() the instant the canvas box changed - which handed back every
+   * millisecond the debounce was there to absorb. Tapping PLAY on a phone hides
+   * the address bar, and the viewport then animates for a few hundred ms: that
+   * was a full canvas reallocation plus relayout on every single frame of the
+   * animation, and it is why the opening seconds hitched and the DAY card
+   * jumped about. Wait for the size to sit still first. A big jump (rotation)
+   * still goes through immediately, because holding a stretched bitmap through
+   * that reads far worse than one dropped frame.
+   */
+  var SETTLE_MS = 120, MAX_WAIT_MS = 600, BIG_JUMP = 0.18;
+  var seenW = 0, seenH = 0, offFirst = 0;
+  function sizeSettled(ts) {
+    var w = cv.clientWidth, h = cv.clientHeight;
+    if (w === L.W && h === L.H) { sizeOffSince = 0; offFirst = 0; return false; }
+    if (!L.W || !L.H) return true;                    // first layout, just do it
+    if (Math.abs(w - L.W) / L.W > BIG_JUMP || Math.abs(h - L.H) / L.H > BIG_JUMP) {
+      sizeOffSince = 0; offFirst = 0; return true;    // rotation, or a real jump
+    }
+    if (!offFirst) offFirst = ts;
+    if (w !== seenW || h !== seenH) {                 // still moving - keep waiting
+      seenW = w; seenH = h; sizeOffSince = ts;
+    }
+    // ...unless it never stops. A viewport that jitters by a pixel forever
+    // would otherwise leave us drawing at a stale size for good.
+    if (ts - sizeOffSince < SETTLE_MS && ts - offFirst < MAX_WAIT_MS) return false;
+    sizeOffSince = 0; offFirst = 0;
+    return true;
+  }
+
   function frame(ts) {
     // Book the next frame before doing any work: one thrown exception in draw()
     // used to unregister the loop and freeze the game for good.
     requestAnimationFrame(frame);
     var dt = last ? Math.min(0.05, (ts - last) / 1000) : 0;
     last = ts;
-    if (cv.clientWidth !== L.W || cv.clientHeight !== L.H) resize();
+    if (sizeSettled(ts)) resize();
     // A paused kitchen still gets painted - the frozen frame is the backdrop
     // the pause sheet sits on.
     if (!S.paused) {
@@ -2233,6 +2578,7 @@
     setPaused: setPaused, quitToTitle: quitToTitle,
     snapshot: snapshot, applySnapshot: applySnapshot, onCoopMessage: onCoopMessage,
     leaveCoop: endCoop, endCoop: endCoop, chefAt: chefAt,
+    _setClock: function (fn) { clockFn = fn; },
     enterRoom: enterRoom, connectRoom: connectRoom,
     crateRect: crateRect, slotRect: slotRect, plateRect: plateRect,
     hatchRect: hatchRect, binRect: binRect,
@@ -2245,6 +2591,7 @@
     init();
   }
 })();
+
 
 
 

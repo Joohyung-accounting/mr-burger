@@ -51,7 +51,7 @@ function makeCtx() {
   ['setTransform', 'clearRect', 'save', 'restore', 'translate', 'scale', 'rotate',
     'beginPath', 'moveTo', 'lineTo', 'arcTo', 'arc', 'ellipse', 'closePath', 'rect',
     'bezierCurveTo', 'quadraticCurveTo', 'fill', 'stroke', 'fillRect', 'strokeRect',
-    'fillText', 'strokeText', 'setLineDash', 'clip'
+    'fillText', 'strokeText', 'setLineDash', 'clip', 'drawImage'
   ].forEach(function (m) { ctx[m] = NOOP; });
   ctx.createRadialGradient = function () { return { addColorStop: NOOP }; };
   return ctx;
@@ -117,6 +117,10 @@ var elements = { stage: stage };
 var docHandlers = {};
 var rafQueue = [];
 var storeData = {};
+// Every canvas the game makes. The room bakes itself into a full-size one; the
+// order board makes a small thumbnail per ticket, which is why the cache test
+// filters by size rather than just counting.
+var madeCanvases = [];
 
 global.self = global;
 global.window = global;
@@ -124,7 +128,11 @@ global.document = {
   readyState: 'complete',
   hidden: false,
   getElementById: function (id) { return elements[id] || null; },
-  createElement: function (tag) { return makeEl(tag); },
+  createElement: function (tag) {
+    var e = makeEl(tag);
+    if (e.tagName === 'CANVAS') madeCanvases.push(e);
+    return e;
+  },
   addEventListener: function (t, fn) { (docHandlers[t] = docHandlers[t] || []).push(fn); }
 };
 global.devicePixelRatio = 2;
@@ -161,6 +169,10 @@ require('../www/js/game.js');
 
 var MB = global.MrBurger;
 var S = MB.state, L = MB.layout;
+
+// Drive the game's interpolation clock off the same fake clock pump() advances,
+// so the co-op timing tests are deterministic instead of racing real time.
+MB._setClock(function () { return clock; });
 
 /* --------------------------------------------------------- tap helpers */
 function tapCanvas(x, y) {
@@ -375,6 +387,122 @@ test('a trip across the kitchen costs the same on any screen size', function () 
   stage.clientWidth = w0;
   stage.clientHeight = h0;
   pump(0.1);
+});
+
+/*
+ * Regression: a cook's x/y are absolute pixels, and the room moves underneath
+ * them whenever the viewport changes - which a phone does for a few hundred ms
+ * every time the address bar slides away, i.e. right after you tap PLAY. The
+ * cook used to stay nailed to its old screen position and skate across the
+ * kitchen, and its walk target still pointed at where the counter used to be.
+ */
+test('the cooks keep their place in the room when the viewport changes', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  stage.clientWidth = 412; stage.clientHeight = 430;
+  startShift(8);
+  pump(0.1);
+
+  tapRect(crateOf('patty'));
+  pump(0.2);
+  var c = S.chef;
+  var relX = (c.x - L.floor.x0) / (L.floor.x1 - L.floor.x0);
+  var relY = (c.y - L.floor.y0) / (L.floor.y1 - L.floor.y0);
+  assert.ok(c.target, 'the cook should still be walking');
+
+  stage.clientHeight = 518;          // the address bar gets out of the way
+  pump(0.4);                         // long enough for the settle to let it through
+
+  var nx = (S.chef.x - L.floor.x0) / (L.floor.x1 - L.floor.x0);
+  var ny = (S.chef.y - L.floor.y0) / (L.floor.y1 - L.floor.y0);
+  // it kept walking, so it will have moved on - but not jumped across the room
+  assert.ok(Math.abs(nx - relX) < 0.25 && Math.abs(ny - relY) < 0.35,
+    'the cook slid from ' + relX.toFixed(2) + ',' + relY.toFixed(2) +
+    ' to ' + nx.toFixed(2) + ',' + ny.toFixed(2) + ' of the floor');
+
+  // and it is aiming at where the crate is now, not where it used to be
+  var want = MB.standPoint(S.chef.target);
+  assert.ok(Math.hypot(S.chef.tx - want.x, S.chef.ty - want.y) < 1,
+    'the walk target is stale: heading for ' + S.chef.tx.toFixed(0) + ',' +
+    S.chef.ty.toFixed(0) + ' but the station is at ' + want.x.toFixed(0) + ',' + want.y.toFixed(0));
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.4);
+});
+
+/*
+ * Regression: the resize event was debounced, but a per-frame safety net in the
+ * loop called resize() the instant the canvas box moved - handing back every
+ * millisecond the debounce existed to absorb. A phone's address bar animation
+ * meant a canvas reallocation plus a full relayout on every frame of it.
+ */
+test('a viewport that is still moving does not relayout on every frame', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  stage.clientWidth = 412; stage.clientHeight = 430;
+  startShift(1);
+  pump(0.2);
+
+  var allocs = 0;
+  var realW = stage.width, realH = stage.height;
+  Object.defineProperty(stage, 'width', {
+    configurable: true,
+    get: function () { return realW; },
+    set: function (v) { if (v !== realW) allocs++; realW = v; }
+  });
+  Object.defineProperty(stage, 'height', {
+    configurable: true,
+    get: function () { return realH; },
+    set: function (v) { if (v !== realH) allocs++; realH = v; }
+  });
+
+  try {
+    // 18 frames of a viewport sliding open, the way an address bar does
+    for (var i = 0; i < 18; i++) {
+      stage.clientHeight = 430 + Math.round(88 * (i / 17));
+      pump(0.017);
+    }
+    assert.ok(allocs <= 4,
+      'the canvas was reallocated ' + allocs + ' times during one address bar animation');
+    pump(0.4);
+    assert.strictEqual(L.H, 518, 'the layout never caught up with the settled size');
+  } finally {
+    delete stage.width; delete stage.height;
+    stage.width = realW; stage.height = realH;
+    stage.clientWidth = w0; stage.clientHeight = h0;
+    pump(0.4);
+  }
+});
+
+/*
+ * The wall and the checkerboard floor never move, but repainting them cost
+ * about 110 tile fills plus the wall grid on every frame - the single largest
+ * fixed cost in the loop. It is baked once per layout now.
+ */
+test('the room is painted once per layout, not once per frame', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  stage.clientWidth = 412; stage.clientHeight = 430;
+  startShift(1);
+  pump(0.2);
+
+  // the order board makes a small canvas per ticket, so only count room-sized ones
+  function bakes() {
+    return madeCanvases.filter(function (c) { return c.width >= stage.clientWidth; }).length;
+  }
+
+  madeCanvases = [];
+  pump(1.0);                          // ~50 frames, nothing moving the room
+  assert.strictEqual(bakes(), 0, 'the room was re-baked ' + bakes() + ' times while idle');
+
+  stage.clientHeight = 518;
+  pump(0.5);
+  assert.ok(bakes() >= 1, 'the room was not re-baked after a resize');
+  assert.ok(bakes() <= 3, 'the resize re-baked the room ' + bakes() + ' times');
+
+  madeCanvases = [];
+  pump(1.0);
+  assert.strictEqual(bakes(), 0, 'the room kept re-baking after the resize settled');
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.4);
 });
 
 test('the walk animation keeps pace with the ground covered', function () {
@@ -1100,9 +1228,12 @@ test('cook positions survive two devices with different screen sizes', function 
   stage.clientWidth = 320;
   pump(0.1);                                       // triggers a resize + layout
   S.role = 'guest';
+  S.chefs.forEach(function (c) { c.buf = null; c.x = 0; c.y = 0; });
   MB.applySnapshot(snap);
-  assert.ok(Math.abs(MB.chefAt(0).tx - L.floor.x0) < 1.5, 'left cook did not map to the left edge');
-  assert.ok(Math.abs(MB.chefAt(1).tx - L.floor.x1) < 1.5, 'right cook did not map to the right edge');
+  pump(0.05);
+
+  assert.ok(Math.abs(MB.chefAt(0).x - L.floor.x0) < 2, 'left cook did not map to the left edge');
+  assert.ok(Math.abs(MB.chefAt(1).x - L.floor.x1) < 2, 'right cook did not map to the right edge');
 
   stage.clientWidth = wideW;
   pump(0.1);
@@ -1132,36 +1263,124 @@ test('a guest simulates nothing - the host owns the clock', function () {
  * Regression: the guest used to cover the gap to the newest snapshot in 90ms
  * and then sit still until the next packet ~83ms later. Move, stop, move, stop.
  */
-test('a guest cook keeps moving between snapshots instead of stuttering', function () {
+test('a guest cook moves at an even pace between position packets', function () {
   S.role = 'host';
   startShift(6);
   pump(0.1);
   var floorSpan = L.floor.x1 - L.floor.x0;
 
-  // two snapshots a packet-interval apart, the far cook walking left to right
-  MB.chefAt(1).x = L.floor.x0 + floorSpan * 0.20;
-  MB.chefAt(1).y = L.floor.y0;
-  var snapA = MB.snapshot();
-  MB.chefAt(1).x = L.floor.x0 + floorSpan * 0.60;
-  var snapB = MB.snapshot();
-
   S.role = 'guest'; S.me = 0;
-  S.snapInterval = 80;
-  MB.applySnapshot(snapA);
-  pump(0.3);                       // let it settle on A before B lands
-  MB.applySnapshot(snapB);
+  var g = MB.chefAt(1);
+  g.buf = null; g.x = 0; g.y = 0;
+  S.snapInterval = 50; S.lastSnapAt = 0;
 
-  // sample the cook every frame across one packet interval
-  var xs = [], guest = MB.chefAt(1);
-  for (var i = 0; i < 4; i++) { pump(0.025); xs.push(guest.x); }
+  // a steady stream of packets, the far cook walking left to right. They have
+  // to keep coming while we sample - the guest renders a fixed delay behind, so
+  // stopping the stream is starvation, which is a different test.
+  function pos(f) {
+    MB.onCoopMessage({ type: 'pos', c: [{ x: 0.5, y: 0.5, f: 1 }, { x: f, y: 0.5, f: 1 }] });
+  }
+  // strictly every 50ms, priming included - an uneven stream is a different
+  // test (jitter), and mixing the two would not show whether the pacing works
+  var f = 0.05;
+  pos(f); f += 0.10; pump(0.05);      // t = 0
+  pos(f); f += 0.10; pump(0.05);      // t = 50
+  pos(f); f += 0.10;                  // t = 100
+
+  var xs = [];
+  for (var i = 0; i < 8; i++) {
+    pump(0.025);
+    if (i % 2 === 1) { pos(f); f += 0.10; }   // t = 150, 200, 250, 300
+    xs.push(MB.chefAt(1).x);
+  }
 
   var steps = [];
   for (i = 1; i < xs.length; i++) steps.push(xs[i] - xs[i - 1]);
-  assert.ok(steps.every(function (s) { return s > 0.2; }),
-    'the cook stalled between snapshots: ' + steps.map(function (s) { return s.toFixed(1); }).join(', '));
+  assert.ok(steps.every(function (s) { return s > 0.1; }),
+    'the cook stalled: ' + steps.map(function (s) { return s.toFixed(1); }).join(', '));
 
-  // and it must not have teleported the whole way in a frame either
-  assert.ok(Math.max.apply(null, steps) < floorSpan * 0.5, 'the cook jumped');
+  // the point of buffered interpolation: constant velocity, not lurching
+  var mx = Math.max.apply(null, steps), mn = Math.min.apply(null, steps);
+  assert.ok(mx / mn < 2.5,
+    'the pace lurched between ' + mn.toFixed(1) + ' and ' + mx.toFixed(1) + 'px per frame');
+  assert.ok(mx < floorSpan * 0.5, 'the cook jumped');
+  S.role = 'solo'; S.me = 0;
+});
+
+/*
+ * The host sends on an exact beat; the network does not deliver on one. Samples
+ * used to be stamped with the moment they arrived, which wrote the jitter
+ * straight into the timeline and replayed it as a speed change - the last of
+ * the roughness in co-op. The host says when it sent each packet now, and the
+ * guest works out the offset between the two clocks.
+ */
+test('a jittery network does not make the other cook speed up and slow down', function () {
+  S.role = 'host';
+  startShift(6);
+  pump(0.1);
+  var floorSpan = L.floor.x1 - L.floor.x0;
+
+  S.role = 'guest'; S.me = 0;
+  var g = MB.chefAt(1);
+  g.buf = null; g.x = 0; g.y = 0;
+  S.snapInterval = 50; S.lastSnapAt = 0; S.clockOff = null;
+
+  // The host walks the cook at a dead constant rate, one packet per 100ms of
+  // its own clock - which reads 9,000,000ms behind ours, so the offset has to
+  // be worked out rather than assumed.
+  var hostT = 9000000, f = 0.05;
+  function send() {
+    MB.onCoopMessage({
+      type: 'pos', t: hostT,
+      c: [{ x: 0.5, y: 0.5, f: 1 }, { x: f, y: 0.5, f: 1 }]
+    });
+    hostT += 100; f += 0.06;
+  }
+
+  // prime: enough packets for the buffer and the clock estimate to be running,
+  // because joining a room is a separate question from steady play
+  for (var pi = 0; pi < 4; pi++) { send(); pump(0.10); }
+  send();
+
+  // ...but they arrive alternately early and late. Stamped on arrival, that
+  // replays one segment at 2x and the next at two thirds speed.
+  var gaps = [0.05, 0.15, 0.05, 0.15, 0.05, 0.15];
+  var xs = [];
+  for (var gi = 0; gi < gaps.length; gi++) {
+    var frames = Math.round(gaps[gi] / 0.025);
+    for (var k = 0; k < frames; k++) { pump(0.025); xs.push(MB.chefAt(1).x); }
+    send();
+  }
+
+  var steps = [];
+  for (var i = 1; i < xs.length; i++) steps.push(xs[i] - xs[i - 1]);
+  assert.ok(steps.every(function (s) { return s > 0.1; }),
+    'the cook stalled: ' + steps.map(function (s) { return s.toFixed(1); }).join(', '));
+  var mx = Math.max.apply(null, steps), mn = Math.min.apply(null, steps);
+  assert.ok(mx / mn < 1.5,
+    'jitter came through as a speed change: ' + mn.toFixed(1) + ' to ' + mx.toFixed(1) +
+    'px per frame (' + steps.map(function (s) { return s.toFixed(1); }).join(', ') + ')');
+  assert.ok(mx < floorSpan * 0.5, 'the cook jumped');
+  S.role = 'solo'; S.me = 0; S.clockOff = null;
+});
+
+test('a guest holds position rather than guessing when packets stop', function () {
+  S.role = 'guest'; S.me = 0;
+  startShift(6);
+  var g = MB.chefAt(1) || MB.chefAt(0);
+  S.chefs = [MB.chefAt(0), MB.chefAt(0)];
+  S.chefs[1] = { x: 0, y: 0, tx: 0, ty: 0, target: null, holding: null, phase: 0, face: 1, blink: 0, blinkIn: 2, hop: 0, px: 0, py: 0, lerp: 1 };
+  S.snapInterval = 50; S.lastSnapAt = 0;
+
+  MB.onCoopMessage({ type: 'pos', c: [{ x: 0.5, y: 0.5, f: 1 }, { x: 0.2, y: 0.5, f: 1 }] });
+  pump(0.05);
+  MB.onCoopMessage({ type: 'pos', c: [{ x: 0.5, y: 0.5, f: 1 }, { x: 0.5, y: 0.5, f: 1 }] });
+  pump(0.4);                       // silence: the host went away
+
+  var settled = MB.chefAt(1).x;
+  pump(0.5);
+  assert.ok(Math.abs(MB.chefAt(1).x - settled) < 1,
+    'the cook drifted off on its own when the packets stopped');
   S.role = 'solo'; S.me = 0;
 });
 
