@@ -341,6 +341,84 @@ test('the chef walks to what you tap and does not teleport', function () {
   assert.ok(held(), 'arriving at a crate should fill the chef\'s hands');
 });
 
+/*
+ * Regression: walking speed was a flat px/s while the kitchen itself is nearly
+ * twice as wide on a tablet as on a small phone. The same trip cost 1.15s on a
+ * phone and 2.29s on a desktop - and since walking time IS the difficulty, the
+ * game was about twice as hard depending on what you opened it on.
+ */
+test('a trip across the kitchen costs the same on any screen size', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  var sizes = [[360, 300], [412, 360], [412, 430], [560, 520]];
+  var times = [];
+
+  sizes.forEach(function (wh) {
+    stage.clientWidth = wh[0];
+    stage.clientHeight = wh[1];
+    S.levels = {};
+    MB.startDay(8);
+    pump(0.1);
+
+    var a = MB.standPoint({ kind: 'crate', i: 0 });
+    var b = MB.standPoint({ kind: 'hatch' });
+    var dist = Math.hypot(a.x - b.x, a.y - b.y);
+    var speed = S.fx.speed * (L.walkScale || 1);
+    assert.ok(speed > 0, wh.join('x') + ': no walking speed');
+    times.push(dist / speed);
+  });
+
+  var lo = Math.min.apply(null, times), hi = Math.max.apply(null, times);
+  assert.ok(hi / lo < 1.25,
+    'the same walk takes ' + lo.toFixed(2) + 's on one screen and ' + hi.toFixed(2) +
+    's on another: ' + times.map(function (t) { return t.toFixed(2); }).join(', '));
+
+  stage.clientWidth = w0;
+  stage.clientHeight = h0;
+  pump(0.1);
+});
+
+test('the walk animation keeps pace with the ground covered', function () {
+  S.levels = {};
+  startShift(8);
+  pump(0.1);
+  var c = MB.chefAt(0);
+
+  // stand still: no stepping
+  c.tx = c.x; c.ty = c.y;
+  c.phase = 0;
+  pump(0.2);
+  assert.strictEqual(c.phase, 0, 'the legs move while standing still');
+
+  // walking a fixed distance must advance the same number of strides whatever
+  // the screen size, or the gait reads differently device to device
+  function stridesOver(w, h) {
+    stage.clientWidth = w; stage.clientHeight = h;
+    MB.startDay(8);
+    pump(0.1);
+    var ch = MB.chefAt(0);
+    ch.x = L.floor.x0; ch.y = L.floor.y0;
+    ch.tx = L.floor.x1; ch.ty = L.floor.y0;
+    ch.phase = 0;
+    var laps = 0, prev = 0;
+    for (var i = 0; i < 300 && Math.abs(ch.tx - ch.x) > 2; i++) {
+      pump(0.02);
+      if (ch.phase < prev) laps++;
+      prev = ch.phase;
+    }
+    return laps + ch.phase;
+  }
+
+  var small = stridesOver(360, 300);
+  var big = stridesOver(560, 520);
+  assert.ok(small > 0.5 && big > 0.5, 'the cook never took a step');
+  assert.ok(Math.abs(small - big) / Math.max(small, big) < 0.25,
+    'crossing the floor takes ' + small.toFixed(1) + ' strides on a phone and ' +
+    big.toFixed(1) + ' on a desktop');
+
+  stage.clientWidth = VIEW_W; stage.clientHeight = VIEW_H;
+  pump(0.1);
+});
+
 test('Running Shoes actually make the walk shorter', function () {
   function timeToCross(levels) {
     S.levels = levels;

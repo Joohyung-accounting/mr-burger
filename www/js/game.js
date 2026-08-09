@@ -173,6 +173,13 @@
   var CRATE_MAX_W = 84, GAP = 6, HATCH_H = 46;
   var SLOT_H = 42, PLATE_H = 50, CHEF_S = 54;
 
+  // The kitchen the speeds in core.js were tuned against: a 412x360 stage.
+  // Every other screen scales its walking speed relative to this.
+  var REF_FLOOR_DIAG = 282;
+  // Distance covered per full stride, as a multiple of the cook's height. Ties
+  // the leg animation to actual motion instead of a fixed cadence.
+  var STRIDE = 1.15;
+
   function menuLen() { return (S.menu && S.menu.length) || 1; }
 
   /**
@@ -270,6 +277,17 @@
       y0: L.cratesBottom + 16,
       y1: L.hatchY - 14
     };
+
+    /*
+     * Walking speed is quoted in pixels, but a kitchen on a tablet is nearly
+     * twice the width of one on a small phone - at a fixed px/s the same shift
+     * took 1.1s to cross on a phone and 2.0s on a desktop. Since the whole
+     * difficulty model is "walking time is the load", that made the game about
+     * twice as hard on a big screen. Scale the speed with the room so a
+     * traverse costs the same wherever it is played.
+     */
+    var diag = Math.hypot(L.floor.x1 - L.floor.x0, L.floor.y1 - L.floor.y0);
+    L.walkScale = clamp(diag / REF_FLOOR_DIAG, 0.6, 2.2);
 
     // drop any cook who has not been placed yet into the middle of the floor,
     // spread apart so two of them do not start on top of each other
@@ -743,6 +761,8 @@
 
     // --- walk every cook. A guest does not simulate: it eases toward the
     // positions the host last sent instead.
+    var walkSpeed = S.fx.speed * (L.walkScale || 1);
+    var stride = Math.max(8, (L.chefS || CHEF_S) * STRIDE);
     for (var ci = 0; ci < S.chefs.length; ci++) {
       var c = S.chefs[ci];
       c.blinkIn -= dt;
@@ -766,7 +786,7 @@
         var moved = Math.hypot(px - c.x, py - c.y);
         c.x = px; c.y = py;
         if (moved > 0.25) {
-          c.phase = (c.phase + dt * 2.6) % 1;
+          c.phase = (c.phase + moved / stride) % 1;
           if (Math.abs(c.tx - c.px) > 2) c.face = c.tx > c.px ? 1 : -1;
         } else {
           c.phase = 0;
@@ -777,10 +797,11 @@
       var dx = c.tx - c.x, dy = c.ty - c.y;
       var d = Math.hypot(dx, dy);
       if (d > 1.5) {
-        var step = Math.min(d, S.fx.speed * dt);
+        var step = Math.min(d, walkSpeed * dt);
         c.x += (dx / d) * step;
         c.y += (dy / d) * step;
-        c.phase = (c.phase + dt * 2.6) % 1;
+        // legs keep pace with the ground covered, not with the clock
+        c.phase = (c.phase + step / stride) % 1;
         if (Math.abs(dx) > 2) c.face = dx > 0 ? 1 : -1;
       } else {
         c.phase = 0;
