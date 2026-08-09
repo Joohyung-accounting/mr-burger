@@ -13,49 +13,51 @@
 
 ---
 
-## 남은 두 단계 — 계정 인증이 필요합니다
+## 1) GitHub — 완료됨 ✅
 
-제가 대신 로그인할 수 없는 부분입니다. 이 PC에 `gh` CLI도, Cloudflare 인증도 없습니다.
+`https://github.com/Joohyung-accounting/mr-burger` (public) 에 `main` 브랜치로 올라가 있습니다.
 
-### 1) GitHub에 올리기
+## 2) Cloudflare Pages 연결 — 여기만 남았습니다
 
-GitHub에서 **빈 저장소** `mr-burger`를 하나 만든 다음 (README/`.gitignore` 추가 체크 해제):
+### ⚠️ "create a repository manually and deploy from an existing repository" 오류가 뜬다면
 
-```bash
-cd "c:\Users\ojh99\OneDrive\바탕 화면\AI Agent\mr-burger"
-git remote add origin https://github.com/<your-account>/mr-burger.git
-git push -u origin main
-```
+Cloudflare의 **템플릿/프레임워크 시작하기** 경로를 타면 Cloudflare가 GitHub에
+저장소를 *대신 만들려고* 시도하고, 권한이 없으면 이 오류가 납니다.
+저장소는 이미 있으니 그 경로를 쓸 필요가 없습니다. **기존 저장소를 연결하는 경로**로 가세요.
 
-`gh` CLI를 쓰신다면 저장소 생성까지 한 줄입니다:
+### 올바른 경로
 
-```bash
-winget install --id GitHub.cli      # 아직 없다면
-gh auth login
-gh repo create mr-burger --public --source=. --push
-```
+1. [dash.cloudflare.com](https://dash.cloudflare.com) → 왼쪽 **Compute (Workers & Pages)**
+2. **Create** 버튼 → 상단 탭에서 **Pages** 선택
+   *(Workers 탭이나 "Start with a template"이 아니라 Pages 탭입니다)*
+3. **Connect to Git** → **GitHub** → 계정 승인
+4. GitHub App 권한 화면에서 **반드시 `mr-burger`에 접근을 허용**하세요
+   - `All repositories` 또는 `Only select repositories` → `mr-burger` 체크
+   - 여기서 빠뜨리면 다음 화면 목록에 저장소가 안 뜹니다
+5. 저장소 목록에서 `Joohyung-accounting/mr-burger` 선택 → **Begin setup**
+6. 빌드 설정:
+   | 항목 | 값 |
+   |---|---|
+   | Project name | `mr-burger` |
+   | Production branch | `main` |
+   | Framework preset | **None** |
+   | Build command | **비워둘 것** |
+   | Build output directory | **`www`** |
+7. **Save and Deploy**
 
-### 2) Cloudflare Pages에 연결
+1~2분 뒤 `https://mr-burger.pages.dev` 로 접속됩니다.
+이후 `git push` 할 때마다 자동 재배포됩니다.
 
-**대시보드 경로 (요청하신 GitHub 연동 — 푸시할 때마다 자동 배포)**
-
-1. [dash.cloudflare.com](https://dash.cloudflare.com) → **Workers & Pages** → **Create** → **Pages**
-2. **Connect to Git** → GitHub 승인 → `mr-burger` 저장소 선택
-3. 빌드 설정:
-   - Framework preset: **None**
-   - Build command: **비워둘 것**
-   - Build output directory: **`www`**
-   - (`wrangler.toml`이 있어서 대부분 자동으로 잡힙니다)
-4. **Save and Deploy**
-
-1~2분 뒤 `https://mr-burger.pages.dev` 로 접속됩니다. 이후 `git push` 할 때마다 자동 재배포됩니다.
-
-**CLI로 바로 올리기 (GitHub 없이, 제일 빠름)**
+### 그래도 안 되면 — CLI 직접 업로드
 
 ```bash
-npx wrangler login          # 브라우저가 열립니다 — 여기서 승인해 주셔야 합니다
+npx wrangler login          # 브라우저가 열립니다 — 여기서 승인 필요
 npx wrangler pages deploy   # wrangler.toml이 www/를 알아서 씁니다
 ```
+
+> **주의**: 이렇게 만든 프로젝트는 **Direct Upload** 타입이 되고, 나중에 같은 이름으로
+> Git 연동으로 바꿀 수 없습니다. Git 자동배포를 원하시면 프로젝트를 지우고 위 경로로
+> 다시 만들거나, CLI로는 다른 이름(`mr-burger-cli` 등)을 쓰세요.
 
 ---
 
