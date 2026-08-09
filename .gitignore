@@ -5,6 +5,9 @@ ios/
 .DS_Store
 Thumbs.db
 
+# wrangler build scratch
+.wrangler/
+
 # Throwaway screenshot harness
 www/__shot.*
 

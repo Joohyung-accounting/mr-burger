@@ -5,9 +5,14 @@
 
 | 파일 | 역할 |
 |---|---|
-| `wrangler.toml` | `pages_build_output_dir = "www"` — 출력 폴더 지정 |
+| `wrangler.toml` | `[assets] directory = "./www"` — Workers 정적 자산으로 배포 |
 | `www/_headers` | 캐시·보안 헤더. HTML은 `no-cache`(배포가 바로 반영되도록), 아이콘은 30일 |
 | `.gitignore` | `node_modules/`, `android/`, 키스토어, 스크린샷 하네스 제외 |
+
+> Cloudflare 대시보드가 이제 Workers 중심으로 바뀌어서 Deploy command에
+> `npx wrangler deploy`를 기본값으로 넣어줍니다. 그래서 설정을 Pages 형식
+> (`pages_build_output_dir`)에서 **Workers 정적 자산 형식**으로 맞췄습니다.
+> 서빙 결과는 동일하고 `_headers`도 그대로 적용됩니다.
 
 로컬 저장소는 이미 초기화되어 첫 커밋까지 되어 있습니다 (`main` 브랜치).
 
@@ -17,47 +22,66 @@
 
 `https://github.com/Joohyung-accounting/mr-burger` (public) 에 `main` 브랜치로 올라가 있습니다.
 
-## 2) Cloudflare Pages 연결 — 여기만 남았습니다
+## 2) Cloudflare 연결 — 여기만 남았습니다
 
-### ⚠️ "create a repository manually and deploy from an existing repository" 오류가 뜬다면
+### 왜 실패했나
 
-Cloudflare의 **템플릿/프레임워크 시작하기** 경로를 타면 Cloudflare가 GitHub에
-저장소를 *대신 만들려고* 시도하고, 권한이 없으면 이 오류가 납니다.
-저장소는 이미 있으니 그 경로를 쓸 필요가 없습니다. **기존 저장소를 연결하는 경로**로 가세요.
+두 가지가 겹쳤습니다.
 
-### 올바른 경로
+1. **저장소 목록에 `mr-burger`가 안 뜸** — Cloudflare의 GitHub App이 그 저장소에
+   접근 권한을 못 받았습니다. 그래서 "Clone a public repository via Git URL"로
+   우회하게 되는데,
+2. **그 경로는 Cloudflare가 새 저장소를 만들려고 합니다** — 화면에도
+   "A Git repository will be created for you"라고 쓰여 있습니다.
+   그런데 `mr-burger`는 이미 존재하므로 이름이 충돌해서
+   *"unable to create a repository ... create one manually"* 오류가 납니다.
 
-1. [dash.cloudflare.com](https://dash.cloudflare.com) → 왼쪽 **Compute (Workers & Pages)**
-2. **Create** 버튼 → 상단 탭에서 **Pages** 선택
-   *(Workers 탭이나 "Start with a template"이 아니라 Pages 탭입니다)*
-3. **Connect to Git** → **GitHub** → 계정 승인
-4. GitHub App 권한 화면에서 **반드시 `mr-burger`에 접근을 허용**하세요
-   - `All repositories` 또는 `Only select repositories` → `mr-burger` 체크
-   - 여기서 빠뜨리면 다음 화면 목록에 저장소가 안 뜹니다
-5. 저장소 목록에서 `Joohyung-accounting/mr-burger` 선택 → **Begin setup**
-6. 빌드 설정:
-   | 항목 | 값 |
-   |---|---|
-   | Project name | `mr-burger` |
-   | Production branch | `main` |
-   | Framework preset | **None** |
-   | Build command | **비워둘 것** |
-   | Build output directory | **`www`** |
-7. **Save and Deploy**
+### ✅ 해법 A — GitHub App에 권한 주고 기존 저장소 연결 (권장)
 
-1~2분 뒤 `https://mr-burger.pages.dev` 로 접속됩니다.
-이후 `git push` 할 때마다 자동 재배포됩니다.
+1. GitHub → 우측 상단 프로필 → **Settings**
+2. 왼쪽 맨 아래 **Integrations → Applications** → **Installed GitHub Apps**
+3. **Cloudflare Workers and Pages** → **Configure**
+4. **Repository access**
+   - `All repositories` 선택, 또는
+   - `Only select repositories` → **Select repositories** → `mr-burger` 추가
+5. **Save**
+6. Cloudflare 화면으로 돌아가 새로고침 → 이제 목록에 `mr-burger`가 뜹니다.
+   Git URL 칸은 **비우고** 목록에서 선택하세요
 
-### 그래도 안 되면 — CLI 직접 업로드
+이러면 저장소를 새로 만들 필요가 없어서 그 오류 자체가 발생하지 않습니다.
+
+### ✅ 해법 B — 이름 충돌만 피하기
+
+해법 A가 번거로우면, "Clone a public repository" 경로를 그대로 쓰되
+**Project name을 `mr-burger`가 아닌 다른 이름**(예: `mr-burger-game`)으로 바꾸세요.
+Cloudflare가 그 이름으로 새 저장소를 만들므로 충돌하지 않습니다.
+다만 **원본과 분리된 복사본**이 되어, 앞으로 이 폴더에서 `git push` 해도
+자동 배포되지 않습니다.
+
+### 빌드 설정 (어느 경로든 동일)
+
+| 항목 | 값 |
+|---|---|
+| Production branch | `main` |
+| Build command | **비워둘 것** |
+| Deploy command | `npx wrangler deploy` |
+
+`wrangler.toml`이 `www/`를 정적 자산으로 지정하고 있어서 나머지는 자동입니다.
+`Build output directory` 칸은 이 방식에선 필요 없습니다.
+
+### ✅ 해법 C — CLI로 바로 (제일 확실, 대시보드 안 거침)
 
 ```bash
-npx wrangler login          # 브라우저가 열립니다 — 여기서 승인 필요
-npx wrangler pages deploy   # wrangler.toml이 www/를 알아서 씁니다
+cd "c:\Users\ojh99\OneDrive\바탕 화면\AI Agent\mr-burger"
+npx wrangler login     # 브라우저가 열립니다 — 승인해 주세요
+npx wrangler deploy
 ```
 
-> **주의**: 이렇게 만든 프로젝트는 **Direct Upload** 타입이 되고, 나중에 같은 이름으로
-> Git 연동으로 바꿀 수 없습니다. Git 자동배포를 원하시면 프로젝트를 지우고 위 경로로
-> 다시 만들거나, CLI로는 다른 이름(`mr-burger-cli` 등)을 쓰세요.
+`https://mr-burger.<계정>.workers.dev` 로 바로 올라갑니다.
+검증 완료: `npx wrangler deploy --dry-run`이 `www`에서 자산을 정상적으로 읽습니다.
+
+> 이 방식은 Git 자동배포가 붙지 않습니다. 나중에 붙이려면 해법 A로 저장소를
+> 연결하면 됩니다 (같은 프로젝트에 이어서 연결 가능).
 
 ---
 
