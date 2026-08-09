@@ -52,31 +52,52 @@
 
 <!-- ----------------------------------------------------------- title --->
 <div id="start" class="modal show">
-  <div class="sheet">
+  <div class="sheet title-sheet">
     <div class="logo-wrap">
       <div class="logo-mr">MR.</div>
       <div class="logo-burger">BURGER</div>
+      <div class="logo-rule"></div>
+      <p class="tag">Run the line.</p>
     </div>
-    <p class="tag">Run the line. Tap where the chef should go.</p>
-    <button id="playBtn" class="cta">OPEN THE SHOP</button>
+
+    <button id="continueBtn" class="cta" hidden>
+      CONTINUE<small>Day <span id="continueDay">1</span></small>
+    </button>
+    <button id="playBtn" class="cta">NEW SHIFT</button>
+
+    <div class="title-menu">
+      <button id="coopBtn" class="tile">
+        <span class="tile-ico">👥</span><span>Co-op</span>
+      </button>
+      <button id="boardBtn" class="tile">
+        <span class="tile-ico">🏆</span><span>Ranks</span>
+      </button>
+      <button id="accountBtn" class="tile">
+        <span class="tile-ico">🧑‍🍳</span><span>You</span>
+      </button>
+    </div>
+
+    <button id="howBtn" class="linkbtn">How to play</button>
+    <div id="netState" class="net-state">offline — progress stays on this device</div>
+  </div>
+</div>
+
+<!-- ---------------------------------------------------- how to play --->
+<div id="how" class="modal" hidden>
+  <div class="sheet">
+    <h2 class="sheet-title">HOW TO PLAY</h2>
+    <p class="lede">Tap where the chef should go. One rule at every station:
+      <b>empty hands take, full hands give.</b></p>
     <ol class="rules">
-      <li><b>Tap anything</b> and the chef walks there and works it.
-          One rule everywhere: <b>empty hands take, full hands give</b>.</li>
       <li><b>Crates</b> up top hold the fillings. Grab one, carry it to a
           <b>plate</b> on the right.</li>
-      <li>Patties have to hit the <b>grill</b> on the left first. Come back for
-          them while the bar sits in the green.</li>
-      <li>When a plate is done, pick it up and take it to the
-          <b>serving hatch</b>. It goes to whichever order it matches.</li>
-      <li>Order doesn't matter — just get the right fillings on, fast.</li>
+      <li>Patties hit the <b>grill</b> first. Come back for them while the bar
+          sits in the green — raw or burnt gets sent back.</li>
+      <li>Carry a finished plate to the <b>serving hatch</b>. It goes to
+          whichever order it matches.</li>
+      <li>Stacking order doesn't matter. Right fillings, fast.</li>
     </ol>
-    <button id="coopBtn" class="cta alt">COOK WITH A FRIEND</button>
-    <button id="continueBtn" class="linkbtn" hidden>Continue from Day <span id="continueDay">1</span></button>
-    <div class="title-row">
-      <button id="boardBtn" class="linkbtn">Leaderboard</button>
-      <button id="accountBtn" class="linkbtn">Account</button>
-    </div>
-    <div id="netState" class="net-state">offline — progress stays on this device</div>
+    <button id="howClose" class="cta">GOT IT</button>
   </div>
 </div>
 

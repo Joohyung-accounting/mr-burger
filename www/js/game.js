@@ -67,6 +67,8 @@
     role: 'solo',        // solo | host | guest
     peer: false,         // is the other cook connected
     snapSeq: 0,
+    snapInterval: 80,    // measured ms between host snapshots
+    lastSnapAt: 0,
 
     floats: [], sparks: [], banner: null, shake: 0,
     flyers: [], cratePop: [],
@@ -78,7 +80,8 @@
   function makeChef() {
     return {
       x: 0, y: 0, tx: 0, ty: 0, target: null, holding: null,
-      phase: 0, face: 1, blink: 0, blinkIn: 2, hop: 0
+      phase: 0, face: 1, blink: 0, blinkIn: 2, hop: 0,
+      px: 0, py: 0, lerp: 1
     };
   }
   S.chefs = [makeChef()];
@@ -167,15 +170,29 @@
   /* ---------------------------------------------------------------- layout */
   // The whole line lives on one shelf: eight boxes side by side beats three
   // labelled rows, and the boxes get tall enough to look like boxes.
-  var CRATE_H = 80, GAP = 6, HATCH_H = 46;
+  var CRATE_MAX_W = 84, GAP = 6, HATCH_H = 46;
   var SLOT_H = 42, PLATE_H = 50, CHEF_S = 54;
 
   function menuLen() { return (S.menu && S.menu.length) || 1; }
 
+  /**
+   * Box size for today's line.
+   *
+   * Width is capped: on day 1 there are only two crates, and letting them split
+   * the whole counter made each one half a screen wide. Height follows width so
+   * a box stays box-shaped whether there are two of them or eight.
+   */
+  function crateSize(W) {
+    var n = menuLen();
+    var gap = Math.min(GAP, (W - 16) * 0.02);
+    var w = Math.min((W - 16 - gap * (n - 1)) / n, CRATE_MAX_W);
+    return { w: w, h: clamp(w * 1.02, 54, 92), gap: gap, n: n };
+  }
+
   /** The height the room needs at its most compact, before any growing. */
   function compactHeight() {
     var gN = S.grill.length || 2, pN = S.plates.length || 2;
-    return 8 + CRATE_H + 12
+    return 8 + crateSize(cv.clientWidth || 400).h + 12
       + Math.max(150, gN * SLOT_H + (gN - 1) * GAP, pN * PLATE_H + (pN - 1) * GAP)
       + 10 + HATCH_H + 8;
   }
@@ -208,18 +225,21 @@
     /* --- the line along the top wall: every box on one shelf, sized to fit.
        dayMenu() already returns buns, then toppings, then sauces, so the row
        stays organised left to right without needing labelled sections. */
-    var n = menuLen();
-    L.crateH = CRATE_H * k;
-    var boxGap = Math.min(gap, (W - L.pad * 2) * 0.02);
-    L.crateW = (W - L.pad * 2 - boxGap * (n - 1)) / n;
+    // Crates size themselves off the screen width, not off k - they are already
+    // width-constrained, and scaling them again just made them enormous.
+    var box = crateSize(W);
+    L.crateW = box.w;
+    L.crateH = box.h;
     L.crates = [];
+    var rowW = box.n * box.w + (box.n - 1) * box.gap;
+    var x0 = (W - rowW) / 2;                  // centred, however few there are
     var y = L.pad + 4;
-    for (var c = 0; c < n; c++) {
-      L.crates[c] = { x: L.pad + c * (L.crateW + boxGap), y: y, w: L.crateW, h: L.crateH };
+    for (var c = 0; c < box.n; c++) {
+      L.crates[c] = { x: x0 + c * (box.w + box.gap), y: y, w: box.w, h: box.h };
     }
-    L.cratesBottom = y + L.crateH;
+    L.cratesBottom = y + box.h;
     // one counter run, bleeding off both edges of the room
-    L.counters = [{ x: -8, y: L.pad - 3, w: W + 16, h: L.crateH + 12 }];
+    L.counters = [{ x: -8, y: L.pad - 3, w: W + 16, h: box.h + 12 }];
 
     // --- serving hatch and bin along the bottom wall
     L.hatchH = HATCH_H * k;
@@ -730,18 +750,41 @@
       c.blink = Math.max(0, c.blink - dt * 7);
       c.hop = Math.max(0, c.hop - dt * 5);
 
+      if (S.role === 'guest') {
+        /*
+         * Interpolate between the last two snapshots instead of chasing the
+         * newest one. Chasing covered the gap in 90ms and then sat still until
+         * the next packet ~83ms later, which is exactly what the stutter was.
+         * Running a shade slower than the packet rate means the cook is always
+         * still moving when the next one lands.
+         */
+        var span = Math.max(60, S.snapInterval * 1.25);
+        c.lerp = Math.min(1, c.lerp + (dt * 1000) / span);
+        var e = c.lerp * c.lerp * (3 - 2 * c.lerp);        // smoothstep
+        var px = c.px + (c.tx - c.px) * e;
+        var py = c.py + (c.ty - c.py) * e;
+        var moved = Math.hypot(px - c.x, py - c.y);
+        c.x = px; c.y = py;
+        if (moved > 0.25) {
+          c.phase = (c.phase + dt * 2.6) % 1;
+          if (Math.abs(c.tx - c.px) > 2) c.face = c.tx > c.px ? 1 : -1;
+        } else {
+          c.phase = 0;
+        }
+        continue;
+      }
+
       var dx = c.tx - c.x, dy = c.ty - c.y;
       var d = Math.hypot(dx, dy);
       if (d > 1.5) {
-        var speed = S.role === 'guest' ? Math.max(S.fx.speed, d / 0.09) : S.fx.speed;
-        var step = Math.min(d, speed * dt);
+        var step = Math.min(d, S.fx.speed * dt);
         c.x += (dx / d) * step;
         c.y += (dy / d) * step;
         c.phase = (c.phase + dt * 2.6) % 1;
         if (Math.abs(dx) > 2) c.face = dx > 0 ? 1 : -1;
       } else {
         c.phase = 0;
-        if (c.target && S.role !== 'guest') {
+        if (c.target) {
           var t = c.target;
           c.target = null;
           c.hop = 1;                       // little bounce on arrival
@@ -1717,7 +1760,7 @@
    * Cook positions travel normalised to the floor rect, so the two devices can
    * have completely different screen sizes.
    */
-  var SNAP_HZ = 12;
+  var SNAP_HZ = 15;
   var snapTimer = 0;
 
   function packHold(h) {
@@ -1782,15 +1825,27 @@
       return tk;
     });
 
+    // Measure the real packet spacing and smooth it, so one late frame does not
+    // make the cooks lurch. Clamped in case the tab was backgrounded.
+    var now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    if (S.lastSnapAt) {
+      var gapMs = clamp(now - S.lastSnapAt, 40, 400);
+      S.snapInterval = S.snapInterval ? S.snapInterval * 0.8 + gapMs * 0.2 : gapMs;
+    }
+    S.lastSnapAt = now;
+
     while (S.chefs.length < m.chefs.length) S.chefs.push(makeChef());
     S.chefs.length = m.chefs.length;
     var fw = Math.max(1, L.floor.x1 - L.floor.x0);
     var fh = Math.max(1, L.floor.y1 - L.floor.y0);
     m.chefs.forEach(function (snap, i) {
       var c = S.chefs[i];
+      // where we are now becomes the start of the next interpolation leg
+      c.px = c.x; c.py = c.y;
       c.tx = L.floor.x0 + snap.x * fw;
       c.ty = L.floor.y0 + snap.y * fh;
-      if (!c.x) { c.x = c.tx; c.y = c.ty; }
+      if (!c.x) { c.x = c.px = c.tx; c.y = c.py = c.ty; }
+      c.lerp = 0;
       c.face = snap.f;
       c.holding = unpackHold(snap.h);
     });
@@ -1891,6 +1946,8 @@
     });
 
     /* --- leaderboard / account / co-op */
+    el.howBtn.addEventListener('click', function () { showModal(el.how); });
+    el.howClose.addEventListener('click', function () { hideModal(el.how); });
     el.boardBtn.addEventListener('click', showLeaderboard);
     el.lbClose.addEventListener('click', function () { hideModal(el.leaderboard); });
     el.accountBtn.addEventListener('click', showAccount);
@@ -1996,7 +2053,7 @@
       'start', 'playBtn', 'continueBtn', 'continueDay',
       'dayEnd', 'dayEndTitle', 'dayEndBtn', 'dayEndNote', 'rSales', 'rTips', 'rTotal',
       'rRent', 'rNet', 'rPerfect', 'rServed', 'rWalked',
-      'coopBtn', 'netState', 'boardBtn', 'accountBtn',
+      'coopBtn', 'netState', 'boardBtn', 'accountBtn', 'howBtn', 'how', 'howClose',
       'leaderboard', 'lbList', 'lbNote', 'lbClose',
       'account', 'nameInput', 'nameSave', 'makeCodeBtn', 'codeOut',
       'claimInput', 'claimBtn', 'accountNote', 'accountClose',
@@ -2073,6 +2130,8 @@
     init();
   }
 })();
+
+
 
 
 

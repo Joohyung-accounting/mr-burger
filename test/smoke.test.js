@@ -98,7 +98,7 @@ var elements = { stage: stage };
   'start', 'playBtn', 'continueBtn', 'continueDay',
   'dayEnd', 'dayEndTitle', 'dayEndBtn', 'dayEndNote', 'rSales', 'rTips', 'rTotal',
   'rRent', 'rNet', 'rNetLabel', 'rPerfect', 'rServed', 'rWalked',
-  'coopBtn', 'netState', 'boardBtn', 'accountBtn',
+  'coopBtn', 'netState', 'boardBtn', 'accountBtn', 'howBtn', 'how', 'howClose',
   'leaderboard', 'lbList', 'lbNote', 'lbClose',
   'account', 'nameInput', 'nameSave', 'makeCodeBtn', 'codeOut',
   'claimInput', 'claimBtn', 'accountNote', 'accountClose',
@@ -110,7 +110,7 @@ var elements = { stage: stage };
 
 // Mirror index.html: the flow sheets carry the `hidden` attribute.
 ['dayEnd', 'shop', 'over', 'pause', 'continueBtn', 'unlockBox',
-  'leaderboard', 'account', 'coop', 'codeOut', 'roomOut'].forEach(function (id) {
+  'leaderboard', 'account', 'coop', 'codeOut', 'roomOut', 'how'].forEach(function (id) {
   elements[id].hidden = true;
 });
 
@@ -1031,6 +1031,43 @@ test('a guest simulates nothing - the host owns the clock', function () {
   S.role = 'solo';
 });
 
+/*
+ * Regression: the guest used to cover the gap to the newest snapshot in 90ms
+ * and then sit still until the next packet ~83ms later. Move, stop, move, stop.
+ */
+test('a guest cook keeps moving between snapshots instead of stuttering', function () {
+  S.role = 'host';
+  startShift(6);
+  pump(0.1);
+  var floorSpan = L.floor.x1 - L.floor.x0;
+
+  // two snapshots a packet-interval apart, the far cook walking left to right
+  MB.chefAt(1).x = L.floor.x0 + floorSpan * 0.20;
+  MB.chefAt(1).y = L.floor.y0;
+  var snapA = MB.snapshot();
+  MB.chefAt(1).x = L.floor.x0 + floorSpan * 0.60;
+  var snapB = MB.snapshot();
+
+  S.role = 'guest'; S.me = 0;
+  S.snapInterval = 80;
+  MB.applySnapshot(snapA);
+  pump(0.3);                       // let it settle on A before B lands
+  MB.applySnapshot(snapB);
+
+  // sample the cook every frame across one packet interval
+  var xs = [], guest = MB.chefAt(1);
+  for (var i = 0; i < 4; i++) { pump(0.025); xs.push(guest.x); }
+
+  var steps = [];
+  for (i = 1; i < xs.length; i++) steps.push(xs[i] - xs[i - 1]);
+  assert.ok(steps.every(function (s) { return s > 0.2; }),
+    'the cook stalled between snapshots: ' + steps.map(function (s) { return s.toFixed(1); }).join(', '));
+
+  // and it must not have teleported the whole way in a frame either
+  assert.ok(Math.max.apply(null, steps) < floorSpan * 0.5, 'the cook jumped');
+  S.role = 'solo'; S.me = 0;
+});
+
 test('leaving co-op drops back to one cook', function () {
   S.role = 'host';
   startShift(6);
@@ -1128,4 +1165,5 @@ test('the backing track schedules a groove and keeps time', function () {
 });
 
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');
+
 
