@@ -492,6 +492,90 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .next-line { font-size: 11px; color: var(--muted); margin-top: 10px; }
 .next-line b { color: var(--red); font-weight: 900; }
 
+/* ------------------------------------------------------- online bits */
+.title-row { display: flex; gap: 14px; justify-content: center; }
+.title-row .linkbtn { width: auto; }
+
+.net-state {
+  margin-top: 10px;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: rgba(189, 163, 146, 0.7);
+}
+.net-state.on { color: var(--green); }
+
+.lb-list { display: grid; gap: 4px; max-height: 46vh; overflow-y: auto; }
+.lb-row {
+  display: grid;
+  grid-template-columns: 26px 1fr auto auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 7px 9px;
+  border-radius: 9px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  text-align: left;
+}
+.lb-row.me { border-color: var(--mustard); background: rgba(244, 180, 26, 0.14); }
+.lb-row .r { font-weight: 900; color: var(--muted); font-size: 11px; }
+.lb-row .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-row .d { font-weight: 900; color: var(--mustard); }
+.lb-row .e { font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.lb-gap { text-align: center; color: var(--muted); font-size: 12px; letter-spacing: 0.2em; }
+
+.field { display: block; text-align: left; margin-top: 12px; }
+.field span {
+  display: block;
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  font-weight: 900;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+.field input {
+  width: 100%;
+  padding: 11px 12px;
+  border-radius: 11px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--cream);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+.field input:focus { outline: none; border-color: var(--mustard); }
+
+.divider {
+  margin: 18px 0 4px;
+  font-size: 8.5px;
+  letter-spacing: 0.18em;
+  font-weight: 900;
+  color: var(--muted);
+  position: relative;
+}
+
+.code-out {
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(244, 180, 26, 0.14);
+  border: 1px solid rgba(244, 180, 26, 0.45);
+  font-size: 30px;
+  font-weight: 900;
+  letter-spacing: 0.32em;
+  text-indent: 0.32em;
+  color: var(--mustard);
+}
+.code-out small {
+  display: block;
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
 /* Below this the spacer has collapsed to nothing worth decorating. */
 @media (max-height: 800px) { .shopsign { display: none; } }
 

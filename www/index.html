@@ -70,7 +70,67 @@
           <b>serving hatch</b>. It goes to whichever order it matches.</li>
       <li>Order doesn't matter — just get the right fillings on, fast.</li>
     </ol>
+    <button id="coopBtn" class="cta alt">COOK WITH A FRIEND</button>
     <button id="continueBtn" class="linkbtn" hidden>Continue from Day <span id="continueDay">1</span></button>
+    <div class="title-row">
+      <button id="boardBtn" class="linkbtn">Leaderboard</button>
+      <button id="accountBtn" class="linkbtn">Account</button>
+    </div>
+    <div id="netState" class="net-state">offline — progress stays on this device</div>
+  </div>
+</div>
+
+<!-- ----------------------------------------------------- leaderboard --->
+<div id="leaderboard" class="modal" hidden>
+  <div class="sheet">
+    <h2 class="sheet-title">LEADERBOARD</h2>
+    <div id="lbList" class="lb-list"></div>
+    <p id="lbNote" class="note"></p>
+    <button id="lbClose" class="cta">BACK</button>
+  </div>
+</div>
+
+<!-- --------------------------------------------------------- account --->
+<div id="account" class="modal" hidden>
+  <div class="sheet">
+    <h2 class="sheet-title">YOUR COOK</h2>
+    <label class="field">
+      <span>NAME ON THE BOARD</span>
+      <input id="nameInput" type="text" maxlength="16" placeholder="Cook" autocomplete="off">
+    </label>
+    <button id="nameSave" class="cta">SAVE NAME</button>
+
+    <div class="divider">MOVE TO ANOTHER DEVICE</div>
+    <p class="note">Get a code here, then type it on the other device. It lasts 10 minutes.</p>
+    <button id="makeCodeBtn" class="cta alt">GET A TRANSFER CODE</button>
+    <div id="codeOut" class="code-out" hidden></div>
+
+    <label class="field">
+      <span>OR ENTER A CODE FROM YOUR OTHER DEVICE</span>
+      <input id="claimInput" type="text" maxlength="8" placeholder="ABCDE" autocomplete="off">
+    </label>
+    <button id="claimBtn" class="cta alt">LOAD THAT SAVE</button>
+    <p id="accountNote" class="note"></p>
+    <button id="accountClose" class="linkbtn">Back</button>
+  </div>
+</div>
+
+<!-- ------------------------------------------------------------ co-op --->
+<div id="coop" class="modal" hidden>
+  <div class="sheet">
+    <h2 class="sheet-title">COOK TOGETHER</h2>
+    <p class="note">Two cooks, one kitchen. One of you starts a room and reads out
+      the code; the other types it in.</p>
+    <button id="hostBtn" class="cta">START A ROOM</button>
+    <div id="roomOut" class="code-out" hidden></div>
+    <div class="divider">OR JOIN ONE</div>
+    <label class="field">
+      <span>ROOM CODE</span>
+      <input id="joinInput" type="text" maxlength="6" placeholder="ABCDE" autocomplete="off">
+    </label>
+    <button id="joinBtn" class="cta alt">JOIN</button>
+    <p id="coopNote" class="note"></p>
+    <button id="coopClose" class="linkbtn">Back</button>
   </div>
 </div>
 
@@ -142,6 +202,7 @@
 <script src="js/core.js"></script>
 <script src="js/art.js"></script>
 <script src="js/audio.js"></script>
+<script src="js/net.js"></script>
 <script src="js/game.js"></script>
 </body>
 </html>

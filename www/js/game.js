@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Mr. Burger - the kitchen.
  *
  * The whole game is one room. Stations live at fixed places on the floor and the
@@ -14,6 +14,14 @@
   'use strict';
 
   var Core = window.Core, Art = window.Art, Sfx = window.Sfx, Bgm = window.Bgm;
+  var Net = window.Net || { online: false, send: function () {}, leave: function () {},
+    init: function () { return Promise.resolve(this); }, push: function () {},
+    pull: function () { return Promise.resolve(null); },
+    leaderboard: function () { return Promise.resolve(null); },
+    makeCode: function () { return Promise.resolve(null); },
+    claim: function () { return Promise.resolve({ error: 'offline' }); },
+    setName: function () { return Promise.resolve(false); },
+    connect: function () {}, newRoomCode: function () { return 'LOCAL'; } };
   var SAVE_KEY = 'mb_save_v2';
 
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
@@ -45,15 +53,20 @@
     fx: Core.effects({}),
 
     hearts: 5, sales: 0, tips: 0, served: 0, walked: 0, perfect: 0,
+    lifetime: 0,
     spawned: 0, spawnTimer: 0, cfg: null, rent: 0, menu: [],
 
     tickets: [],   // { uid, arch, items, patience, max, node, barEl }
     plates: [],    // { stack: [{id, cook}] }
     grill: [],     // { id, t } | null
-    chef: {
-      x: 0, y: 0, tx: 0, ty: 0, target: null, holding: null,
-      phase: 0, face: 1, blink: 0, blinkIn: 2, hop: 0
-    },
+    // One cook in single player, two in co-op. S.me is which one this device
+    // drives; S.chef below stays a live alias to it so the rest of the game
+    // reads exactly as it did before.
+    chefs: [],
+    me: 0,
+    role: 'solo',        // solo | host | guest
+    peer: false,         // is the other cook connected
+    snapSeq: 0,
 
     floats: [], sparks: [], banner: null, shake: 0,
     flyers: [], cratePop: [],
@@ -62,13 +75,51 @@
     userPaused: false    // pause menu open
   };
 
+  function makeChef() {
+    return {
+      x: 0, y: 0, tx: 0, ty: 0, target: null, holding: null,
+      phase: 0, face: 1, blink: 0, blinkIn: 2, hop: 0
+    };
+  }
+  S.chefs = [makeChef()];
+
+  // Keeps every `S.chef.…` in the rest of the file pointing at the local cook.
+  Object.defineProperty(S, 'chef', {
+    get: function () { return S.chefs[S.me] || S.chefs[0]; }
+  });
+
+  function chefAt(i) { return S.chefs[i] || S.chefs[0]; }
+  function coop() { return S.role === 'host' || S.role === 'guest'; }
+
+  /** Is any cook on their way to this station? Drives the yellow highlight. */
+  function targeted(kind, i) {
+    for (var k = 0; k < S.chefs.length; k++) {
+      var t = S.chefs[k].target;
+      if (t && t.kind === kind && (i === undefined || t.i === i)) return true;
+    }
+    return false;
+  }
+
+  /** True if any cook is carrying a finished plate - lights the hatch up. */
+  function anyPlateHeld() {
+    for (var k = 0; k < S.chefs.length; k++) {
+      var h = S.chefs[k].holding;
+      if (h && h.kind === 'plate') return true;
+    }
+    return false;
+  }
+
   /* ----------------------------------------------------------- persistence */
   function save() {
+    var blob = {
+      day: S.day, bestDay: S.bestDay, money: S.money, levels: S.levels, muted: S.muted, lifetime: S.lifetime || 0
+    };
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({
-        day: S.day, bestDay: S.bestDay, money: S.money, levels: S.levels, muted: S.muted
-      }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify(blob));
     } catch (e) { /* private mode: play without persistence */ }
+    // Mirrored to the cloud when signed in. Debounced inside Net, and never
+    // allowed to fail into the game loop.
+    Net.push(blob, S.bestDay, S.lifetime || 0);
   }
 
   function load() {
@@ -200,10 +251,16 @@
       y1: L.hatchY - 14
     };
 
-    if (!S.chef.x) {
-      S.chef.x = (L.floor.x0 + L.floor.x1) / 2;
-      S.chef.y = (L.floor.y0 + L.floor.y1) / 2;
-      S.chef.tx = S.chef.x; S.chef.ty = S.chef.y;
+    // drop any cook who has not been placed yet into the middle of the floor,
+    // spread apart so two of them do not start on top of each other
+    for (var ci = 0; ci < S.chefs.length; ci++) {
+      var c = S.chefs[ci];
+      if (c.x) continue;
+      var span = L.floor.x1 - L.floor.x0;
+      var frac = S.chefs.length > 1 ? (ci === 0 ? 0.35 : 0.65) : 0.5;
+      c.x = L.floor.x0 + span * frac;
+      c.y = (L.floor.y0 + L.floor.y1) / 2;
+      c.tx = c.x; c.ty = c.y;
     }
   }
 
@@ -291,25 +348,27 @@
    * cook. Purely cosmetic - the game state already changed - but the hands stay
    * empty until it lands, so the two never show the same thing twice.
    */
-  function pullFromBox(index, id) {
+  function pullFromBox(index, id, ci) {
     var r = crateRect(index);
     if (!r || !r.w) return;
+    var c = chefAt(ci || 0);
     var cs = L.chefS || CHEF_S;
     S.cratePop[index] = 1;
     S.flyers.push({
-      id: id,
+      id: id, chef: ci || 0,
       done: Core.byId(id) && Core.byId(id).grill ? 0 : undefined,
       char: 0,
       x0: r.x + r.w / 2, y0: r.y + r.h * 0.42,
-      x1: S.chef.x, y1: S.chef.y - cs * 0.22,
+      x1: c.x, y1: c.y - cs * 0.22,
       // ends at exactly the size the hands will hold it, so nothing jumps
       w: cs * 0.76, lift: 24, spin: 1,
       t: 0, max: 0.26
     });
   }
 
-  function nope(msg) {
-    if (msg) float(msg, S.chef.x, S.chef.y - CHEF_S - 14, '#d1493a', 12);
+  function nope(msg, ci) {
+    var c = chefAt(ci || 0);
+    if (msg) float(msg, c.x, c.y - CHEF_S - 14, '#d1493a', 12);
     Sfx.reject();
   }
 
@@ -373,9 +432,16 @@
     S.plates = [];
     for (var i = 0; i < S.fx.plates; i++) S.plates.push({ stack: [] });
     S.grill = new Array(S.fx.grillSlots).fill(null);
-    S.chef.holding = null;
-    S.chef.target = null;
-    S.chef.x = 0;                       // re-centred by layout()
+
+    // two cooks in co-op, one otherwise
+    var want = coop() ? 2 : 1;
+    while (S.chefs.length < want) S.chefs.push(makeChef());
+    S.chefs.length = want;
+    if (S.me >= want) S.me = 0;
+    S.chefs.forEach(function (c) {
+      c.holding = null; c.target = null; c.x = 0;   // re-centred by layout()
+    });
+
     S.floats.length = 0;
     S.sparks.length = 0;
     S.flyers.length = 0;
@@ -401,6 +467,7 @@
 
     if (passed) {
       S.money += total - S.rent;
+      S.lifetime = (S.lifetime || 0) + total;
       S.bestDay = Math.max(S.bestDay, S.day);
       save();
       Sfx.fanfare();
@@ -445,24 +512,27 @@
   }
 
   /* -------------------------------------------------------- the chef works */
-  function sendChef(target) {
+  function sendChef(target, ci) {
     if (S.screen !== 'service') return;
-    S.chef.target = target;
+    var c = chefAt(ci || 0);
+    c.target = target;
     var p = standPoint(target);
-    S.chef.tx = p.x;
-    S.chef.ty = p.y;
+    c.tx = p.x;
+    c.ty = p.y;
   }
 
   /** Fired when the chef reaches whatever the player tapped. */
-  function arrive(t) {
-    var hold = S.chef.holding;
+  function arrive(t, ci) {
+    ci = ci || 0;
+    var me = chefAt(ci);
+    var hold = me.holding;
 
     if (t.kind === 'crate') {
       var id = S.menu[t.i];
-      if (hold) { nope('HANDS FULL'); return; }
+      if (hold) { nope('HANDS FULL', ci); return; }
       // No `cook` yet: that absence is what stops a raw patty reaching a plate.
-      S.chef.holding = { kind: 'ing', id: id, done: 0, char: 0 };
-      pullFromBox(t.i, id);
+      me.holding = { kind: 'ing', id: id, done: 0, char: 0 };
+      pullFromBox(t.i, id, ci);
       Sfx.lift();
       buzz(8);
       return;
@@ -471,9 +541,12 @@
     if (t.kind === 'grill') {
       var g = S.grill[t.i];
       if (hold && hold.kind === 'ing' && Core.byId(hold.id) && Core.byId(hold.id).grill) {
-        if (g) { nope('BURNER BUSY'); return; }
-        S.grill[t.i] = { id: hold.id, t: 0 };
-        S.chef.holding = null;
+        if (g) { nope('BURNER BUSY', ci); return; }
+        // Put a half-cooked patty back and it carries on from where it was.
+        // Resetting to 0 turned a seared patty raw again the moment it touched
+        // the grill a second time.
+        S.grill[t.i] = { id: hold.id, t: hold.grillT || 0 };
+        me.holding = null;
         Sfx.sizzle();
         buzz(12);
         return;
@@ -482,7 +555,11 @@
         var q = Core.cookQuality(g.t, S.fx.perfectWindow);
         var stage = Core.cookStage(g.t, S.fx.perfectWindow);
         var look = Core.cookLook(g.t, S.fx.perfectWindow);
-        S.chef.holding = { kind: 'ing', id: g.id, cook: q, done: look.done, char: look.char };
+        // grillT rides along so the patty can go back on and keep cooking
+        me.holding = {
+          kind: 'ing', id: g.id, cook: q,
+          done: look.done, char: look.char, grillT: g.t
+        };
         S.grill[t.i] = null;
         var r = slotRect(t.i);
         if (stage === 'perfect') {
@@ -500,7 +577,7 @@
         }
         return;
       }
-      nope(hold ? 'THAT DOESN\'T GRILL' : 'BURNER IS EMPTY');
+      nope(hold ? 'THAT DOESN\'T GRILL' : 'BURNER IS EMPTY', ci);
       return;
     }
 
@@ -508,7 +585,7 @@
       var p = S.plates[t.i];
       if (hold && hold.kind === 'ing') {
         if (Core.byId(hold.id).grill && hold.cook === undefined) {
-          nope('GRILL IT FIRST');
+          nope('GRILL IT FIRST', ci);
           return;
         }
         p.stack.push({
@@ -516,40 +593,40 @@
           cook: hold.cook === undefined ? 1 : hold.cook,
           done: hold.done, char: hold.char      // how it should look, not what it scores
         });
-        S.chef.holding = null;
+        me.holding = null;
         var ing = Core.byId(hold.id);
         if (ing && ing.kind === 'sauce') Sfx.squirt(); else Sfx.stack(p.stack.length);
         buzz(8);
         return;
       }
       if (hold && hold.kind === 'plate') {
-        if (p.stack.length) { nope('PLATE IN USE'); return; }
+        if (p.stack.length) { nope('PLATE IN USE', ci); return; }
         p.stack = hold.stack;
-        S.chef.holding = null;
+        me.holding = null;
         Sfx.tap();
         return;
       }
       if (!hold && p.stack.length) {
-        S.chef.holding = { kind: 'plate', stack: p.stack };
+        me.holding = { kind: 'plate', stack: p.stack };
         p.stack = [];
         Sfx.lift();
         buzz(10);
         return;
       }
-      nope('NOTHING ON THAT PLATE');
+      nope('NOTHING ON THAT PLATE', ci);
       return;
     }
 
     if (t.kind === 'hatch') {
-      if (!hold || hold.kind !== 'plate') { nope('CARRY A PLATE OVER'); return; }
+      if (!hold || hold.kind !== 'plate') { nope('CARRY A PLATE OVER', ci); return; }
       deliver(hold.stack);
-      S.chef.holding = null;
+      me.holding = null;
       return;
     }
 
     if (t.kind === 'bin') {
-      if (!hold) { nope('NOTHING TO BIN'); return; }
-      S.chef.holding = null;
+      if (!hold) { nope('NOTHING TO BIN', ci); return; }
+      me.holding = null;
       float('BINNED', binRect().x + binRect().w / 2, L.hatchY - 16, K.ink, 12);
       Sfx.trash();
       return;
@@ -635,40 +712,48 @@
       var fl = S.flyers[i];
       fl.t += dt;
       // chase the cook, who is usually still walking
-      fl.x1 = S.chef.x;
-      fl.y1 = S.chef.y - (L.chefS || CHEF_S) * 0.22;
+      var fc = chefAt(fl.chef || 0);
+      fl.x1 = fc.x;
+      fl.y1 = fc.y - (L.chefS || CHEF_S) * 0.22;
       if (fl.t >= fl.max) S.flyers.splice(i, 1);
     }
     for (i = 0; i < S.cratePop.length; i++) {
       if (S.cratePop[i] > 0) S.cratePop[i] = Math.max(0, S.cratePop[i] - dt * 4.5);
     }
 
-    // --- walk
-    var c = S.chef;
-    c.blinkIn -= dt;
-    if (c.blinkIn <= 0) { c.blink = 1; c.blinkIn = rnd(2.6, 6.0); }
-    c.blink = Math.max(0, c.blink - dt * 7);
-    c.hop = Math.max(0, c.hop - dt * 5);
+    // --- walk every cook. A guest does not simulate: it eases toward the
+    // positions the host last sent instead.
+    for (var ci = 0; ci < S.chefs.length; ci++) {
+      var c = S.chefs[ci];
+      c.blinkIn -= dt;
+      if (c.blinkIn <= 0) { c.blink = 1; c.blinkIn = rnd(2.6, 6.0); }
+      c.blink = Math.max(0, c.blink - dt * 7);
+      c.hop = Math.max(0, c.hop - dt * 5);
 
-    var dx = c.tx - c.x, dy = c.ty - c.y;
-    var d = Math.hypot(dx, dy);
-    if (d > 1.5) {
-      var step = Math.min(d, S.fx.speed * dt);
-      c.x += (dx / d) * step;
-      c.y += (dy / d) * step;
-      c.phase = (c.phase + dt * 2.6) % 1;
-      if (Math.abs(dx) > 2) c.face = dx > 0 ? 1 : -1;
-    } else {
-      c.phase = 0;
-      if (c.target) {
-        var t = c.target;
-        c.target = null;
-        c.hop = 1;                       // little bounce on arrival
-        arrive(t);
+      var dx = c.tx - c.x, dy = c.ty - c.y;
+      var d = Math.hypot(dx, dy);
+      if (d > 1.5) {
+        var speed = S.role === 'guest' ? Math.max(S.fx.speed, d / 0.09) : S.fx.speed;
+        var step = Math.min(d, speed * dt);
+        c.x += (dx / d) * step;
+        c.y += (dy / d) * step;
+        c.phase = (c.phase + dt * 2.6) % 1;
+        if (Math.abs(dx) > 2) c.face = dx > 0 ? 1 : -1;
+      } else {
+        c.phase = 0;
+        if (c.target && S.role !== 'guest') {
+          var t = c.target;
+          c.target = null;
+          c.hop = 1;                       // little bounce on arrival
+          arrive(t, ci);
+        }
       }
     }
 
     if (S.screen !== 'service') return;
+
+    // A guest renders what the host sends and simulates none of it.
+    if (S.role === 'guest') { updateBoardBars(); return; }
 
     for (i = 0; i < S.grill.length; i++) {
       if (S.grill[i]) {
@@ -715,6 +800,7 @@
       Bgm.setIntensity(full * 0.45 + worst * 0.55);
     }
 
+    pumpNetwork(dt);
     updateBoardBars();
   }
 
@@ -862,7 +948,7 @@
       if (!r.w) continue;
       var id = S.menu[i];
       var ing = Core.byId(id) || {};
-      var live = S.chef.target && S.chef.target.kind === 'crate' && S.chef.target.i === i;
+      var live = targeted('crate', i);
       var raw = ing.grill ? { done: 0 } : null;
       var pop = S.cratePop[i] || 0;
 
@@ -980,7 +1066,7 @@
     for (var i = 0; i < S.grill.length; i++) {
       var r = slotRect(i);
       var g = S.grill[i];
-      var live = S.chef.target && S.chef.target.kind === 'grill' && S.chef.target.i === i;
+      var live = targeted('grill', i);
       well(r, g ? '#2a1a15' : '#1f1310', 10);
 
       ctx.save();
@@ -1062,7 +1148,7 @@
     for (var i = 0; i < n; i++) {
       var r = plateRect(i);
       var p = S.plates[i];
-      var live = S.chef.target && S.chef.target.kind === 'plate' && S.chef.target.i === i;
+      var live = targeted('plate', i);
       var cx = r.x + r.w / 2, py = r.y + r.h - 10;
 
       // the plate, as a shallow dish with a rim
@@ -1103,8 +1189,8 @@
 
   function drawHatchAndBin() {
     var h = hatchRect();
-    var live = S.chef.target && S.chef.target.kind === 'hatch';
-    var ready = S.chef.holding && S.chef.holding.kind === 'plate';
+    var live = targeted('hatch');
+    var ready = anyPlateHeld();
     slab(h,
       ready ? K.hatchGoTop : K.hatchTop,
       ready ? K.hatchGoTop2 : K.hatchTop2,
@@ -1118,7 +1204,7 @@
     label(S.tickets.length + ' waiting', h.x + h.w / 2, h.y + h.h - 8, K.inkSoft, 7.5);
 
     var b = binRect();
-    var bl = S.chef.target && S.chef.target.kind === 'bin';
+    var bl = targeted('bin');
     slab(b, K.hatchTop, K.hatchTop2, K.hatchSide, 14, DEPTH.hatch, bl);
 
     // Drawn rather than an emoji: 🗑 has no glyph on plenty of Android builds.
@@ -1155,8 +1241,7 @@
    * cheese, the real seared patty, the real plated burger - rather than an icon
    * in a floating card. Returns its half-width so the hands can close on it.
    */
-  function drawCarried(g, cx, baseY, maxW, maxH) {
-    var hold = S.chef.holding;
+  function drawCarried(g, cx, baseY, maxW, maxH, hold) {
     if (!hold) return 0;
 
     g.save();
@@ -1193,13 +1278,34 @@
     return (Art.layerWidth(hold.id, w)) / 2;
   }
 
-  function drawChef() {
-    var c = S.chef;
+  function drawChefs() {
     var cs = L.chefS || CHEF_S;
-    Art.drawChef(ctx, c.x, c.y, cs, {
-      face: c.face, bob: c.phase, blink: c.blink, hop: c.hop,
-      // hands stay empty while the item is still in the air
-      carry: (c.holding && !S.flyers.length) ? drawCarried : null
+    // painter's order: whoever is further down the floor is nearer the camera
+    var order = S.chefs.map(function (c, i) { return i; })
+      .sort(function (a, b) { return S.chefs[a].y - S.chefs[b].y; });
+
+    order.forEach(function (i) {
+      var c = S.chefs[i];
+      var flying = S.flyers.some(function (f) { return (f.chef || 0) === i; });
+      // a marker so you can tell which cook is yours
+      if (S.chefs.length > 1) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.ellipse(c.x, c.y + 2, cs * 0.30, cs * 0.10, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = i === S.me ? 'rgba(79,168,96,0.95)' : 'rgba(90,134,184,0.9)';
+        ctx.lineWidth = 2.4;
+        ctx.stroke();
+        ctx.restore();
+      }
+      Art.drawChef(ctx, c.x, c.y, cs, {
+        face: c.face, bob: c.phase, blink: c.blink, hop: c.hop,
+        // hands stay empty while the item is still in the air
+        carry: (c.holding && !flying)
+          ? function (g, cx, baseY, maxW, maxH) {
+            return drawCarried(g, cx, baseY, maxW, maxH, c.holding);
+          }
+          : null
+      });
     });
   }
 
@@ -1294,7 +1400,7 @@
     drawCrates();
     drawGrill();
     drawPlates();
-    drawChef();
+    drawChefs();
     drawFlyers();
     drawHatchAndBin();     // nearest the camera, so it draws over the cook
     drawSparks();
@@ -1478,6 +1584,117 @@
     });
   }
 
+  /* ------------------------------------------------------- online screens */
+  function setNetState() {
+    el.netState.textContent = Net.online
+      ? 'signed in as ' + (Net.name || 'Cook') + ' — progress syncs across devices'
+      : 'offline — progress stays on this device';
+    el.netState.classList.toggle('on', !!Net.online);
+  }
+
+  function showLeaderboard() {
+    showModal(el.leaderboard);
+    el.lbList.innerHTML = '';
+    el.lbNote.textContent = Net.online ? 'Loading…' : 'You are offline — no board to show.';
+    if (!Net.online) return;
+
+    Net.leaderboard(20).then(function (data) {
+      if (!data) { el.lbNote.textContent = 'Could not reach the board.'; return; }
+      var rows = (data.top || []).slice();
+      var html = rows.map(function (r) {
+        return '<div class="lb-row' + (r.me ? ' me' : '') + '">' +
+          '<span class="r">' + r.rank + '</span>' +
+          '<span class="n">' + escapeHtml(r.name) + '</span>' +
+          '<span class="d">DAY ' + r.day + '</span>' +
+          '<span class="e">' + Core.money(r.earned) + '</span></div>';
+      }).join('');
+      if (data.mine) {
+        html += '<div class="lb-gap">···</div>' +
+          '<div class="lb-row me"><span class="r">' + data.mine.rank + '</span>' +
+          '<span class="n">' + escapeHtml(data.mine.name) + '</span>' +
+          '<span class="d">DAY ' + data.mine.day + '</span>' +
+          '<span class="e">' + Core.money(data.mine.earned) + '</span></div>';
+      }
+      el.lbList.innerHTML = html || '';
+      el.lbNote.textContent = rows.length
+        ? 'Furthest day wins; money breaks ties.'
+        : 'Nobody has finished a day yet. Be first.';
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function showAccount() {
+    showModal(el.account);
+    el.nameInput.value = Net.name || '';
+    el.codeOut.hidden = true;
+    el.accountNote.textContent = Net.online ? '' : 'You are offline — none of this will stick.';
+  }
+
+  /* ----------------------------------------------------------- co-op flow */
+  function enterRoom(code, asHost) {
+    el.coopNote.textContent = 'Connecting…';
+    Net.connect(code, {
+      onRole: function (role) {
+        S.role = role;
+        S.me = role === 'host' ? 0 : 1;
+        S.peer = false;
+        el.coopNote.textContent = role === 'host'
+          ? 'Room ' + code + ' is open. Waiting for your friend…'
+          : 'Joined room ' + code + '. Waiting for the host to start…';
+        if (role === 'guest') {
+          // the guest never simulates; it just needs a room to render into
+          hideModal(el.coop);
+          hideModal(el.start);
+          S.screen = 'service';
+          S.chefs = [makeChef(), makeChef()];
+          S.tickets = [];
+          resize();
+          banner('JOINED', 'waiting for the host', '#4fa860');
+        }
+      },
+      onPeer: function (joined, hostLeft) {
+        S.peer = joined;
+        if (joined) {
+          if (S.role === 'host') {
+            el.coopNote.textContent = 'Your friend is in. Starting…';
+            hideModal(el.coop);
+            hideModal(el.start);
+            Sfx.init(); Bgm.start();
+            startDay(S.day);
+          }
+        } else {
+          leaveCoop(hostLeft ? 'the host left' : 'your friend left');
+        }
+      },
+      onMessage: onCoopMessage,
+      onClose: function (why) {
+        if (S.role) leaveCoop(why);
+        else el.coopNote.textContent = why;
+      }
+    });
+  }
+
+  function leaveCoop(why) {
+    Net.leave();
+    var was = S.role;
+    S.role = 'solo';
+    S.peer = false;
+    S.me = 0;
+    S.chefs.length = 1;
+    if (was) {
+      banner('CO-OP ENDED', why || '', '#d1493a');
+      if (was === 'guest') {
+        S.screen = 'title';
+        showModal(el.start);
+      }
+    }
+  }
+
   function buyUpgrade(id) {
     var lvl = S.levels[id] || 0;
     var cost = Core.upgradeCost(id, lvl);
@@ -1491,13 +1708,132 @@
     renderShop();
   }
 
+  /* ------------------------------------------------------------- co-op sync
+   *
+   * The host keeps simulating exactly as in single player and ships a snapshot
+   * a dozen times a second. The guest never simulates; it renders what it is
+   * told and sends back which station it tapped.
+   *
+   * Cook positions travel normalised to the floor rect, so the two devices can
+   * have completely different screen sizes.
+   */
+  var SNAP_HZ = 12;
+  var snapTimer = 0;
+
+  function packHold(h) {
+    if (!h) return null;
+    if (h.kind === 'plate') return { k: 'p', s: h.stack };
+    return { k: 'i', id: h.id, c: h.cook, d: h.done, ch: h.char, gt: h.grillT };
+  }
+  function unpackHold(h) {
+    if (!h) return null;
+    if (h.k === 'p') return { kind: 'plate', stack: h.s || [] };
+    return { kind: 'ing', id: h.id, cook: h.c, done: h.d, char: h.ch, grillT: h.gt };
+  }
+
+  function snapshot() {
+    var fw = Math.max(1, L.floor.x1 - L.floor.x0);
+    var fh = Math.max(1, L.floor.y1 - L.floor.y0);
+    return {
+      type: 'state',
+      day: S.day, hearts: S.hearts, sales: S.sales, tips: S.tips, rent: S.rent,
+      screen: S.screen, menu: S.menu, concurrent: S.cfg ? S.cfg.concurrent : 3,
+      plates: S.plates.map(function (p) { return p.stack; }),
+      grill: S.grill.map(function (g) { return g ? { id: g.id, t: g.t } : null; }),
+      tickets: S.tickets.map(function (t) {
+        return { uid: t.uid, a: t.arch.id, items: t.items, p: t.patience, m: t.max };
+      }),
+      chefs: S.chefs.map(function (c) {
+        return {
+          x: (c.x - L.floor.x0) / fw, y: (c.y - L.floor.y0) / fh,
+          f: c.face, h: packHold(c.holding)
+        };
+      }),
+      banner: S.banner ? { t: S.banner.title, s: S.banner.sub, c: S.banner.color, n: S.snapSeq } : null
+    };
+  }
+
+  var ARCH_BY_ID = {};
+  Core.CUSTOMERS.forEach(function (c) { ARCH_BY_ID[c.id] = c; });
+
+  function applySnapshot(m) {
+    S.day = m.day; S.hearts = m.hearts; S.sales = m.sales; S.tips = m.tips; S.rent = m.rent;
+    S.menu = m.menu;
+    if (!S.cfg || S.cfg.day !== m.day) S.cfg = Core.dayConfig(m.day);
+    S.cfg.concurrent = m.concurrent;
+
+    var wasService = S.screen === 'service';
+    S.screen = m.screen;
+
+    S.plates = m.plates.map(function (st) { return { stack: st }; });
+    S.grill = m.grill;
+
+    // keep ticket objects (and their DOM nodes) alive across snapshots
+    var byUid = {};
+    S.tickets.forEach(function (t) { byUid[t.uid] = t; });
+    var changed = S.tickets.length !== m.tickets.length;
+    S.tickets = m.tickets.map(function (t) {
+      var old = byUid[t.uid];
+      if (!old) changed = true;
+      var tk = old || { uid: t.uid, tick: 0 };
+      tk.arch = ARCH_BY_ID[t.a] || Core.CUSTOMERS[0];
+      tk.items = t.items;
+      tk.patience = t.p; tk.max = t.m;
+      return tk;
+    });
+
+    while (S.chefs.length < m.chefs.length) S.chefs.push(makeChef());
+    S.chefs.length = m.chefs.length;
+    var fw = Math.max(1, L.floor.x1 - L.floor.x0);
+    var fh = Math.max(1, L.floor.y1 - L.floor.y0);
+    m.chefs.forEach(function (snap, i) {
+      var c = S.chefs[i];
+      c.tx = L.floor.x0 + snap.x * fw;
+      c.ty = L.floor.y0 + snap.y * fh;
+      if (!c.x) { c.x = c.tx; c.y = c.ty; }
+      c.face = snap.f;
+      c.holding = unpackHold(snap.h);
+    });
+
+    if (m.banner && m.banner.n !== S.snapSeq) {
+      S.snapSeq = m.banner.n;
+      banner(m.banner.t, m.banner.s, m.banner.c);
+    }
+    if (changed) renderBoard();
+    syncHud();
+    if (wasService && m.screen !== 'service') {
+      banner('DAY OVER', 'waiting for the host', '#f4b41a');
+    }
+  }
+
+  function pumpNetwork(dt) {
+    if (S.role !== 'host' || !S.peer) return;
+    snapTimer -= dt;
+    if (snapTimer > 0) return;
+    snapTimer = 1 / SNAP_HZ;
+    S.snapSeq++;
+    Net.send(snapshot());
+  }
+
+  function onCoopMessage(m) {
+    if (!m || !m.type) return;
+    if (S.role === 'host' && m.type === 'tap' && m.target) {
+      sendChef(m.target, 1);           // the guest is always cook #2
+      return;
+    }
+    if (S.role === 'guest' && m.type === 'state') applySnapshot(m);
+  }
+
   /* ----------------------------------------------------------------- input */
   function onTap(e) {
     if (S.screen !== 'service' || S.userPaused) return;
     var r = cv.getBoundingClientRect();
     var x = e.clientX - r.left, y = e.clientY - r.top;
     if (x < 0 || y < 0 || x > L.W || y > L.H) return;
-    sendChef(stationAt(x, y));
+    var target = stationAt(x, y);
+    // Stations travel by index, not pixels - the two screens are different sizes.
+    if (S.role === 'guest') Net.send({ type: 'tap', target: target });
+    else sendChef(target, S.me);
     Sfx.tap();
     e.preventDefault();
   }
@@ -1554,6 +1890,74 @@
       save();
     });
 
+    /* --- leaderboard / account / co-op */
+    el.boardBtn.addEventListener('click', showLeaderboard);
+    el.lbClose.addEventListener('click', function () { hideModal(el.leaderboard); });
+    el.accountBtn.addEventListener('click', showAccount);
+    el.accountClose.addEventListener('click', function () { hideModal(el.account); });
+
+    el.nameSave.addEventListener('click', function () {
+      var name = (el.nameInput.value || '').trim().slice(0, 16) || 'Cook';
+      el.accountNote.textContent = 'Saving…';
+      Net.setName(name).then(function (ok) {
+        setNetState();
+        el.accountNote.textContent = ok ? 'Saved as ' + Net.name + '.' : 'Saved on this device only.';
+      });
+    });
+
+    el.makeCodeBtn.addEventListener('click', function () {
+      el.accountNote.textContent = '';
+      Net.makeCode().then(function (code) {
+        if (!code) { el.accountNote.textContent = 'Could not get a code.'; return; }
+        el.codeOut.hidden = false;
+        el.codeOut.innerHTML = escapeHtml(code) + '<small>type this on the other device within 10 minutes</small>';
+      });
+    });
+
+    el.claimBtn.addEventListener('click', function () {
+      var code = (el.claimInput.value || '').trim().toUpperCase();
+      if (code.length < 4) { el.accountNote.textContent = 'Enter the code first.'; return; }
+      el.accountNote.textContent = 'Loading…';
+      Net.claim(code).then(function (res) {
+        if (res.error) { el.accountNote.textContent = res.error; return; }
+        if (res.save) {
+          S.day = res.save.day || 1;
+          S.bestDay = res.save.bestDay || S.day;
+          S.money = res.save.money || 0;
+          S.levels = res.save.levels || {};
+          S.fx = Core.effects(S.levels, S.day);
+          save();
+          el.continueBtn.hidden = false;
+          el.continueDay.textContent = S.day;
+        }
+        setNetState();
+        el.accountNote.textContent = 'Loaded ' + (res.name || 'that save') +
+          (res.save ? ' — day ' + (res.save.day || 1) + '.' : ' (no save on it yet).');
+      });
+    });
+
+    el.coopBtn.addEventListener('click', function () {
+      Sfx.init();
+      el.coopNote.textContent = Net.online ? '' : 'You are offline — co-op needs a connection.';
+      el.roomOut.hidden = true;
+      showModal(el.coop);
+    });
+    el.coopClose.addEventListener('click', function () {
+      hideModal(el.coop);
+      if (S.role === 'host' && !S.peer) leaveCoop();
+    });
+    el.hostBtn.addEventListener('click', function () {
+      var code = Net.newRoomCode();
+      el.roomOut.hidden = false;
+      el.roomOut.innerHTML = escapeHtml(code) + '<small>read this out to your friend</small>';
+      enterRoom(code, true);
+    });
+    el.joinBtn.addEventListener('click', function () {
+      var code = (el.joinInput.value || '').trim().toUpperCase();
+      if (code.length < 4) { el.coopNote.textContent = 'Enter the room code first.'; return; }
+      enterRoom(code, false);
+    });
+
     window.addEventListener('resize', resize);
     if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
     document.addEventListener('visibilitychange', function () {
@@ -1592,6 +1996,11 @@
       'start', 'playBtn', 'continueBtn', 'continueDay',
       'dayEnd', 'dayEndTitle', 'dayEndBtn', 'dayEndNote', 'rSales', 'rTips', 'rTotal',
       'rRent', 'rNet', 'rPerfect', 'rServed', 'rWalked',
+      'coopBtn', 'netState', 'boardBtn', 'accountBtn',
+      'leaderboard', 'lbList', 'lbNote', 'lbClose',
+      'account', 'nameInput', 'nameSave', 'makeCodeBtn', 'codeOut',
+      'claimInput', 'claimBtn', 'accountNote', 'accountClose',
+      'coop', 'hostBtn', 'roomOut', 'joinInput', 'joinBtn', 'coopNote', 'coopClose',
       'shop', 'walletText', 'unlockBox', 'unlockList', 'upgradeList', 'nextRent', 'nextKitchen',
       'nextDayBtn', 'nextDayNum', 'over', 'overTitle', 'overReason', 'overDay',
       'overBest', 'retryBtn', 'retryDay', 'wipeBtn'
@@ -1604,6 +2013,7 @@
       S.money = saved.money || 0;
       S.levels = saved.levels || {};
       S.muted = !!saved.muted;
+      S.lifetime = saved.lifetime || 0;
       S.fx = Core.effects(S.levels, S.day);
       el.continueBtn.hidden = false;
       el.continueDay.textContent = saved.day;
@@ -1621,6 +2031,26 @@
     renderBoard();
     bind();
     requestAnimationFrame(frame);
+
+    // Sign in quietly in the background. Everything above already works
+    // offline; this only ever adds the board, co-op and cross-device saves.
+    Net.init().then(function () {
+      setNetState();
+      if (!Net.online) return;
+      return Net.pull().then(function (cloud) {
+        // Only offer the cloud save if it is genuinely further along.
+        if (!cloud || (cloud.day || 0) <= S.day) return;
+        S.day = cloud.day;
+        S.bestDay = Math.max(S.bestDay, cloud.bestDay || cloud.day);
+        S.money = cloud.money || 0;
+        S.levels = cloud.levels || {};
+        S.lifetime = Math.max(S.lifetime || 0, cloud.lifetime || 0);
+        S.fx = Core.effects(S.levels, S.day);
+        save();
+        el.continueBtn.hidden = false;
+        el.continueDay.textContent = S.day;
+      });
+    }).catch(function () { setNetState(); });
   }
 
   // Exposed for the smoke test and for poking at a live shift in DevTools.
@@ -1630,6 +2060,8 @@
     sendChef: sendChef, arrive: arrive, deliver: deliver,
     stationAt: stationAt, standPoint: standPoint,
     setPaused: setPaused, quitToTitle: quitToTitle,
+    snapshot: snapshot, applySnapshot: applySnapshot, onCoopMessage: onCoopMessage,
+    leaveCoop: leaveCoop, chefAt: chefAt,
     crateRect: crateRect, slotRect: slotRect, plateRect: plateRect,
     hatchRect: hatchRect, binRect: binRect,
     buyUpgrade: buyUpgrade, ticketOf: ticketOf
@@ -1641,3 +2073,6 @@
     init();
   }
 })();
+
+
+

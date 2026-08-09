@@ -1,4 +1,4 @@
-/*
+﻿/*
  * End-to-end smoke test. Stubs just enough DOM/canvas to boot game.js in Node,
  * then plays real shifts: taps stations, walks the chef across the floor, grills
  * patties, plates them and runs them to the hatch.
@@ -98,13 +98,19 @@ var elements = { stage: stage };
   'start', 'playBtn', 'continueBtn', 'continueDay',
   'dayEnd', 'dayEndTitle', 'dayEndBtn', 'dayEndNote', 'rSales', 'rTips', 'rTotal',
   'rRent', 'rNet', 'rNetLabel', 'rPerfect', 'rServed', 'rWalked',
+  'coopBtn', 'netState', 'boardBtn', 'accountBtn',
+  'leaderboard', 'lbList', 'lbNote', 'lbClose',
+  'account', 'nameInput', 'nameSave', 'makeCodeBtn', 'codeOut',
+  'claimInput', 'claimBtn', 'accountNote', 'accountClose',
+  'coop', 'hostBtn', 'roomOut', 'joinInput', 'joinBtn', 'coopNote', 'coopClose',
   'shop', 'walletText', 'unlockBox', 'unlockList', 'upgradeList', 'nextRent', 'nextKitchen',
   'nextDayBtn', 'nextDayNum', 'over', 'overTitle', 'overReason', 'overDay',
   'overBest', 'retryBtn', 'retryDay', 'wipeBtn'
 ].forEach(function (id) { elements[id] = makeEl('div'); });
 
 // Mirror index.html: the flow sheets carry the `hidden` attribute.
-['dayEnd', 'shop', 'over', 'pause', 'continueBtn', 'unlockBox'].forEach(function (id) {
+['dayEnd', 'shop', 'over', 'pause', 'continueBtn', 'unlockBox',
+  'leaderboard', 'account', 'coop', 'codeOut', 'roomOut'].forEach(function (id) {
   elements[id].hidden = true;
 });
 
@@ -427,6 +433,42 @@ test('doneness follows the patty onto the plate', function () {
   var onPlate = S.plates[0].stack[S.plates[0].stack.length - 1];
   assert.strictEqual(onPlate.id, 'patty');
   assert.strictEqual(onPlate.done, carried, 'the plate should show what was cooked');
+});
+
+/*
+ * Regression: putting a patty back on a burner used to reset its timer to 0,
+ * so a perfectly seared patty turned raw the moment it touched the grill again.
+ */
+test('a patty put back on the grill carries on cooking, it does not reset', function () {
+  startShift(6);
+  work(crateOf('patty'));
+  work(MB.slotRect(0));
+  S.grill[0].t = 3.0;
+  work(MB.slotRect(0));                       // lift it off, part-cooked
+  var lifted = held().done;
+  assert.ok(lifted > 0.5 && lifted < 1, 'setup: should be part-cooked, got ' + lifted);
+  assert.strictEqual(held().grillT, 3.0, 'the time on the grill has to ride along');
+
+  // and back down on another burner. It keeps ticking from the frame it lands,
+  // so allow for that rather than demanding an exact 3.0.
+  work(MB.slotRect(1));
+  assert.ok(S.grill[1].t >= 3.0 && S.grill[1].t < 3.4,
+    'the burner restarted from ' + S.grill[1].t.toFixed(2) + ' instead of 3.0');
+  assert.strictEqual(S.grill[0], null);
+
+  // a moment more and it is properly seared, not raw
+  S.grill[1].t = Core.COOK_TIME;
+  work(MB.slotRect(1));
+  assert.strictEqual(held().done, 1, 'it should have finished cooking, not started over');
+  assert.strictEqual(held().cook, 1);
+});
+
+test('a fresh patty from the crate still starts raw on the grill', function () {
+  startShift(6);
+  work(crateOf('patty'));
+  assert.strictEqual(held().grillT, undefined, 'crate beef has no grill history');
+  work(MB.slotRect(0));
+  assert.ok(S.grill[0].t < 0.3, 'it must start from zero, got ' + S.grill[0].t.toFixed(2));
 });
 
 test('a patty left on the grill chars instead of turning raw again', function () {
@@ -856,6 +898,150 @@ test('survives a long, messy run across many days without throwing', function ()
   pump(2);
 });
 
+/* ---------------------------------------------------------------- co-op */
+test('single player runs one cook, co-op runs two', function () {
+  S.role = 'solo';
+  startShift(4);
+  assert.strictEqual(S.chefs.length, 1, 'solo should have one cook');
+  assert.strictEqual(S.me, 0);
+
+  S.role = 'host';
+  startShift(4);
+  assert.strictEqual(S.chefs.length, 2, 'a host kitchen has two cooks');
+  S.role = 'solo';
+});
+
+test('a guest tap drives the second cook, never the host\'s', function () {
+  S.role = 'host';
+  S.me = 0;
+  startShift(6);
+  pump(0.1);
+  var mine = MB.chefAt(0), theirs = MB.chefAt(1);
+  var minePos = { x: mine.x, y: mine.y };
+
+  MB.onCoopMessage({ type: 'tap', target: { kind: 'crate', i: S.menu.indexOf('patty') } });
+  assert.ok(theirs.target, 'the guest cook was not sent anywhere');
+  assert.strictEqual(mine.target, null, 'the host cook must not move');
+
+  for (var i = 0; i < 400 && theirs.target; i++) pump(0.05);
+  assert.ok(theirs.holding && theirs.holding.id === 'patty', 'the guest cook should be holding it');
+  assert.strictEqual(mine.holding, null, 'the host cook should still be empty-handed');
+  assert.ok(Math.abs(mine.x - minePos.x) < 0.01, 'the host cook drifted');
+  S.role = 'solo';
+});
+
+test('the two cooks carry different things at the same time', function () {
+  S.role = 'host';
+  startShift(8);
+  pump(0.1);
+  var topping = S.menu.filter(function (id) { return id !== 'patty' && id !== 'bun'; })[0];
+
+  // host cook fetches a bun
+  MB.sendChef({ kind: 'crate', i: S.menu.indexOf('bun') }, 0);
+  MB.onCoopMessage({ type: 'tap', target: { kind: 'crate', i: S.menu.indexOf(topping) } });
+  for (var i = 0; i < 400 && (MB.chefAt(0).target || MB.chefAt(1).target); i++) pump(0.05);
+
+  assert.strictEqual(MB.chefAt(0).holding.id, 'bun');
+  assert.strictEqual(MB.chefAt(1).holding.id, topping);
+  S.role = 'solo';
+});
+
+test('a snapshot round-trips the whole kitchen', function () {
+  S.role = 'host';
+  startShift(8);
+  pump(3);
+  // put the kitchen in a distinctive state
+  S.grill[0] = { id: 'patty', t: 2.5 };
+  S.plates[0].stack = [{ id: 'bun', cook: 1 }, { id: 'patty', cook: 0.8, done: 0.9, char: 0 }];
+  MB.chefAt(0).holding = { kind: 'ing', id: 'cheese', done: 1, char: 0 };
+  MB.chefAt(1).holding = { kind: 'plate', stack: [{ id: 'bun', cook: 1 }] };
+  S.hearts = 3; S.sales = 1234; S.tips = 567;
+  var before = {
+    tickets: S.tickets.map(function (t) { return t.uid; }),
+    items: S.tickets.map(function (t) { return t.items.slice(); }),
+    plate0: S.plates[0].stack.length,
+    grillT: S.grill[0].t
+  };
+
+  var snap = MB.snapshot();
+  assert.strictEqual(snap.type, 'state');
+  assert.ok(snap.chefs.every(function (c) { return c.x >= -0.5 && c.x <= 1.5; }),
+    'cook positions must travel normalised, not in pixels');
+
+  // now become a guest and eat our own snapshot
+  S.role = 'guest';
+  S.me = 1;
+  S.tickets = [];
+  S.plates = [];
+  S.grill = [];
+  MB.applySnapshot(snap);
+
+  assert.strictEqual(S.hearts, 3);
+  assert.strictEqual(S.sales, 1234);
+  assert.strictEqual(S.tips, 567);
+  assert.deepStrictEqual(S.tickets.map(function (t) { return t.uid; }), before.tickets);
+  assert.deepStrictEqual(S.tickets.map(function (t) { return t.items; }), before.items);
+  assert.ok(S.tickets.every(function (t) { return t.arch && t.arch.emoji; }), 'archetypes must survive');
+  assert.strictEqual(S.plates[0].stack.length, before.plate0);
+  assert.strictEqual(S.grill[0].t, before.grillT);
+  assert.strictEqual(MB.chefAt(0).holding.id, 'cheese');
+  assert.strictEqual(MB.chefAt(1).holding.kind, 'plate');
+  S.role = 'solo'; S.me = 0;
+});
+
+test('cook positions survive two devices with different screen sizes', function () {
+  S.role = 'host';
+  startShift(6);
+  pump(0.1);
+  MB.chefAt(0).x = L.floor.x0;                    // hard left of the floor
+  MB.chefAt(1).x = L.floor.x1;                    // hard right
+  MB.chefAt(0).y = MB.chefAt(1).y = L.floor.y0;
+  var snap = MB.snapshot();
+
+  // pretend the other device is much narrower
+  var wideW = stage.clientWidth;
+  stage.clientWidth = 320;
+  pump(0.1);                                       // triggers a resize + layout
+  S.role = 'guest';
+  MB.applySnapshot(snap);
+  assert.ok(Math.abs(MB.chefAt(0).tx - L.floor.x0) < 1.5, 'left cook did not map to the left edge');
+  assert.ok(Math.abs(MB.chefAt(1).tx - L.floor.x1) < 1.5, 'right cook did not map to the right edge');
+
+  stage.clientWidth = wideW;
+  pump(0.1);
+  S.role = 'solo'; S.me = 0;
+});
+
+test('a guest simulates nothing - the host owns the clock', function () {
+  S.role = 'host';
+  startShift(6);
+  pump(3);
+  assert.ok(S.tickets.length, 'need a ticket');
+  S.grill[0] = { id: 'patty', t: 1.0 };
+
+  S.role = 'guest';
+  var patience = S.tickets[0].patience;
+  var grillT = S.grill[0].t;
+  var spawned = S.spawned;
+  pump(4);
+
+  assert.strictEqual(S.tickets[0].patience, patience, 'the guest ran the patience clock');
+  assert.strictEqual(S.grill[0].t, grillT, 'the guest cooked the patty itself');
+  assert.strictEqual(S.spawned, spawned, 'the guest spawned its own customers');
+  S.role = 'solo';
+});
+
+test('leaving co-op drops back to one cook', function () {
+  S.role = 'host';
+  startShift(6);
+  assert.strictEqual(S.chefs.length, 2);
+  MB.leaveCoop('test');
+  assert.strictEqual(S.role, 'solo');
+  assert.strictEqual(S.chefs.length, 1);
+  assert.strictEqual(S.me, 0);
+  assert.strictEqual(S.peer, false);
+});
+
 /* ---------------------------------------------------------------- music */
 /*
  * Runs last: installing a fake AudioContext leaves Sfx wired to stubs, and
@@ -942,3 +1128,4 @@ test('the backing track schedules a groove and keeps time', function () {
 });
 
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');
+
