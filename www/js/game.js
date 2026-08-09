@@ -67,6 +67,11 @@
     role: 'solo',        // solo | host | guest
     peer: false,         // is the other cook connected
     snapSeq: 0,
+    bannerId: 0,
+    lastBannerId: -1,
+    roomCode: null,
+    reconnectTries: 0,
+    coopStarted: false,
     snapInterval: 80,    // measured ms between host snapshots
     lastSnapAt: 0,
 
@@ -376,8 +381,18 @@
     S.floats.push({ text: text, x: x, y: y, color: color || '#fff4e0', size: size || 14, t: 0, max: 1.05 });
   }
 
+  /*
+   * Each banner gets its own id. The snapshot used to stamp banners with the
+   * ever-incrementing snapshot counter, so a guest saw a "new" banner on every
+   * packet and restarted the pop-in animation fifteen times a second - which is
+   * exactly what the flashing DAY screen was.
+   */
   function banner(title, sub, color) {
-    S.banner = { title: title, sub: sub || '', color: color || '#fff4e0', t: 0, max: 1.3 };
+    S.bannerId++;
+    S.banner = {
+      title: title, sub: sub || '', color: color || '#fff4e0',
+      t: 0, max: 1.3, id: S.bannerId
+    };
   }
 
   function spark(x, y, n, color, kind) {
@@ -554,6 +569,7 @@
   function quitToTitle() {
     setPaused(false);
     Bgm.stop();
+    if (coop()) endCoop();
     S.screen = 'title';
     S.tickets = [];
     S.chef.holding = null;
@@ -1715,58 +1731,101 @@
     el.accountNote.textContent = Net.online ? '' : 'You are offline — none of this will stick.';
   }
 
-  /* ----------------------------------------------------------- co-op flow */
-  function enterRoom(code, asHost) {
+  /* ----------------------------------------------------------- co-op flow
+   *
+   * Phones drop sockets constantly - screen lock, a walk between wifi and
+   * mobile data, a background tab. So a dropped guest does NOT end the session:
+   * the host keeps cooking with its friend's chef parked, and the guest
+   * reconnects into the same room and picks that chef back up.
+   *
+   * A dropped host does end it, because the simulation lived there.
+   */
+  var MAX_RECONNECT = 8;
+
+  function enterRoom(code) {
+    S.roomCode = code;
+    S.reconnectTries = 0;
+    S.coopStarted = false;
     el.coopNote.textContent = 'Connecting…';
+    connectRoom();
+  }
+
+  function connectRoom() {
+    var code = S.roomCode;
+    if (!code) return;
     Net.connect(code, {
       onRole: function (role) {
         S.role = role;
         S.me = role === 'host' ? 0 : 1;
         S.peer = false;
+        S.reconnectTries = 0;
         el.coopNote.textContent = role === 'host'
           ? 'Room ' + code + ' is open. Waiting for your friend…'
-          : 'Joined room ' + code + '. Waiting for the host to start…';
+          : 'Joined room ' + code + '. Waiting for the host…';
         if (role === 'guest') {
           // the guest never simulates; it just needs a room to render into
           hideModal(el.coop);
           hideModal(el.start);
           S.screen = 'service';
-          S.chefs = [makeChef(), makeChef()];
-          S.tickets = [];
+          if (S.chefs.length < 2) S.chefs = [makeChef(), makeChef()];
+          S.lastBannerId = -1;
           resize();
           banner('JOINED', 'waiting for the host', '#4fa860');
         }
       },
+
       onPeer: function (joined, hostLeft) {
         S.peer = joined;
         if (joined) {
-          if (S.role === 'host') {
+          if (S.role !== 'host') return;
+          hideModal(el.coop);
+          hideModal(el.start);
+          if (!S.coopStarted) {
+            // first time only: a rejoin must not restart the day
+            S.coopStarted = true;
             el.coopNote.textContent = 'Your friend is in. Starting…';
-            hideModal(el.coop);
-            hideModal(el.start);
             Sfx.init(); Bgm.start();
             startDay(S.day);
+          } else {
+            banner('FRIEND IS BACK', '', '#4fa860');
           }
-        } else {
-          leaveCoop(hostLeft ? 'the host left' : 'your friend left');
+          return;
         }
+        if (hostLeft) { endCoop('the host left'); return; }
+        // The guest dropped. Keep the room open and park their chef.
+        var c = S.chefs[1];
+        if (c) { c.target = null; c.tx = c.x; c.ty = c.y; }
+        banner('FRIEND DROPPED', 'room ' + S.roomCode + ' is still open', '#f0a81e');
       },
+
       onMessage: onCoopMessage,
+
       onClose: function (why) {
-        if (S.role) leaveCoop(why);
-        else el.coopNote.textContent = why;
+        if (!coop()) { el.coopNote.textContent = why; return; }
+        // Our own socket died. Try to get back into the same room.
+        if (S.roomCode && S.reconnectTries < MAX_RECONNECT) {
+          S.reconnectTries++;
+          banner('RECONNECTING', 'try ' + S.reconnectTries + ' of ' + MAX_RECONNECT, '#f0a81e');
+          setTimeout(connectRoom, Math.min(500 * S.reconnectTries, 3000));
+          return;
+        }
+        endCoop(why);
       }
     });
   }
 
-  function leaveCoop(why) {
-    Net.leave();
+  /** Deliberate or final exit from co-op - back to one cook, back to solo. */
+  function endCoop(why) {
     var was = S.role;
+    Net.leave();
     S.role = 'solo';
     S.peer = false;
     S.me = 0;
+    S.roomCode = null;
+    S.reconnectTries = 0;
+    S.coopStarted = false;
     S.chefs.length = 1;
-    if (was) {
+    if (was === 'host' || was === 'guest') {
       banner('CO-OP ENDED', why || '', '#d1493a');
       if (was === 'guest') {
         S.screen = 'title';
@@ -1774,6 +1833,7 @@
       }
     }
   }
+  var leaveCoop = endCoop;   // older name, still used by the pause menu
 
   function buyUpgrade(id) {
     var lvl = S.levels[id] || 0;
@@ -1829,7 +1889,7 @@
           f: c.face, h: packHold(c.holding)
         };
       }),
-      banner: S.banner ? { t: S.banner.title, s: S.banner.sub, c: S.banner.color, n: S.snapSeq } : null
+      banner: S.banner ? { t: S.banner.title, s: S.banner.sub, c: S.banner.color, n: S.banner.id } : null
     };
   }
 
@@ -1887,8 +1947,8 @@
       c.holding = unpackHold(snap.h);
     });
 
-    if (m.banner && m.banner.n !== S.snapSeq) {
-      S.snapSeq = m.banner.n;
+    if (m.banner && m.banner.n !== S.lastBannerId) {
+      S.lastBannerId = m.banner.n;
       banner(m.banner.t, m.banner.s, m.banner.c);
     }
     if (changed) renderBoard();
@@ -1910,7 +1970,8 @@
   function onCoopMessage(m) {
     if (!m || !m.type) return;
     if (S.role === 'host' && m.type === 'tap' && m.target) {
-      sendChef(m.target, 1);           // the guest is always cook #2
+      // the guest is always cook #2 - never let a stray tap drive the host's own
+      if (S.chefs.length > 1) sendChef(m.target, 1);
       return;
     }
     if (S.role === 'guest' && m.type === 'state') applySnapshot(m);
@@ -2038,18 +2099,18 @@
     });
     el.coopClose.addEventListener('click', function () {
       hideModal(el.coop);
-      if (S.role === 'host' && !S.peer) leaveCoop();
+      if (S.role === 'host' && !S.peer) endCoop();
     });
     el.hostBtn.addEventListener('click', function () {
       var code = Net.newRoomCode();
       el.roomOut.hidden = false;
       el.roomOut.innerHTML = escapeHtml(code) + '<small>read this out to your friend</small>';
-      enterRoom(code, true);
+      enterRoom(code);
     });
     el.joinBtn.addEventListener('click', function () {
       var code = (el.joinInput.value || '').trim().toUpperCase();
       if (code.length < 4) { el.coopNote.textContent = 'Enter the room code first.'; return; }
-      enterRoom(code, false);
+      enterRoom(code);
     });
 
     // Debounced: a mobile address bar animating in or out fires this a dozen
@@ -2068,8 +2129,14 @@
       S.paused = document.hidden;
       // Don't keep a scheduler running against a backgrounded tab's throttled
       // clock - it comes back as a burst of stacked-up notes.
-      if (document.hidden) Bgm.stop();
-      else { last = 0; if (!S.userPaused && S.screen !== 'title') Bgm.start(); }
+      if (document.hidden) { Bgm.stop(); return; }
+      last = 0;
+      if (!S.userPaused && S.screen !== 'title') Bgm.start();
+      // A phone drops the socket while locked; pick the room back up.
+      if (coop() && S.roomCode && !Net.room) {
+        S.reconnectTries = 0;
+        connectRoom();
+      }
     });
   }
 
@@ -2165,7 +2232,8 @@
     stationAt: stationAt, standPoint: standPoint,
     setPaused: setPaused, quitToTitle: quitToTitle,
     snapshot: snapshot, applySnapshot: applySnapshot, onCoopMessage: onCoopMessage,
-    leaveCoop: leaveCoop, chefAt: chefAt,
+    leaveCoop: endCoop, endCoop: endCoop, chefAt: chefAt,
+    enterRoom: enterRoom, connectRoom: connectRoom,
     crateRect: crateRect, slotRect: slotRect, plateRect: plateRect,
     hatchRect: hatchRect, binRect: binRect,
     buyUpgrade: buyUpgrade, ticketOf: ticketOf
@@ -2177,6 +2245,9 @@
     init();
   }
 })();
+
+
+
 
 
 

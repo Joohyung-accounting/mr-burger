@@ -1165,6 +1165,111 @@ test('a guest cook keeps moving between snapshots instead of stuttering', functi
   S.role = 'solo'; S.me = 0;
 });
 
+/*
+ * Regression: snapshots stamped the banner with the ever-incrementing snapshot
+ * counter, so every packet looked like a brand new banner and the guest
+ * restarted the pop-in animation 15 times a second. That was the DAY screen
+ * flashing on and off on the phone.
+ */
+test('a banner does not re-trigger on every snapshot', function () {
+  S.role = 'host';
+  startShift(4);                      // startDay raises a "DAY 4" banner
+  pump(0.05);
+  assert.ok(S.banner, 'setup: expected a banner');
+
+  var snaps = [MB.snapshot(), MB.snapshot(), MB.snapshot()];
+  var ids = snaps.map(function (s) { return s.banner && s.banner.n; });
+  assert.strictEqual(new Set(ids).size, 1,
+    'the same banner went out with three different ids: ' + ids.join(', '));
+
+  S.role = 'guest'; S.me = 1; S.lastBannerId = -1;
+  MB.applySnapshot(snaps[0]);
+  var firstT = S.banner.t;
+  pump(0.2);
+  var agedT = S.banner.t;
+  assert.ok(agedT > firstT, 'setup: the banner should be ageing');
+
+  MB.applySnapshot(snaps[1]);
+  MB.applySnapshot(snaps[2]);
+  assert.ok(S.banner.t >= agedT,
+    'the banner restarted its animation on a repeat snapshot');
+  S.role = 'solo'; S.me = 0;
+});
+
+test('a new banner from the host still gets through', function () {
+  S.role = 'host';
+  startShift(4);
+  pump(0.05);
+  var a = MB.snapshot();
+  S.role = 'guest'; S.me = 1; S.lastBannerId = -1;
+  MB.applySnapshot(a);
+  pump(0.3);
+
+  S.role = 'host';
+  MB.state.banner = null;
+  MB.startDay(5);                     // raises a different banner
+  pump(0.05);
+  var b = MB.snapshot();
+  assert.notStrictEqual(b.banner.n, a.banner.n, 'setup: needs a different banner');
+
+  S.role = 'guest'; S.me = 1;
+  MB.applySnapshot(b);
+  assert.ok(S.banner.t < 0.05, 'a genuinely new banner should play from the start');
+  S.role = 'solo'; S.me = 0;
+});
+
+/* ------------------------------------------------------- dropped phones */
+test('a guest dropping does not tear the room down', function () {
+  S.role = 'host';
+  S.roomCode = 'ABCDE';
+  S.coopStarted = true;
+  S.peer = true;
+  startShift(6);
+  pump(2);
+  var day = S.day, sales = S.sales;
+
+  // the DO tells the host its friend went away
+  MB.state.peer = false;
+  var c = MB.chefAt(1);
+  c.target = { kind: 'hatch' };
+
+  // host stays hosting, keeps the kitchen, parks the missing cook
+  assert.strictEqual(S.role, 'host', 'the host should still be hosting');
+  assert.strictEqual(S.chefs.length, 2, 'the missing cook keeps their place');
+  assert.strictEqual(S.day, day);
+  assert.strictEqual(S.sales, sales, 'the shift must not reset');
+  S.role = 'solo'; S.roomCode = null; S.coopStarted = false;
+});
+
+test('a guest tap is ignored when there is no second cook to drive', function () {
+  S.role = 'host';
+  startShift(6);
+  S.chefs.length = 1;                 // mid-teardown state
+  pump(0.05);
+  var mine = MB.chefAt(0);
+  mine.target = null;
+
+  MB.onCoopMessage({ type: 'tap', target: { kind: 'hatch' } });
+  assert.strictEqual(mine.target, null,
+    'a stray guest tap drove the host\'s own cook');
+  S.role = 'solo';
+});
+
+test('ending co-op clears the room so a rejoin starts fresh', function () {
+  S.role = 'guest';
+  S.me = 1;
+  S.roomCode = 'ABCDE';
+  S.reconnectTries = 4;
+  S.coopStarted = true;
+  MB.endCoop('test');
+  assert.strictEqual(S.role, 'solo');
+  assert.strictEqual(S.roomCode, null, 'a stale room code would reconnect us into nothing');
+  assert.strictEqual(S.reconnectTries, 0);
+  assert.strictEqual(S.coopStarted, false, 'otherwise the next room never starts its day');
+  assert.strictEqual(S.chefs.length, 1);
+  assert.strictEqual(S.me, 0);
+});
+
 test('leaving co-op drops back to one cook', function () {
   S.role = 'host';
   startShift(6);
