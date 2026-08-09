@@ -1,0 +1,26 @@
+# Cloudflare Pages headers.
+# The HTML must never be cached hard or a deploy will not reach players;
+# the fingerprint-free JS/CSS get a short cache, art assets a long one.
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: SAMEORIGIN
+
+/
+  Cache-Control: no-cache
+
+/index.html
+  Cache-Control: no-cache
+
+/js/*
+  Cache-Control: public, max-age=600
+
+/css/*
+  Cache-Control: public, max-age=600
+
+/icons/*
+  Cache-Control: public, max-age=2592000
+
+/manifest.json
+  Cache-Control: public, max-age=3600

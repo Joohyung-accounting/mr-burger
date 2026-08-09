@@ -1,0 +1,14 @@
+node_modules/
+android/
+ios/
+*.log
+.DS_Store
+Thumbs.db
+
+# Throwaway screenshot harness
+www/__shot.*
+
+# Signing material - never commit these
+*.keystore
+*.jks
+keystore.properties

@@ -1,0 +1,23 @@
+{
+  "name": "mr-burger",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mr. Burger - build every order exactly right, before the customer walks out.",
+  "scripts": {
+    "dev": "node tools/serve.js",
+    "test": "node test/core.test.js && node test/smoke.test.js",
+    "test:core": "node test/core.test.js",
+    "test:smoke": "node test/smoke.test.js",
+    "icons": "node tools/make-icons.js",
+    "cap:add": "cap add android",
+    "cap:sync": "cap sync android",
+    "cap:assets": "capacitor-assets generate --android",
+    "cap:open": "cap open android"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^7.0.0",
+    "@capacitor/core": "^7.0.0"
+  }
+}

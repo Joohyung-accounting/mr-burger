@@ -1,0 +1,504 @@
+/* Mr. Burger - warm diner shell around the canvas. */
+
+:root {
+  --bg-0: #150e0c;
+  --bg-1: #2a1a15;
+  --surface: rgba(255, 244, 224, 0.06);
+  --line: rgba(255, 224, 186, 0.16);
+  --cream: #fff4e0;
+  --muted: #bda392;
+  --red: #e63946;
+  --mustard: #f4b41a;
+  --green: #6bbf59;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* .cta/.modal set an explicit display, which would otherwise beat the UA's
+   [hidden] rule and leave hidden elements visible. */
+[hidden] { display: none !important; }
+
+html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+
+body {
+  background:
+    radial-gradient(110% 70% at 50% 0%, #4a2a1c 0%, transparent 60%),
+    radial-gradient(90% 60% at 50% 100%, #3a1f18 0%, transparent 65%),
+    linear-gradient(180deg, var(--bg-1) 0%, var(--bg-0) 100%);
+  background-attachment: fixed;
+  color: var(--cream);
+  font-family: "Trebuchet MS", "Segoe UI", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  /* Nothing in the shop scrolls - every gesture is a drag. */
+  touch-action: none;
+}
+
+button { font-family: inherit; color: inherit; cursor: pointer; }
+
+#app {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: calc(var(--safe-t) + 6px) 8px calc(var(--safe-b) + 8px);
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+/* ------------------------------------------------------------------- HUD */
+#hud {
+  display: grid;
+  grid-template-columns: 36px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.icon-btn {
+  width: 34px; height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 15px;
+}
+.icon-btn:active { transform: scale(0.92); }
+
+/* Two bars rather than ⏸ - the emoji is missing on plenty of Android builds. */
+.pause-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.pause-icon i {
+  width: 4px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--cream);
+}
+
+.progress { min-width: 0; }
+.progress-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+.day-tag { font-size: 10px; letter-spacing: 0.18em; color: var(--muted); font-weight: 700; }
+.day-tag b { color: var(--cream); font-size: 13px; }
+.goal-text { font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--muted); }
+.goal-text.met { color: var(--green); }
+
+.goal-bar {
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+#goalFill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--mustard), #ff8c42);
+  transition: width 0.35s cubic-bezier(.2,.8,.3,1);
+}
+#goalFill.met { background: linear-gradient(90deg, var(--green), #a8e063); }
+
+.hearts { display: flex; gap: 2px; font-size: 14px; }
+.hearts .h { transition: transform 0.2s, opacity 0.2s, filter 0.2s; }
+.hearts .h.lost { filter: grayscale(1); opacity: 0.28; transform: scale(0.82); }
+
+/* ------------------------------------------------------------ storefront */
+#spacer {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.shopsign { text-align: center; line-height: 1; opacity: 0.5; }
+.sign-mr {
+  display: block;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.5em;
+  text-indent: 0.5em;
+  color: var(--mustard);
+}
+.sign-burger {
+  display: block;
+  font-size: clamp(18px, 4.6vh, 32px);
+  font-weight: 900;
+  color: var(--cream);
+  text-shadow: 0 2px 0 var(--red), 0 0 22px rgba(230, 57, 70, 0.55);
+  margin: 2px 0 5px;
+}
+.sign-open {
+  display: block;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.28em;
+  color: var(--green);
+  text-shadow: 0 0 10px rgba(107, 191, 89, 0.7);
+}
+
+/* ------------------------------------------------------------ order board */
+.board-wrap {
+  flex: 0 0 auto;
+  margin-top: 6px;
+  padding: 3px 5px 5px;
+  border-radius: 13px;
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid var(--line);
+  box-shadow: inset 0 1px 0 rgba(255, 244, 224, 0.06);
+}
+
+.board-rail {
+  display: flex;
+  justify-content: center;
+  padding: 2px 0 4px;
+}
+.board-rail span {
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
+  color: var(--mustard);
+  text-shadow: 0 0 10px rgba(244, 180, 26, 0.6);
+}
+
+.board { display: flex; gap: 5px; align-items: stretch; }
+
+.ticket {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 2px 5px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255, 244, 224, 0.11), rgba(255, 244, 224, 0.03));
+  border: 1.5px solid transparent;
+  box-shadow: inset 0 0 0 1px var(--line);
+  animation: ticketIn 0.3s cubic-bezier(.2,.9,.3,1.2);
+}
+@keyframes ticketIn { from { transform: translateY(-12px) scale(0.85); opacity: 0; } }
+
+.ticket.empty {
+  background: none;
+  box-shadow: none;
+  border: 1.5px dashed rgba(255, 224, 186, 0.13);
+  animation: none;
+}
+.ticket.pinned { border-color: var(--mustard); background: rgba(244, 180, 26, 0.13); }
+.ticket.rush .who { animation: jitter 0.5s infinite; }
+@keyframes jitter { 0%,100% { transform: translateX(0); } 50% { transform: translateX(1.5px); } }
+
+.ticket .who { font-size: 15px; line-height: 1; }
+.ticket .mini { width: 44px; height: 50px; display: block; }
+.ticket .bar {
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+.ticket .bar i { display: block; height: 100%; border-radius: 999px; background: var(--green); }
+.ticket .bar i.warn { background: var(--mustard); }
+.ticket .bar i.crit { background: var(--red); }
+
+.ticket .pin {
+  position: absolute;
+  top: -6px; right: -5px;
+  min-width: 16px; height: 16px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 900;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: var(--mustard);
+  color: #2a1204;
+  box-shadow: 0 0 9px rgba(244, 180, 26, 0.7);
+}
+.ticket .pin.on { display: flex; }
+
+.ticket.leaving { animation: ticketOut 0.32s ease forwards; }
+@keyframes ticketOut { to { transform: translateY(14px) scale(0.7); opacity: 0; } }
+.ticket.served { animation: ticketServed 0.32s ease forwards; }
+@keyframes ticketServed { to { transform: translateY(-16px) scale(0.75); opacity: 0; } }
+
+/* --------------------------------------------------------------- kitchen */
+/* The kitchen takes the room that is going spare; layout() scales the whole
+   set of stations to fit rather than just stretching the floor, so a taller
+   phone gets a bigger kitchen and not a longer walk. */
+#stage {
+  flex: 6 1 0;
+  width: 100%;
+  min-height: 250px;
+  max-height: 560px;
+  display: block;
+  touch-action: none;
+  margin-top: 7px;
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 244, 224, 0.05), rgba(0, 0, 0, 0.25));
+  box-shadow: inset 0 0 0 1px var(--line), 0 8px 26px rgba(0, 0, 0, 0.45);
+}
+
+/* --------------------------------------------------------------- modals */
+.modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(12, 7, 5, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s ease;
+  z-index: 10;
+  overflow-y: auto;
+}
+.modal.show { opacity: 1; pointer-events: auto; }
+
+.sheet {
+  width: 100%;
+  max-width: 360px;
+  text-align: center;
+  border-radius: 22px;
+  padding: 22px 20px 18px;
+  background: linear-gradient(180deg, #40261d, #1e120e);
+  border: 1px solid rgba(244, 180, 26, 0.3);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.7);
+  animation: rise 0.28s cubic-bezier(.2,.9,.3,1.1);
+  margin: auto;
+}
+.sheet.wide { max-width: 400px; }
+@keyframes rise { from { transform: translateY(18px) scale(0.96); opacity: 0; } }
+
+.logo-wrap { line-height: 0.86; }
+.logo-mr {
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 0.42em;
+  color: var(--mustard);
+  text-indent: 0.42em;
+}
+.logo-burger {
+  font-size: clamp(40px, 15vw, 58px);
+  font-weight: 900;
+  letter-spacing: -0.015em;
+  color: var(--cream);
+  text-shadow: 0 3px 0 var(--red), 0 6px 18px rgba(230, 57, 70, 0.5);
+}
+.tag { margin: 14px 0 18px; color: var(--muted); font-size: 12.5px; font-weight: 600; }
+
+.sheet-title {
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 0.2em;
+  color: var(--mustard);
+  margin-bottom: 14px;
+}
+.sheet-title.bad { color: var(--red); }
+
+.cta {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 14px;
+  border: none;
+  border-radius: 14px;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 0.11em;
+  color: #2a1204;
+  background: linear-gradient(120deg, var(--mustard), #ff9f1c);
+  box-shadow: 0 5px 0 #a8730c;
+}
+.cta:active { transform: translateY(3px); box-shadow: 0 2px 0 #a8730c; }
+.cta:disabled { opacity: 0.4; box-shadow: none; }
+.cta.alt {
+  color: var(--cream);
+  background: rgba(255, 244, 224, 0.09);
+  border: 1px solid rgba(244, 180, 26, 0.45);
+  box-shadow: none;
+  font-size: 12.5px;
+}
+.cta.alt:active { transform: translateY(2px); }
+
+.pause-line {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.pause-line b { color: var(--cream); }
+
+.linkbtn {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.rules {
+  margin: 18px 0 0;
+  padding-left: 18px;
+  text-align: left;
+  display: grid;
+  gap: 8px;
+}
+.rules li { font-size: 11.5px; line-height: 1.45; color: var(--muted); }
+.rules b { color: var(--cream); }
+
+/* -------------------------------------------------------------- receipt */
+.receipt {
+  text-align: left;
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px dashed var(--line);
+}
+.line {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  padding: 3px 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.line b { color: var(--cream); font-weight: 800; }
+.line.total { border-top: 1px solid var(--line); margin-top: 5px; padding-top: 7px; }
+.line.rent b { color: var(--red); }
+.line.net { border-top: 1px solid var(--line); margin-top: 5px; padding-top: 7px; font-size: 13px; }
+.line.net b { color: var(--green); font-size: 15px; }
+
+.stats-row { display: flex; gap: 7px; margin: 14px 0 4px; }
+.chip {
+  flex: 1;
+  border-radius: 11px;
+  padding: 8px 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.chip span { display: block; font-size: 19px; font-weight: 900; }
+.chip small { display: block; font-size: 7.5px; letter-spacing: 0.12em; color: var(--muted); margin-top: 2px; }
+
+.note { font-size: 11.5px; line-height: 1.5; color: var(--muted); margin-top: 12px; }
+.note.big { font-size: 13px; color: var(--cream); }
+
+/* ---------------------------------------------------------------- shop */
+.wallet {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+.wallet b { display: block; font-size: 26px; letter-spacing: 0; color: var(--green); margin-top: 2px; }
+
+.unlock-box {
+  border-radius: 12px;
+  padding: 10px;
+  margin-bottom: 12px;
+  background: rgba(244, 180, 26, 0.12);
+  border: 1px solid rgba(244, 180, 26, 0.35);
+}
+.unlock-title { font-size: 9px; letter-spacing: 0.16em; font-weight: 900; color: var(--mustard); }
+.unlock-list { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 8px; }
+.unlock-list .u { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.unlock-list canvas { width: 64px; height: 34px; }
+.unlock-list .n { font-size: 9px; font-weight: 700; color: var(--cream); }
+
+.upgrade-list { display: grid; gap: 6px; }
+.upg {
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  text-align: left;
+  border-radius: 11px;
+  padding: 7px 9px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.upg .uicon { font-size: 18px; text-align: center; }
+.upg b { display: block; font-size: 11.5px; }
+.upg small { display: block; font-size: 9px; color: var(--muted); margin-top: 1px; }
+.pips { display: flex; gap: 3px; margin-top: 4px; }
+.pips i { width: 12px; height: 4px; border-radius: 2px; background: rgba(255, 244, 224, 0.18); }
+.pips i.on { background: var(--mustard); }
+.ubuy {
+  border: none;
+  border-radius: 9px;
+  padding: 7px 9px;
+  font-size: 11px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  color: #2a1204;
+  background: var(--mustard);
+}
+.ubuy:disabled { background: rgba(255, 244, 224, 0.12); color: var(--muted); }
+.ubuy.maxed { background: none; color: var(--green); border: 1px solid var(--green); }
+
+.next-kitchen {
+  margin-top: 13px;
+  padding: 8px 6px;
+  border-radius: 10px;
+  background: rgba(255, 244, 224, 0.05);
+  border: 1px solid var(--line);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.next-kitchen span {
+  display: block;
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  font-weight: 900;
+  color: var(--mustard);
+  margin-bottom: 3px;
+}
+.next-kitchen b { color: var(--cream); font-size: 12px; }
+.next-kitchen em {
+  font-style: normal;
+  font-weight: 900;
+  font-size: 9px;
+  color: var(--green);
+}
+
+.next-line { font-size: 11px; color: var(--muted); margin-top: 10px; }
+.next-line b { color: var(--red); font-weight: 900; }
+
+/* Below this the spacer has collapsed to nothing worth decorating. */
+@media (max-height: 800px) { .shopsign { display: none; } }
+
+@media (max-height: 700px) {
+  .ticket .mini { width: 38px; height: 42px; }
+  .ticket .who { font-size: 13px; }
+  #stage { min-height: 220px; }
+}
+
+.ticket .pin { display: none; }   /* tickets are matched at the hatch now */

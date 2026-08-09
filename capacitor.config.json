@@ -1,0 +1,23 @@
+{
+  "appId": "com.mrburger.game",
+  "appName": "Mr. Burger",
+  "webDir": "www",
+  "backgroundColor": "#150e0cff",
+  "android": {
+    "backgroundColor": "#150e0cff",
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 900,
+      "launchAutoHide": true,
+      "backgroundColor": "#150e0cff",
+      "androidScaleType": "CENTER_CROP",
+      "showSpinner": false,
+      "splashFullScreen": true,
+      "splashImmersiveType": true
+    }
+  }
+}

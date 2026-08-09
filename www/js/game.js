@@ -1,0 +1,1643 @@
+/*
+ * Mr. Burger - the kitchen.
+ *
+ * The whole game is one room. Stations live at fixed places on the floor and the
+ * chef has to walk to them, so the difficulty is routing and timing, not memory.
+ *
+ *   crates (top wall)  ->  grill (left wall)  ->  plates (right wall)  ->  hatch
+ *
+ * One rule covers every station: empty hands TAKE, full hands GIVE.
+ *
+ * Rules and money live in core.js; food is drawn by art.js.
+ */
+(function () {
+  'use strict';
+
+  var Core = window.Core, Art = window.Art, Sfx = window.Sfx, Bgm = window.Bgm;
+  var SAVE_KEY = 'mb_save_v2';
+
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  function rnd(a, b) { return a + Math.random() * (b - a); }
+  function dist(ax, ay, bx, by) { return Math.hypot(ax - bx, ay - by); }
+  function easeOutBack(t) {
+    var c1 = 1.70158, c3 = c1 + 1;
+    return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+  }
+  function buzz(ms) {
+    if (!S.muted && navigator.vibrate) { try { navigator.vibrate(ms); } catch (e) {} }
+  }
+
+  var VERDICT = {
+    perfect: { text: 'PERFECT!', color: '#6bbf59' },
+    great: { text: 'GREAT', color: '#a8e063' },
+    good: { text: 'GOOD', color: '#f4b41a' },
+    meh: { text: 'THEY\'LL TAKE IT', color: '#ff9f1c' },
+    bad: { text: 'SENT IT BACK!', color: '#e63946' }
+  };
+
+  /* ----------------------------------------------------------------- state */
+  var cv, ctx, L = {}, el = {};
+  var uid = 0;
+
+  var S = {
+    screen: 'title',
+    day: 1, bestDay: 1, money: 0, levels: {}, muted: false,
+    fx: Core.effects({}),
+
+    hearts: 5, sales: 0, tips: 0, served: 0, walked: 0, perfect: 0,
+    spawned: 0, spawnTimer: 0, cfg: null, rent: 0, menu: [],
+
+    tickets: [],   // { uid, arch, items, patience, max, node, barEl }
+    plates: [],    // { stack: [{id, cook}] }
+    grill: [],     // { id, t } | null
+    chef: {
+      x: 0, y: 0, tx: 0, ty: 0, target: null, holding: null,
+      phase: 0, face: 1, blink: 0, blinkIn: 2, hop: 0
+    },
+
+    floats: [], sparks: [], banner: null, shake: 0,
+    flyers: [], cratePop: [],
+    musicTimer: 0,
+    paused: false,       // tab hidden
+    userPaused: false    // pause menu open
+  };
+
+  /* ----------------------------------------------------------- persistence */
+  function save() {
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify({
+        day: S.day, bestDay: S.bestDay, money: S.money, levels: S.levels, muted: S.muted
+      }));
+    } catch (e) { /* private mode: play without persistence */ }
+  }
+
+  function load() {
+    try {
+      var d = JSON.parse(localStorage.getItem(SAVE_KEY));
+      if (!d || typeof d.day !== 'number' || d.day < 1) return null;
+      return d;
+    } catch (e) { return null; }
+  }
+
+  function wipe() { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} }
+
+  /* --------------------------------------------------------------- palette */
+  /* The app chrome is dark; the kitchen itself is a bright little room lit
+     from above. Food art reads far better against cream than against brown. */
+  /*
+   * Everything in the room is a slab: a top face with a darker side face
+   * peeking out below it. Cheap fake 3D, but with contact shadows and a rim
+   * light it reads as a chunky little kitchen rather than flat rectangles.
+   */
+  var K = {
+    wallA: '#fdf5e9', wallB: '#f0e0c8',
+    wallTile: 'rgba(150,110,80,0.07)',
+    floorA: '#f8e9d3', floorB: '#e9cfae',
+    counterTop: '#e4c496', counterTop2: '#d2ad7c', counterSide: '#a97d4e',
+    // open crates on the line, contents stacked inside
+    boxTop: '#d9a35f', boxTop2: '#bb8140', boxSide: '#8d5c26',
+    boxIn: '#a5763f', boxIn2: '#7a5225',
+    boxFront: '#e8bd83', boxFront2: '#cd9a5b',
+    grillTop: '#57403a', grillTop2: '#3d2b26', grillSide: '#241713',
+    plateTop: '#fffaf1', plateTop2: '#f0e5d6', plateSide: '#c9b499',
+    hatchTop: '#fff6e4', hatchTop2: '#f6e3c2', hatchSide: '#c8a878',
+    hatchGoTop: '#d6f2cf', hatchGoTop2: '#b3e2ac', hatchGoSide: '#6ba364',
+    shadow: 'rgba(95,62,42,0.30)',
+    edge: 'rgba(120,80,50,0.32)',
+    ink: '#6f4a33',
+    inkSoft: 'rgba(111,74,51,0.55)',
+    hot: '#e2704f',
+    go: '#4fa860',
+    pick: '#f0a81e'
+  };
+
+  var DEPTH = { counter: 10, crate: 7, grill: 11, plate: 10, hatch: 11 };
+
+  /* ---------------------------------------------------------------- layout */
+  // The whole line lives on one shelf: eight boxes side by side beats three
+  // labelled rows, and the boxes get tall enough to look like boxes.
+  var CRATE_H = 80, GAP = 6, HATCH_H = 46;
+  var SLOT_H = 42, PLATE_H = 50, CHEF_S = 54;
+
+  function menuLen() { return (S.menu && S.menu.length) || 1; }
+
+  /** The height the room needs at its most compact, before any growing. */
+  function compactHeight() {
+    var gN = S.grill.length || 2, pN = S.plates.length || 2;
+    return 8 + CRATE_H + 12
+      + Math.max(150, gN * SLOT_H + (gN - 1) * GAP, pN * PLATE_H + (pN - 1) * GAP)
+      + 10 + HATCH_H + 8;
+  }
+
+  function resize() {
+    var w = cv.clientWidth, h = cv.clientHeight;
+    if (!w || !h) return;
+    var dpr = Math.min(window.devicePixelRatio || 1, 3);
+    cv.width = Math.round(w * dpr);
+    cv.height = Math.round(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    layout();
+  }
+
+  function layout() {
+    var W = cv.clientWidth, H = cv.clientHeight;
+    L.W = W; L.H = H;
+    L.pad = 8;
+
+    /* The whole room scales to the screen rather than just stretching the
+       floor: a big phone would otherwise mean a longer walk, and a small one
+       would squeeze the stations out of existence between the shelves and
+       the hatch. */
+    var k = clamp(H / compactHeight(), 0.72, 1.5);
+    var gap = GAP * k;
+    L.gap = gap;
+    L.k = k;
+    L.chefS = CHEF_S * k;      // the cook grows with the room, not against it
+
+    /* --- the line along the top wall: every box on one shelf, sized to fit.
+       dayMenu() already returns buns, then toppings, then sauces, so the row
+       stays organised left to right without needing labelled sections. */
+    var n = menuLen();
+    L.crateH = CRATE_H * k;
+    var boxGap = Math.min(gap, (W - L.pad * 2) * 0.02);
+    L.crateW = (W - L.pad * 2 - boxGap * (n - 1)) / n;
+    L.crates = [];
+    var y = L.pad + 4;
+    for (var c = 0; c < n; c++) {
+      L.crates[c] = { x: L.pad + c * (L.crateW + boxGap), y: y, w: L.crateW, h: L.crateH };
+    }
+    L.cratesBottom = y + L.crateH;
+    // one counter run, bleeding off both edges of the room
+    L.counters = [{ x: -8, y: L.pad - 3, w: W + 16, h: L.crateH + 12 }];
+
+    // --- serving hatch and bin along the bottom wall
+    L.hatchH = HATCH_H * k;
+    L.hatchY = H - L.pad - L.hatchH;
+    L.binW = 52 * k;
+    L.binX = L.pad;
+    L.hatchX = L.pad + L.binW + gap;
+    L.hatchW = W - L.pad * 2 - L.binW - gap;
+
+    // --- grill on the left wall, plates on the right
+    L.midTop = L.cratesBottom + 10 * k;
+    L.midBottom = L.hatchY - 10 * k;
+    L.colW = clamp(W * 0.19, 62, 92);
+    L.grillX = L.pad;
+    L.plateX = W - L.pad - L.colW;
+
+    var midH = L.midBottom - L.midTop;
+    var gN = S.grill.length || 2, pN = S.plates.length || 2;
+    L.slotH = Math.min(SLOT_H * k, (midH - gap * (gN - 1)) / gN);
+    L.plateH = Math.min(PLATE_H * k, (midH - gap * (pN - 1)) / pN);
+    L.grillTop = L.midTop + (midH - (gN * L.slotH + (gN - 1) * gap)) / 2;
+    L.plateTop = L.midTop + (midH - (pN * L.plateH + (pN - 1) * gap)) / 2;
+
+    // --- the walkable floor
+    L.floor = {
+      x0: L.grillX + L.colW + 16,
+      x1: L.plateX - 16,
+      y0: L.cratesBottom + 16,
+      y1: L.hatchY - 14
+    };
+
+    if (!S.chef.x) {
+      S.chef.x = (L.floor.x0 + L.floor.x1) / 2;
+      S.chef.y = (L.floor.y0 + L.floor.y1) / 2;
+      S.chef.tx = S.chef.x; S.chef.ty = S.chef.y;
+    }
+  }
+
+  function crateRect(i) {
+    return L.crates[i] || { x: 0, y: 0, w: 0, h: 0 };
+  }
+
+  function slotRect(i) {
+    return { x: L.grillX, y: L.grillTop + i * (L.slotH + L.gap), w: L.colW, h: L.slotH };
+  }
+
+  function plateRect(i) {
+    return { x: L.plateX, y: L.plateTop + i * (L.plateH + L.gap), w: L.colW, h: L.plateH };
+  }
+
+  function hatchRect() { return { x: L.hatchX, y: L.hatchY, w: L.hatchW, h: L.hatchH }; }
+  function binRect() { return { x: L.binX, y: L.hatchY, w: L.binW, h: L.hatchH }; }
+
+  /** Where the chef stands to work a station - always inside the floor. */
+  function standPoint(t) {
+    var f = L.floor, r;
+    if (t.kind === 'crate') {
+      r = crateRect(t.i);
+      return { x: clamp(r.x + r.w / 2, f.x0, f.x1), y: f.y0 };
+    }
+    if (t.kind === 'grill') {
+      r = slotRect(t.i);
+      return { x: f.x0, y: clamp(r.y + r.h / 2, f.y0, f.y1) };
+    }
+    if (t.kind === 'plate') {
+      r = plateRect(t.i);
+      return { x: f.x1, y: clamp(r.y + r.h / 2, f.y0, f.y1) };
+    }
+    if (t.kind === 'hatch') {
+      r = hatchRect();
+      return { x: clamp(r.x + r.w / 2, f.x0, f.x1), y: f.y1 };
+    }
+    if (t.kind === 'bin') {
+      r = binRect();
+      return { x: clamp(r.x + r.w / 2, f.x0, f.x1), y: f.y1 };
+    }
+    return { x: clamp(t.x, f.x0, f.x1), y: clamp(t.y, f.y0, f.y1) };
+  }
+
+  /** Which station is under this canvas point? */
+  function stationAt(x, y) {
+    function inside(r) { return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h; }
+    var i;
+    for (i = 0; i < menuLen(); i++) if (inside(crateRect(i))) return { kind: 'crate', i: i };
+    for (i = 0; i < S.grill.length; i++) if (inside(slotRect(i))) return { kind: 'grill', i: i };
+    for (i = 0; i < S.plates.length; i++) if (inside(plateRect(i))) return { kind: 'plate', i: i };
+    if (inside(hatchRect())) return { kind: 'hatch' };
+    if (inside(binRect())) return { kind: 'bin' };
+    return { kind: 'floor', x: x, y: y };
+  }
+
+  /* ------------------------------------------------------------------- fx */
+  function float(text, x, y, color, size) {
+    S.floats.push({ text: text, x: x, y: y, color: color || '#fff4e0', size: size || 14, t: 0, max: 1.05 });
+  }
+
+  function banner(title, sub, color) {
+    S.banner = { title: title, sub: sub || '', color: color || '#fff4e0', t: 0, max: 1.3 };
+  }
+
+  function spark(x, y, n, color, kind) {
+    for (var i = 0; i < n; i++) {
+      if (S.sparks.length > 300) return;
+      var steam = kind === 'steam';
+      S.sparks.push({
+        kind: kind || 'spark',
+        x: x + rnd(-8, 8), y: y,
+        vx: steam ? rnd(-9, 9) : rnd(-40, 40),
+        vy: steam ? rnd(-34, -18) : rnd(-90, -26),
+        t: 0,
+        max: steam ? rnd(0.9, 1.5) : rnd(0.3, 0.7),
+        size: steam ? rnd(3.5, 6.5) : rnd(1.2, 2.8),
+        color: color || 'rgba(255,225,170,0.95)'
+      });
+    }
+  }
+
+  /**
+   * Lift an item out of its box: the box recoils, the item arcs across to the
+   * cook. Purely cosmetic - the game state already changed - but the hands stay
+   * empty until it lands, so the two never show the same thing twice.
+   */
+  function pullFromBox(index, id) {
+    var r = crateRect(index);
+    if (!r || !r.w) return;
+    var cs = L.chefS || CHEF_S;
+    S.cratePop[index] = 1;
+    S.flyers.push({
+      id: id,
+      done: Core.byId(id) && Core.byId(id).grill ? 0 : undefined,
+      char: 0,
+      x0: r.x + r.w / 2, y0: r.y + r.h * 0.42,
+      x1: S.chef.x, y1: S.chef.y - cs * 0.22,
+      // ends at exactly the size the hands will hold it, so nothing jumps
+      w: cs * 0.76, lift: 24, spin: 1,
+      t: 0, max: 0.26
+    });
+  }
+
+  function nope(msg) {
+    if (msg) float(msg, S.chef.x, S.chef.y - CHEF_S - 14, '#d1493a', 12);
+    Sfx.reject();
+  }
+
+  /* --------------------------------------------------------------- tickets */
+  function ticketOf(id) {
+    for (var i = 0; i < S.tickets.length; i++) if (S.tickets[i].uid === id) return S.tickets[i];
+    return null;
+  }
+
+  function spawnTicket() {
+    var arch = Core.pickCustomer(S.day, Math.random);
+    var order = Core.makeOrder(S.day, Math.random, arch);
+    var secs = S.cfg.patience * arch.patience;
+    S.tickets.push({
+      uid: ++uid, arch: arch, items: order.items,
+      patience: secs, max: secs, tick: 0
+    });
+    S.spawned++;
+    Sfx.doorbell();
+    renderBoard();
+  }
+
+  function dropTicket(t, cssClass) {
+    if (t.node) t.node.classList.add(cssClass || 'leaving');
+    var i = S.tickets.indexOf(t);
+    if (i >= 0) S.tickets.splice(i, 1);
+    setTimeout(renderBoard, 320);
+  }
+
+  function walkout(t) {
+    S.walked++;
+    S.hearts--;
+    dropTicket(t);
+    banner('WALKED OUT', t.arch.name + ' gave up waiting', '#e63946');
+    S.shake = 14;
+    Sfx.walkout();
+    buzz([30, 40, 60]);
+    syncHud();
+    if (S.hearts <= 0) endDay();
+  }
+
+  /* -------------------------------------------------------------- day loop */
+  function startDay(day) {
+    hideModal(el.dayEnd);
+    hideModal(el.shop);
+    hideModal(el.over);
+    hideModal(el.pause);
+    S.userPaused = false;
+
+    S.day = day;
+    S.cfg = Core.dayConfig(day);
+    S.rent = Core.dayGoal(day);
+    S.fx = Core.effects(S.levels, day);
+    S.menu = Core.dayMenu(day);
+    S.sections = Core.menuSections(day);
+
+    S.hearts = Core.START_HEARTS;
+    S.sales = 0; S.tips = 0; S.served = 0; S.walked = 0; S.perfect = 0;
+    S.spawned = 0; S.spawnTimer = 1.2;
+    S.tickets = [];
+    S.plates = [];
+    for (var i = 0; i < S.fx.plates; i++) S.plates.push({ stack: [] });
+    S.grill = new Array(S.fx.grillSlots).fill(null);
+    S.chef.holding = null;
+    S.chef.target = null;
+    S.chef.x = 0;                       // re-centred by layout()
+    S.floats.length = 0;
+    S.sparks.length = 0;
+    S.flyers.length = 0;
+    S.cratePop = [];
+    S.banner = null;
+    S.screen = 'service';
+
+    resize();
+    renderBoard();
+    syncHud();
+    banner('DAY ' + day, 'RENT ' + Core.money(S.rent), '#f4b41a');
+  }
+
+  function endDay() {
+    if (S.screen !== 'service') return;
+    S.screen = 'dayEnd';
+    S.chef.target = null;
+    S.userPaused = false;
+    hideModal(el.pause);
+    var total = S.sales + S.tips;
+    var ranOut = S.hearts <= 0;
+    var passed = !ranOut && total >= S.rent;
+
+    if (passed) {
+      S.money += total - S.rent;
+      S.bestDay = Math.max(S.bestDay, S.day);
+      save();
+      Sfx.fanfare();
+    } else {
+      Sfx.fail();
+    }
+    showDayEnd(passed, ranOut, total);
+  }
+
+  /* ------------------------------------------------------------- pause menu */
+  function setPaused(on) {
+    if (S.screen !== 'service' && on) return;
+    S.userPaused = !!on;
+    if (S.userPaused) {
+      S.chef.target = null;          // don't let a queued walk resolve later
+      Bgm.stop();
+      el.pauseDay.textContent = S.day;
+      el.pauseEarned.textContent = Core.money(S.sales + S.tips);
+      el.pauseRent.textContent = Core.money(S.rent);
+      el.pauseSoundBtn.textContent = 'SOUND: ' + (S.muted ? 'OFF' : 'ON');
+      showModal(el.pause);
+      Sfx.tap();
+    } else {
+      hideModal(el.pause);
+      Bgm.start();
+      last = 0;                      // don't hand the loop a huge dt
+    }
+  }
+
+  function quitToTitle() {
+    setPaused(false);
+    Bgm.stop();
+    S.screen = 'title';
+    S.tickets = [];
+    S.chef.holding = null;
+    S.chef.target = null;
+    renderBoard();
+    var saved = load();
+    el.continueBtn.hidden = !saved;
+    if (saved) el.continueDay.textContent = saved.day;
+    showModal(el.start);
+  }
+
+  /* -------------------------------------------------------- the chef works */
+  function sendChef(target) {
+    if (S.screen !== 'service') return;
+    S.chef.target = target;
+    var p = standPoint(target);
+    S.chef.tx = p.x;
+    S.chef.ty = p.y;
+  }
+
+  /** Fired when the chef reaches whatever the player tapped. */
+  function arrive(t) {
+    var hold = S.chef.holding;
+
+    if (t.kind === 'crate') {
+      var id = S.menu[t.i];
+      if (hold) { nope('HANDS FULL'); return; }
+      // No `cook` yet: that absence is what stops a raw patty reaching a plate.
+      S.chef.holding = { kind: 'ing', id: id, done: 0, char: 0 };
+      pullFromBox(t.i, id);
+      Sfx.lift();
+      buzz(8);
+      return;
+    }
+
+    if (t.kind === 'grill') {
+      var g = S.grill[t.i];
+      if (hold && hold.kind === 'ing' && Core.byId(hold.id) && Core.byId(hold.id).grill) {
+        if (g) { nope('BURNER BUSY'); return; }
+        S.grill[t.i] = { id: hold.id, t: 0 };
+        S.chef.holding = null;
+        Sfx.sizzle();
+        buzz(12);
+        return;
+      }
+      if (!hold && g) {
+        var q = Core.cookQuality(g.t, S.fx.perfectWindow);
+        var stage = Core.cookStage(g.t, S.fx.perfectWindow);
+        var look = Core.cookLook(g.t, S.fx.perfectWindow);
+        S.chef.holding = { kind: 'ing', id: g.id, cook: q, done: look.done, char: look.char };
+        S.grill[t.i] = null;
+        var r = slotRect(t.i);
+        if (stage === 'perfect') {
+          float('PERFECT SEAR', r.x + r.w / 2 + 34, r.y, K.go, 12);
+          spark(r.x + r.w / 2, r.y + r.h / 2, 12, 'rgba(120,220,120,0.95)');
+          Sfx.perfect();
+          buzz(20);
+        } else if (stage === 'burnt') {
+          float('BURNT', r.x + r.w / 2 + 30, r.y, '#d1493a', 12);
+          Sfx.burnt();
+        } else {
+          float(stage === 'raw' ? 'UNDERDONE' : 'OVERDONE', r.x + r.w / 2 + 34, r.y,
+            stage === 'raw' ? '#3d7fbf' : '#e08c10', 11);
+          Sfx.thud();
+        }
+        return;
+      }
+      nope(hold ? 'THAT DOESN\'T GRILL' : 'BURNER IS EMPTY');
+      return;
+    }
+
+    if (t.kind === 'plate') {
+      var p = S.plates[t.i];
+      if (hold && hold.kind === 'ing') {
+        if (Core.byId(hold.id).grill && hold.cook === undefined) {
+          nope('GRILL IT FIRST');
+          return;
+        }
+        p.stack.push({
+          id: hold.id,
+          cook: hold.cook === undefined ? 1 : hold.cook,
+          done: hold.done, char: hold.char      // how it should look, not what it scores
+        });
+        S.chef.holding = null;
+        var ing = Core.byId(hold.id);
+        if (ing && ing.kind === 'sauce') Sfx.squirt(); else Sfx.stack(p.stack.length);
+        buzz(8);
+        return;
+      }
+      if (hold && hold.kind === 'plate') {
+        if (p.stack.length) { nope('PLATE IN USE'); return; }
+        p.stack = hold.stack;
+        S.chef.holding = null;
+        Sfx.tap();
+        return;
+      }
+      if (!hold && p.stack.length) {
+        S.chef.holding = { kind: 'plate', stack: p.stack };
+        p.stack = [];
+        Sfx.lift();
+        buzz(10);
+        return;
+      }
+      nope('NOTHING ON THAT PLATE');
+      return;
+    }
+
+    if (t.kind === 'hatch') {
+      if (!hold || hold.kind !== 'plate') { nope('CARRY A PLATE OVER'); return; }
+      deliver(hold.stack);
+      S.chef.holding = null;
+      return;
+    }
+
+    if (t.kind === 'bin') {
+      if (!hold) { nope('NOTHING TO BIN'); return; }
+      S.chef.holding = null;
+      float('BINNED', binRect().x + binRect().w / 2, L.hatchY - 16, K.ink, 12);
+      Sfx.trash();
+      return;
+    }
+  }
+
+  /* --------------------------------------------------------------- serving */
+  function deliver(stack) {
+    if (!S.tickets.length) { nope('NO ORDERS UP'); return; }
+    var t = Core.bestMatch(S.tickets, stack);
+
+    var res = Core.payout({
+      orderItems: t.items,
+      built: stack,
+      patienceRatio: t.patience / t.max,
+      customer: t.arch,
+      tipMult: S.fx.tipMult
+    });
+
+    S.sales += res.pay;
+    S.tips += res.tip;
+    S.hearts -= res.heartLoss;
+    if (res.verdict === 'perfect') S.perfect++;
+    if (res.verdict !== 'bad') S.served++;
+
+    var v = VERDICT[res.verdict];
+    // On anything short of great, name the worst thing wrong with it - a
+    // rejected plate with no explanation just reads as the game being unfair.
+    var worst = res.faults && res.faults.length ? res.faults[0] : null;
+    var sub;
+    if (res.total > 0) {
+      sub = (worst && res.verdict !== 'perfect' && res.verdict !== 'great')
+        ? t.arch.emoji + '  ' + worst.label + '  ·  ' + Core.money(res.total)
+        : t.arch.emoji + '  ' + Core.money(res.pay) + ' + ' + Core.money(res.tip) + ' tip';
+    } else {
+      sub = t.arch.emoji + '  ' + (worst ? worst.label : 'no sale');
+    }
+    banner(v.text, sub, v.color);
+
+    var h = hatchRect();
+    if (res.total > 0) {
+      float('+' + Core.money(res.total), h.x + h.w / 2, h.y - 22, K.go, 18);
+      spark(h.x + h.w / 2, h.y - 8, 18, 'rgba(240,168,30,0.95)');
+      Sfx.register();
+      buzz(res.verdict === 'perfect' ? [15, 25, 35] : 15);
+    } else {
+      S.shake = 16;
+      Sfx.buzzer();
+      buzz([50, 40, 50]);
+    }
+
+    dropTicket(t, 'served');
+    syncHud();
+
+    if (S.hearts <= 0) { endDay(); return; }
+    if (S.spawned >= S.cfg.customers && S.tickets.length === 0) endDay();
+  }
+
+  /* --------------------------------------------------------------- update */
+  function update(dt) {
+    var i;
+
+    for (i = S.floats.length - 1; i >= 0; i--) {
+      S.floats[i].t += dt;
+      S.floats[i].y -= 28 * dt;
+      if (S.floats[i].t >= S.floats[i].max) S.floats.splice(i, 1);
+    }
+    for (i = S.sparks.length - 1; i >= 0; i--) {
+      var p = S.sparks[i];
+      p.t += dt;
+      if (p.kind === 'steam') { p.vy *= 0.985; p.vx *= 0.98; }
+      else { p.vy += 210 * dt; }
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      if (p.t >= p.max) S.sparks.splice(i, 1);
+    }
+    if (S.banner) {
+      S.banner.t += dt;
+      if (S.banner.t >= S.banner.max) S.banner = null;
+    }
+    S.shake = Math.max(0, S.shake - dt * 42);
+
+    for (i = S.flyers.length - 1; i >= 0; i--) {
+      var fl = S.flyers[i];
+      fl.t += dt;
+      // chase the cook, who is usually still walking
+      fl.x1 = S.chef.x;
+      fl.y1 = S.chef.y - (L.chefS || CHEF_S) * 0.22;
+      if (fl.t >= fl.max) S.flyers.splice(i, 1);
+    }
+    for (i = 0; i < S.cratePop.length; i++) {
+      if (S.cratePop[i] > 0) S.cratePop[i] = Math.max(0, S.cratePop[i] - dt * 4.5);
+    }
+
+    // --- walk
+    var c = S.chef;
+    c.blinkIn -= dt;
+    if (c.blinkIn <= 0) { c.blink = 1; c.blinkIn = rnd(2.6, 6.0); }
+    c.blink = Math.max(0, c.blink - dt * 7);
+    c.hop = Math.max(0, c.hop - dt * 5);
+
+    var dx = c.tx - c.x, dy = c.ty - c.y;
+    var d = Math.hypot(dx, dy);
+    if (d > 1.5) {
+      var step = Math.min(d, S.fx.speed * dt);
+      c.x += (dx / d) * step;
+      c.y += (dy / d) * step;
+      c.phase = (c.phase + dt * 2.6) % 1;
+      if (Math.abs(dx) > 2) c.face = dx > 0 ? 1 : -1;
+    } else {
+      c.phase = 0;
+      if (c.target) {
+        var t = c.target;
+        c.target = null;
+        c.hop = 1;                       // little bounce on arrival
+        arrive(t);
+      }
+    }
+
+    if (S.screen !== 'service') return;
+
+    for (i = 0; i < S.grill.length; i++) {
+      if (S.grill[i]) {
+        S.grill[i].t += dt;
+        var r = slotRect(i);
+        if (Math.random() < dt * 5) {
+          spark(r.x + r.w * 0.5, r.y + r.h * 0.45, 1, 'rgba(255,190,120,0.75)');
+        }
+        if (Math.random() < dt * 3.5) {
+          spark(r.x + r.w * 0.5, r.y + r.h * 0.3, 1, 'rgba(255,255,255,0.5)', 'steam');
+        }
+      }
+    }
+
+    if (S.spawned < S.cfg.customers && S.tickets.length < S.cfg.concurrent) {
+      S.spawnTimer -= dt;
+      if (S.spawnTimer <= 0) {
+        spawnTicket();
+        S.spawnTimer = rnd(S.cfg.spawnMin, S.cfg.spawnMax);
+      }
+    }
+
+    for (i = S.tickets.length - 1; i >= 0; i--) {
+      var tk = S.tickets[i];
+      tk.patience -= dt;
+      var ratio = tk.patience / tk.max;
+      if (ratio < 0.25) {
+        tk.tick -= dt;
+        if (tk.tick <= 0) { Sfx.warn(); tk.tick = ratio < 0.12 ? 0.34 : 0.7; }
+      }
+      if (tk.patience <= 0) walkout(tk);
+    }
+
+    // The backing track leans on how close the board is to boiling over:
+    // how full it is, and how near the worst ticket is to walking.
+    S.musicTimer -= dt;
+    if (S.musicTimer <= 0) {
+      S.musicTimer = 0.5;
+      var full = S.tickets.length / Math.max(1, S.cfg.concurrent);
+      var worst = 0;
+      for (i = 0; i < S.tickets.length; i++) {
+        worst = Math.max(worst, 1 - S.tickets[i].patience / S.tickets[i].max);
+      }
+      Bgm.setIntensity(full * 0.45 + worst * 0.55);
+    }
+
+    updateBoardBars();
+  }
+
+  /* ----------------------------------------------------------------- draw */
+  function label(text, cx, y, color, size, align) {
+    ctx.save();
+    ctx.textAlign = align || 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '900 ' + (size || 8) + 'px "Trebuchet MS", system-ui, sans-serif';
+    ctx.letterSpacing = '1.2px';
+    ctx.fillStyle = color || K.inkSoft;
+    ctx.fillText(text, cx, y);
+    ctx.restore();
+  }
+
+  /**
+   * A station as a solid block: side face dropped below the top face, a soft
+   * contact shadow on the floor, a rim light along the top edge.
+   */
+  function slab(r, topA, topB, side, rad, depth, live) {
+    var d = depth * (L.k || 1);
+
+    ctx.save();
+    ctx.shadowColor = K.shadow;
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetY = 5;
+    Art.rr(ctx, r.x, r.y + d, r.w, r.h, rad);
+    ctx.fillStyle = side;
+    ctx.fill();
+    ctx.restore();
+
+    var g = ctx.createLinearGradient(0, r.y, 0, r.y + r.h);
+    g.addColorStop(0, topA);
+    g.addColorStop(1, topB);
+    Art.rr(ctx, r.x, r.y, r.w, r.h, rad);
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    // rim light so the top face catches the room light
+    ctx.save();
+    Art.rr(ctx, r.x, r.y, r.w, r.h, rad);
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(255,255,255,0.65)';
+    ctx.lineWidth = 2.4;
+    Art.rr(ctx, r.x + 1.2, r.y + 1.2, r.w - 2.4, r.h - 2.4, Math.max(1, rad - 1));
+    ctx.stroke();
+    ctx.restore();
+
+    if (live) {
+      ctx.save();
+      ctx.shadowColor = K.pick;
+      ctx.shadowBlur = 12;
+      Art.rr(ctx, r.x, r.y, r.w, r.h, rad);
+      ctx.strokeStyle = K.pick;
+      ctx.lineWidth = 2.6;
+      ctx.stroke();
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      Art.rr(ctx, r.x, r.y, r.w, r.h, rad);
+      ctx.strokeStyle = K.edge;
+      ctx.lineWidth = 1.1;
+      ctx.stroke();
+    }
+  }
+
+  /** A recess cut into a slab - grill wells, the hatch window. */
+  function well(r, fill, rad) {
+    Art.rr(ctx, r.x, r.y, r.w, r.h, rad);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.save();
+    Art.rr(ctx, r.x, r.y, r.w, r.h, rad);
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(0,0,0,0.40)';
+    ctx.lineWidth = 3;
+    Art.rr(ctx, r.x + 1.5, r.y + 1.5, r.w - 3, r.h - 3, Math.max(1, rad - 1));
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawRoom() {
+    var floorTop = L.cratesBottom + 8;
+
+    // --- tiled back wall
+    var wg = ctx.createLinearGradient(0, 0, 0, floorTop);
+    wg.addColorStop(0, K.wallA);
+    wg.addColorStop(1, K.wallB);
+    ctx.fillStyle = wg;
+    ctx.fillRect(0, 0, L.W, floorTop);
+    ctx.strokeStyle = K.wallTile;
+    ctx.lineWidth = 1;
+    var t = 18 * (L.k || 1);
+    for (var wy = t; wy < floorTop; wy += t) {
+      ctx.beginPath(); ctx.moveTo(0, wy); ctx.lineTo(L.W, wy); ctx.stroke();
+    }
+    for (var wx = t * 1.6; wx < L.W; wx += t * 1.6) {
+      ctx.beginPath(); ctx.moveTo(wx, 0); ctx.lineTo(wx, floorTop); ctx.stroke();
+    }
+
+    // --- checkerboard floor running to the bottom of the room
+    var y1 = L.H;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, floorTop, L.W, y1 - floorTop);
+    ctx.clip();
+    var tile = Math.max(22, L.W / 10);
+    for (var y = floorTop; y < y1; y += tile) {
+      for (var x = -tile; x < L.W + tile; x += tile) {
+        var odd = (Math.floor(x / tile) + Math.floor((y - floorTop) / tile)) % 2;
+        ctx.fillStyle = odd ? K.floorB : K.floorA;
+        ctx.fillRect(x, y, tile, tile);
+      }
+    }
+    // the counter casts onto the floor, and the light falls off toward the back
+    var vg = ctx.createLinearGradient(0, floorTop, 0, floorTop + 46);
+    vg.addColorStop(0, 'rgba(95,62,42,0.30)');
+    vg.addColorStop(1, 'rgba(95,62,42,0)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, floorTop, L.W, 46);
+    var lg = ctx.createLinearGradient(0, floorTop, 0, y1);
+    lg.addColorStop(0, 'rgba(255,255,255,0.0)');
+    lg.addColorStop(1, 'rgba(255,255,255,0.30)');
+    ctx.fillStyle = lg;
+    ctx.fillRect(0, floorTop, L.W, y1 - floorTop);
+    ctx.restore();
+  }
+
+  function drawCounter() {
+    for (var i = 0; i < L.counters.length; i++) {
+      slab(L.counters[i], K.counterTop, K.counterTop2, K.counterSide, 12, DEPTH.counter, false);
+    }
+  }
+
+  /**
+   * An open crate with the stock sitting down inside it.
+   *
+   * The order matters: back wall, then contents, then the FRONT panel over the
+   * top of them. Without that last step the food reads as sitting on a tile
+   * rather than being in a box.
+   */
+  function drawCrates() {
+    for (var i = 0; i < S.menu.length; i++) {
+      var r = crateRect(i);
+      if (!r.w) continue;
+      var id = S.menu[i];
+      var ing = Core.byId(id) || {};
+      var live = S.chef.target && S.chef.target.kind === 'crate' && S.chef.target.i === i;
+      var raw = ing.grill ? { done: 0 } : null;
+      var pop = S.cratePop[i] || 0;
+
+      // the box recoils a little when something is pulled out of it
+      ctx.save();
+      if (pop > 0) {
+        var cx0 = r.x + r.w / 2, cy0 = r.y + r.h;
+        ctx.translate(cx0, cy0);
+        ctx.scale(1 + pop * 0.06, 1 - pop * 0.08);
+        ctx.translate(-cx0, -cy0);
+      }
+
+      slab(r, K.boxTop, K.boxTop2, K.boxSide, 6, DEPTH.crate, live);
+
+      // interior
+      var frontH = Math.max(13, r.h * 0.30);
+      var w = { x: r.x + 3, y: r.y + 3, w: r.w - 6, h: r.h - frontH - 3 };
+      var wg = ctx.createLinearGradient(0, w.y, 0, w.y + w.h);
+      wg.addColorStop(0, K.boxIn2);
+      wg.addColorStop(1, K.boxIn);
+      Art.rr(ctx, w.x, w.y, w.w, w.h, 4);
+      ctx.fillStyle = wg;
+      ctx.fill();
+
+      // contents, stacked so the box reads as stocked
+      ctx.save();
+      Art.rr(ctx, w.x, w.y, w.w, w.h, 4);
+      ctx.clip();
+      /* Stack as many as it takes to fill the box. A fixed count left a tub of
+         sauce looking empty (it is 2px tall) while buns overflowed it. */
+      var hFrac = Math.max(0.04, Art.heightOf(id, 1));
+      var iw = Math.min(w.w - 4, (w.h * 0.42) / hFrac);
+      var ih = hFrac * iw;
+      var step = Math.max(1.5, ih * 0.74);
+      var count = clamp(Math.round((w.h * 0.58) / step), 2, 6);
+      var base = w.y + w.h + ih * 0.35;
+      for (var k = count - 1; k >= 0; k--) {
+        ctx.globalAlpha = k === 0 ? 1 : Math.max(0.45, 0.92 - k * 0.1);
+        Art.drawLayer(ctx, id, w.x + w.w / 2, base - ih - k * step, iw, raw);
+      }
+      ctx.globalAlpha = 1;
+      var sg = ctx.createLinearGradient(0, w.y, 0, w.y + w.h * 0.5);
+      sg.addColorStop(0, 'rgba(40,22,6,0.45)');
+      sg.addColorStop(1, 'rgba(40,22,6,0)');
+      ctx.fillStyle = sg;
+      ctx.fillRect(w.x, w.y, w.w, w.h * 0.5);
+      ctx.restore();
+
+      // front panel, drawn over the contents
+      var f = { x: r.x + 1, y: r.y + r.h - frontH, w: r.w - 2, h: frontH };
+      var fg = ctx.createLinearGradient(0, f.y, 0, f.y + f.h);
+      fg.addColorStop(0, K.boxFront);
+      fg.addColorStop(1, K.boxFront2);
+      Art.rr(ctx, f.x, f.y, f.w, f.h, 5);
+      ctx.fillStyle = fg;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(110,70,25,0.45)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // slat seam
+      ctx.strokeStyle = 'rgba(110,70,25,0.22)';
+      ctx.beginPath();
+      ctx.moveTo(f.x + 3, f.y + f.h * 0.62);
+      ctx.lineTo(f.x + f.w - 3, f.y + f.h * 0.62);
+      ctx.stroke();
+
+      // a warm tag on anything that has to be cooked first
+      if (ing.grill) {
+        Art.rr(ctx, f.x + 2.5, f.y + 2.5, 3.5, f.h - 5, 1.8);
+        ctx.fillStyle = K.hot;
+        ctx.fill();
+      }
+
+      label(ing.short || ing.name || id, r.x + r.w / 2, f.y + f.h * 0.35, '#5b3a17',
+        Math.min(8, r.w * 0.145));
+      ctx.restore();
+    }
+  }
+
+  /** Items arcing out of a box into the cook's hands. */
+  function drawFlyers() {
+    for (var i = 0; i < S.flyers.length; i++) {
+      var fl = S.flyers[i];
+      var p = clamp(fl.t / fl.max, 0, 1);
+      var e = 1 - Math.pow(1 - p, 2.2);
+      var x = fl.x0 + (fl.x1 - fl.x0) * e;
+      var y = fl.y0 + (fl.y1 - fl.y0) * e - Math.sin(p * Math.PI) * fl.lift;
+      var w = fl.w * (0.55 + 0.45 * e);
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate((1 - e) * -0.5 * fl.spin);
+      ctx.shadowColor = 'rgba(80,50,32,0.35)';
+      ctx.shadowBlur = 6;
+      ctx.shadowOffsetY = 3;
+      Art.drawLayer(ctx, fl.id, 0, -Art.heightOf(fl.id, w) / 2, w,
+        { done: fl.done, char: fl.char });
+      ctx.restore();
+    }
+  }
+
+  function drawGrill() {
+    // one grill unit with the burners recessed into its top
+    var n = S.grill.length;
+    var last = slotRect(n - 1);
+    var body = {
+      x: L.grillX - 3, y: L.grillTop - 16,
+      w: L.colW + 6, h: (last.y + last.h) - L.grillTop + 22
+    };
+    slab(body, K.grillTop, K.grillTop2, K.grillSide, 13, DEPTH.grill, false);
+    label('GRILL', body.x + body.w / 2, L.grillTop - 8, '#ffb59c', 8);
+
+    var win = S.fx.perfectWindow;
+    var tMax = Core.COOK_TIME + win / 2 + Core.BURN_TIME;
+
+    for (var i = 0; i < S.grill.length; i++) {
+      var r = slotRect(i);
+      var g = S.grill[i];
+      var live = S.chef.target && S.chef.target.kind === 'grill' && S.chef.target.i === i;
+      well(r, g ? '#2a1a15' : '#1f1310', 10);
+
+      ctx.save();
+      Art.rr(ctx, r.x, r.y, r.w, r.h, 10);
+      ctx.clip();
+      ctx.strokeStyle = 'rgba(255,255,255,0.09)';
+      ctx.lineWidth = 2;
+      for (var gx = r.x + 4; gx < r.x + r.w; gx += 8) {
+        ctx.beginPath();
+        ctx.moveTo(gx, r.y);
+        ctx.lineTo(gx, r.y + r.h);
+        ctx.stroke();
+      }
+      // embers under whatever is cooking
+      if (g) {
+        var eg = ctx.createRadialGradient(r.x + r.w / 2, r.y + r.h * 0.5, 2,
+          r.x + r.w / 2, r.y + r.h * 0.5, r.w * 0.6);
+        eg.addColorStop(0, 'rgba(255,120,50,0.30)');
+        eg.addColorStop(1, 'rgba(255,120,50,0)');
+        ctx.fillStyle = eg;
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+      }
+      ctx.restore();
+
+      if (live) {
+        Art.rr(ctx, r.x - 1, r.y - 1, r.w + 2, r.h + 2, 11);
+        ctx.strokeStyle = K.pick;
+        ctx.lineWidth = 2.4;
+        ctx.stroke();
+      }
+
+      if (!g) continue;
+
+      var stage = Core.cookStage(g.t, win);
+      var look = Core.cookLook(g.t, win);
+      var pw = r.w * 0.72;
+      var barTop = r.y + r.h - 13;
+      var ph = Art.heightOf(g.id, pw);
+      Art.drawLayer(ctx, g.id, r.x + r.w / 2, (r.y + barTop) / 2 - ph / 2, pw,
+        { done: look.done, char: look.char });
+
+      if (stage === 'perfect') {
+        ctx.save();
+        ctx.shadowColor = 'rgba(79,168,96,0.95)';
+        ctx.shadowBlur = 14;
+        Art.rr(ctx, r.x + 1.5, r.y + 1.5, r.w - 3, r.h - 3, 11);
+        ctx.strokeStyle = K.go;
+        ctx.lineWidth = 2.4;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      var bx = r.x + 6, bw = r.w - 12, by = r.y + r.h - 10, bh = 5;
+      Art.rr(ctx, bx, by, bw, bh, 2.5);
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fill();
+      var ps = (Core.COOK_TIME - win / 2) / tMax, pe = (Core.COOK_TIME + win / 2) / tMax;
+      Art.rr(ctx, bx + bw * ps, by, bw * (pe - ps), bh, 2.5);
+      ctx.fillStyle = 'rgba(79,168,96,0.6)';
+      ctx.fill();
+      Art.rr(ctx, bx, by, Math.max(2, bw * clamp(g.t / tMax, 0, 1)), bh, 2.5);
+      ctx.fillStyle = stage === 'perfect' ? K.go
+        : (stage === 'raw' ? '#7fb6e8' : (stage === 'over' ? '#f0a81e' : K.hot));
+      ctx.fill();
+    }
+  }
+
+  function drawPlates() {
+    // one plating bench with the plates sitting on it
+    var n = S.plates.length;
+    var last = plateRect(n - 1);
+    var body = {
+      x: L.plateX - 3, y: L.plateTop - 16,
+      w: L.colW + 6, h: (last.y + last.h) - L.plateTop + 22
+    };
+    slab(body, K.plateTop, K.plateTop2, K.plateSide, 13, DEPTH.plate, false);
+    label('PLATES', body.x + body.w / 2, L.plateTop - 8, '#5a86b8', 8);
+
+    for (var i = 0; i < n; i++) {
+      var r = plateRect(i);
+      var p = S.plates[i];
+      var live = S.chef.target && S.chef.target.kind === 'plate' && S.chef.target.i === i;
+      var cx = r.x + r.w / 2, py = r.y + r.h - 10;
+
+      // the plate, as a shallow dish with a rim
+      ctx.save();
+      ctx.shadowColor = 'rgba(95,62,42,0.28)';
+      ctx.shadowBlur = 6;
+      ctx.shadowOffsetY = 3;
+      ctx.beginPath();
+      ctx.ellipse(cx, py, r.w * 0.40, r.h * 0.13, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#d9e3ec';
+      ctx.fill();
+      ctx.restore();
+      ctx.beginPath();
+      ctx.ellipse(cx, py - 2, r.w * 0.40, r.h * 0.13, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#f4f8fb';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(cx, py - 2, r.w * 0.26, r.h * 0.085, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#e6eef5';
+      ctx.fill();
+
+      if (live) {
+        Art.rr(ctx, r.x, r.y, r.w, r.h, 11);
+        ctx.strokeStyle = K.pick;
+        ctx.lineWidth = 2.4;
+        ctx.stroke();
+      }
+
+      if (!p.stack.length) {
+        label('EMPTY', cx, r.y + r.h * 0.42, 'rgba(111,74,51,0.35)', 7.5);
+        continue;
+      }
+      var shown = Core.displayStack(p.stack);
+      var bw = Art.fitWidth(shown, r.w * 0.74, r.h - 16);
+      Art.drawStack(ctx, shown, cx, py - 3, bw);
+    }
+  }
+
+  function drawHatchAndBin() {
+    var h = hatchRect();
+    var live = S.chef.target && S.chef.target.kind === 'hatch';
+    var ready = S.chef.holding && S.chef.holding.kind === 'plate';
+    slab(h,
+      ready ? K.hatchGoTop : K.hatchTop,
+      ready ? K.hatchGoTop2 : K.hatchTop2,
+      ready ? K.hatchGoSide : K.hatchSide, 14, DEPTH.hatch, live);
+
+    // a serving window cut through to the lit dining room beyond
+    var wRect = { x: h.x + 8, y: h.y + 6, w: h.w - 16, h: h.h - 22 };
+    well(wRect, ready ? '#cdf0c6' : '#fff0cf', 8);
+    label('▲  S E R V E  ▲', h.x + h.w / 2, wRect.y + wRect.h / 2,
+      ready ? '#2c7038' : '#8a6039', 10);
+    label(S.tickets.length + ' waiting', h.x + h.w / 2, h.y + h.h - 8, K.inkSoft, 7.5);
+
+    var b = binRect();
+    var bl = S.chef.target && S.chef.target.kind === 'bin';
+    slab(b, K.hatchTop, K.hatchTop2, K.hatchSide, 14, DEPTH.hatch, bl);
+
+    // Drawn rather than an emoji: 🗑 has no glyph on plenty of Android builds.
+    var cx = b.x + b.w / 2, cy = b.y + b.h / 2 - 4;
+    var bw = Math.min(b.w * 0.44, 20), bh = bw * 1.05;
+    ctx.save();
+    ctx.fillStyle = '#8fa3ae';
+    Art.rr(ctx, cx - 4, cy - bh / 2 - 8, 8, 3, 1.5);            // handle
+    ctx.fill();
+    Art.rr(ctx, cx - bw / 2 - 3, cy - bh / 2 - 5, bw + 6, 4, 2); // lid
+    ctx.fill();
+    ctx.beginPath();                                            // tapered body
+    ctx.moveTo(cx - bw / 2, cy - bh / 2);
+    ctx.lineTo(cx + bw / 2, cy - bh / 2);
+    ctx.lineTo(cx + bw * 0.36, cy + bh / 2);
+    ctx.lineTo(cx - bw * 0.36, cy + bh / 2);
+    ctx.closePath();
+    ctx.fillStyle = '#a8bcc7';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(90,115,130,0.65)';
+    ctx.lineWidth = 1.4;
+    for (var s = -1; s <= 1; s++) {
+      ctx.beginPath();
+      ctx.moveTo(cx + s * bw * 0.24, cy - bh * 0.32);
+      ctx.lineTo(cx + s * bw * 0.18, cy + bh * 0.36);
+      ctx.stroke();
+    }
+    ctx.restore();
+    label('BIN', cx, b.y + b.h - 8, K.inkSoft, 7);
+  }
+
+  /**
+   * Draws whatever the cook is holding as the actual object - the real slice of
+   * cheese, the real seared patty, the real plated burger - rather than an icon
+   * in a floating card. Returns its half-width so the hands can close on it.
+   */
+  function drawCarried(g, cx, baseY, maxW, maxH) {
+    var hold = S.chef.holding;
+    if (!hold) return 0;
+
+    g.save();
+    g.shadowColor = 'rgba(80,50,32,0.35)';
+    g.shadowBlur = 6;
+    g.shadowOffsetY = 3;
+
+    if (hold.kind === 'plate') {
+      var shown = Core.displayStack(hold.stack);
+      var bw = Art.fitWidth(shown, maxW * 0.78, maxH - 6);
+      var pr = Math.max(bw * 0.62, maxW * 0.34);
+      // the dish first, then the food standing on it
+      g.beginPath();
+      g.ellipse(cx, baseY, pr, pr * 0.26, 0, 0, Math.PI * 2);
+      g.fillStyle = '#f4f8fb';
+      g.fill();
+      g.restore();
+      g.beginPath();
+      g.ellipse(cx, baseY, pr, pr * 0.26, 0, 0, Math.PI * 2);
+      g.strokeStyle = 'rgba(120,150,180,0.55)';
+      g.lineWidth = 1.2;
+      g.stroke();
+      Art.drawStack(g, shown, cx, baseY - pr * 0.14, bw);
+      return pr;
+    }
+
+    // a loose ingredient, carried as itself. Beef carries its doneness with it,
+    // so raw / seared / burnt is readable without any badge.
+    var w = maxW;
+    var h = Art.heightOf(hold.id, w);
+    if (h > maxH) { w *= maxH / h; h = maxH; }
+    Art.drawLayer(g, hold.id, cx, baseY - h, w, { done: hold.done, char: hold.char });
+    g.restore();
+    return (Art.layerWidth(hold.id, w)) / 2;
+  }
+
+  function drawChef() {
+    var c = S.chef;
+    var cs = L.chefS || CHEF_S;
+    Art.drawChef(ctx, c.x, c.y, cs, {
+      face: c.face, bob: c.phase, blink: c.blink, hop: c.hop,
+      // hands stay empty while the item is still in the air
+      carry: (c.holding && !S.flyers.length) ? drawCarried : null
+    });
+  }
+
+  function drawFloats() {
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (var i = 0; i < S.floats.length; i++) {
+      var f = S.floats[i];
+      var t = f.t / f.max;
+      ctx.globalAlpha = 1 - t * t;
+      ctx.font = '900 ' + f.size + 'px "Trebuchet MS", system-ui, sans-serif';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(12,7,5,0.9)';
+      ctx.strokeText(f.text, f.x, f.y);
+      ctx.fillStyle = f.color;
+      ctx.fillText(f.text, f.x, f.y);
+    }
+    ctx.restore();
+  }
+
+  function drawSparks() {
+    ctx.save();
+    for (var i = 0; i < S.sparks.length; i++) {
+      var p = S.sparks[i];
+      var f = p.t / p.max;
+      if (p.kind === 'steam') {
+        // puffs swell and thin out as they climb
+        ctx.globalAlpha = Math.sin(Math.min(1, f) * Math.PI) * 0.45;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * (1 + f * 1.6), 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.globalAlpha = 1 - f;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawBanner() {
+    if (!S.banner) return;
+    var b = S.banner, t = b.t / b.max;
+    var scale = t < 0.2 ? easeOutBack(t / 0.2) : 1;
+    var alpha = t > 0.72 ? 1 - (t - 0.72) / 0.28 : 1;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(L.W / 2, (L.floor.y0 + L.floor.y1) / 2);
+    ctx.scale(scale, scale);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    var size = Math.min(L.W * 0.07, 24);
+    ctx.font = '900 ' + size + 'px "Trebuchet MS", system-ui, sans-serif';
+    var bh = size * (b.sub ? 2.5 : 1.7);
+    var band = ctx.createLinearGradient(-L.W / 2, 0, L.W / 2, 0);
+    band.addColorStop(0, 'rgba(12,7,5,0)');
+    band.addColorStop(0.18, 'rgba(12,7,5,0.92)');
+    band.addColorStop(0.82, 'rgba(12,7,5,0.92)');
+    band.addColorStop(1, 'rgba(12,7,5,0)');
+    ctx.fillStyle = band;
+    ctx.fillRect(-L.W / 2, -bh * 0.42, L.W, bh);
+
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = 'rgba(12,7,5,0.92)';
+    ctx.strokeText(b.title, 0, 0);
+    ctx.fillStyle = b.color;
+    ctx.fillText(b.title, 0, 0);
+    if (b.sub) {
+      ctx.font = '800 ' + (size * 0.46) + 'px "Trebuchet MS", system-ui, sans-serif';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(12,7,5,0.92)';
+      ctx.strokeText(b.sub, 0, size * 0.88);
+      ctx.fillStyle = '#fff4e0';
+      ctx.fillText(b.sub, 0, size * 0.88);
+    }
+    ctx.restore();
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, L.W, L.H);
+    ctx.save();
+    if (S.shake > 0.2) ctx.translate(rnd(-S.shake, S.shake) * 0.3, rnd(-S.shake, S.shake) * 0.3);
+
+    drawRoom();
+    drawCounter();
+    drawCrates();
+    drawGrill();
+    drawPlates();
+    drawChef();
+    drawFlyers();
+    drawHatchAndBin();     // nearest the camera, so it draws over the cook
+    drawSparks();
+    drawFloats();
+    drawBanner();
+
+    ctx.restore();
+  }
+
+  /* -------------------------------------------------------------- HUD/DOM */
+  function syncHud() {
+    var total = S.sales + S.tips;
+    el.dayNum.textContent = S.day;
+    el.goalText.textContent = Core.money(total) + ' / ' + Core.money(S.rent);
+    el.goalFill.style.width = (S.rent ? clamp(total / S.rent, 0, 1) * 100 : 0) + '%';
+    el.goalFill.classList.toggle('met', total >= S.rent);
+    el.goalText.classList.toggle('met', total >= S.rent);
+
+    var hearts = '';
+    for (var i = 0; i < Core.START_HEARTS; i++) {
+      hearts += '<span class="h' + (i < S.hearts ? '' : ' lost') + '">❤</span>';
+    }
+    el.hearts.innerHTML = hearts;
+  }
+
+  var MINI_W = 44, MINI_H = 50;
+
+  function renderBoard() {
+    el.board.innerHTML = '';
+    var dpr = Math.min(window.devicePixelRatio || 1, 3);
+
+    S.tickets.forEach(function (t) {
+      var d = document.createElement('div');
+      d.className = 'ticket' + (t.arch.id === 'rush' ? ' rush' : '');
+      d.setAttribute('data-uid', t.uid);
+
+      var who = document.createElement('span');
+      who.className = 'who';
+      who.textContent = t.arch.emoji;
+      d.appendChild(who);
+
+      var c = document.createElement('canvas');
+      c.className = 'mini';
+      c.width = Math.round(MINI_W * dpr);
+      c.height = Math.round(MINI_H * dpr);
+      d.appendChild(c);
+
+      var bar = document.createElement('span');
+      bar.className = 'bar';
+      var fill = document.createElement('i');
+      bar.appendChild(fill);
+      d.appendChild(bar);
+
+      el.board.appendChild(d);
+
+      var g = c.getContext('2d');
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      var shown = Core.displayStack(t.items);
+      var bunW = Art.fitWidth(shown, MINI_W * 0.86, MINI_H - 3);
+      Art.drawStack(g, shown, MINI_W / 2, MINI_H - 1, bunW);
+
+      t.node = d; t.barEl = fill;
+    });
+
+    var empties = (S.cfg ? S.cfg.concurrent : 2) - S.tickets.length;
+    for (var i = 0; i < empties; i++) {
+      var e = document.createElement('div');
+      e.className = 'ticket empty';
+      el.board.appendChild(e);
+    }
+    updateBoardBars();
+  }
+
+  function updateBoardBars() {
+    for (var i = 0; i < S.tickets.length; i++) {
+      var t = S.tickets[i];
+      if (!t.barEl) continue;
+      var ratio = clamp(t.patience / t.max, 0, 1);
+      t.barEl.style.width = (ratio * 100) + '%';
+      t.barEl.className = ratio < 0.12 ? 'crit' : (ratio < 0.28 ? 'warn' : '');
+    }
+  }
+
+  /* -------------------------------------------------------------- screens */
+  function showModal(node) { node.hidden = false; node.classList.add('show'); }
+  function hideModal(node) { node.classList.remove('show'); node.hidden = true; }
+
+  function showDayEnd(passed, ranOut, total) {
+    if (!passed) {
+      el.overTitle.textContent = ranOut ? 'SHUT DOWN' : 'RENT UNPAID';
+      el.overReason.textContent = ranOut
+        ? 'Five orders blown. The landlord changed the locks.'
+        : 'You took in ' + Core.money(total) + ' against ' + Core.money(S.rent) +
+          ' of rent. The landlord is not sympathetic.';
+      el.overDay.textContent = S.day;
+      el.overBest.textContent = S.bestDay;
+      el.retryDay.textContent = S.day;
+      showModal(el.over);
+      return;
+    }
+    el.dayEndTitle.textContent = 'DAY ' + S.day + ' CLOSED';
+    el.rSales.textContent = Core.money(S.sales);
+    el.rTips.textContent = Core.money(S.tips);
+    el.rTotal.textContent = Core.money(total);
+    el.rRent.textContent = '-' + Core.money(S.rent);
+    el.rNet.textContent = Core.money(total - S.rent);
+    el.rPerfect.textContent = S.perfect;
+    el.rServed.textContent = S.served;
+    el.rWalked.textContent = S.walked;
+    el.dayEndNote.textContent = S.perfect === S.served && S.served > 0
+      ? 'Every single ticket perfect. The regulars are talking.'
+      : 'Rent covered. ' + Core.money(S.money) + ' in the till.';
+    showModal(el.dayEnd);
+  }
+
+  function renderShop() {
+    el.walletText.textContent = Core.money(S.money);
+    el.nextDayNum.textContent = S.day + 1;
+    el.nextRent.textContent = Core.money(Core.dayGoal(S.day + 1));
+    var dpr = Math.min(window.devicePixelRatio || 1, 3);
+
+    // What tomorrow's kitchen and rush will actually look like, so the shop
+    // is a decision and not a guess.
+    var today = Core.effects(S.levels, S.day);
+    var next = Core.effects(S.levels, S.day + 1);
+    var cfg = Core.dayConfig(S.day + 1);
+    function grew(a, b) { return b > a ? ' <em>+1</em>' : ''; }
+    el.nextKitchen.innerHTML =
+      '<span>TOMORROW</span>' +
+      '<b>' + next.plates + '</b> plates' + grew(today.plates, next.plates) +
+      ' &nbsp;·&nbsp; <b>' + next.grillSlots + '</b> burners' + grew(today.grillSlots, next.grillSlots) +
+      ' &nbsp;·&nbsp; <b>' + cfg.concurrent + '</b> orders up' +
+      ' &nbsp;·&nbsp; <b>' + Core.dayMenu(S.day + 1).length + '</b> crates';
+
+    var news = Core.unlockedOn(S.day + 1);
+    el.unlockBox.hidden = news.length === 0;
+    if (news.length) {
+      el.unlockList.innerHTML = '';
+      news.forEach(function (ing) {
+        var d = document.createElement('div');
+        d.className = 'u';
+        var c = document.createElement('canvas');
+        c.width = Math.round(64 * dpr);
+        c.height = Math.round(34 * dpr);
+        d.appendChild(c);
+        var n = document.createElement('span');
+        n.className = 'n';
+        n.textContent = ing.name;
+        d.appendChild(n);
+        el.unlockList.appendChild(d);
+        var g = c.getContext('2d');
+        g.setTransform(dpr, 0, 0, dpr, 0, 0);
+        Art.drawIcon(g, ing.id, 64, 34);
+      });
+    }
+
+    el.upgradeList.innerHTML = '';
+    Core.UPGRADES.forEach(function (u) {
+      var lvl = S.levels[u.id] || 0;
+      var cost = Core.upgradeCost(u.id, lvl);
+      var row = document.createElement('div');
+      row.className = 'upg';
+      var pips = '';
+      for (var i = 0; i < u.max; i++) pips += '<i class="' + (i < lvl ? 'on' : '') + '"></i>';
+      row.innerHTML =
+        '<span class="uicon">' + u.icon + '</span>' +
+        '<div><b>' + u.name + '</b><small>' + u.desc + '</small>' +
+        '<div class="pips">' + pips + '</div></div>';
+      var btn = document.createElement('button');
+      btn.className = 'ubuy' + (cost === null ? ' maxed' : '');
+      if (cost === null) {
+        btn.textContent = 'MAX';
+        btn.disabled = true;
+      } else {
+        btn.textContent = Core.money(cost);
+        btn.disabled = S.money < cost;
+        btn.addEventListener('click', function () { buyUpgrade(u.id); });
+      }
+      row.appendChild(btn);
+      el.upgradeList.appendChild(row);
+    });
+  }
+
+  function buyUpgrade(id) {
+    var lvl = S.levels[id] || 0;
+    var cost = Core.upgradeCost(id, lvl);
+    if (cost === null || S.money < cost) return;
+    S.money -= cost;
+    S.levels[id] = lvl + 1;
+    S.fx = Core.effects(S.levels, S.day);
+    save();
+    Sfx.upgrade();
+    buzz(20);
+    renderShop();
+  }
+
+  /* ----------------------------------------------------------------- input */
+  function onTap(e) {
+    if (S.screen !== 'service' || S.userPaused) return;
+    var r = cv.getBoundingClientRect();
+    var x = e.clientX - r.left, y = e.clientY - r.top;
+    if (x < 0 || y < 0 || x > L.W || y > L.H) return;
+    sendChef(stationAt(x, y));
+    Sfx.tap();
+    e.preventDefault();
+  }
+
+  function bind() {
+    cv.addEventListener('pointerdown', onTap, { passive: false });
+    cv.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+    el.playBtn.addEventListener('click', function () {
+      Sfx.init();
+      Bgm.start();
+      hideModal(el.start);
+      S.day = 1; S.money = 0; S.levels = {}; S.bestDay = 1;
+      wipe();
+      startDay(1);
+    });
+    el.continueBtn.addEventListener('click', function () {
+      Sfx.init();
+      Bgm.start();
+      hideModal(el.start);
+      startDay(S.day);
+    });
+    el.dayEndBtn.addEventListener('click', function () {
+      hideModal(el.dayEnd);
+      S.screen = 'shop';
+      renderShop();
+      showModal(el.shop);
+    });
+    el.nextDayBtn.addEventListener('click', function () {
+      hideModal(el.shop);
+      startDay(S.day + 1);
+    });
+    el.retryBtn.addEventListener('click', function () {
+      hideModal(el.over);
+      startDay(S.day);
+    });
+    el.wipeBtn.addEventListener('click', function () {
+      wipe();
+      S.day = 1; S.money = 0; S.levels = {}; S.bestDay = 1;
+      hideModal(el.over);
+      startDay(1);
+    });
+    el.pauseBtn.addEventListener('click', function () { setPaused(true); });
+    el.resumeBtn.addEventListener('click', function () { setPaused(false); });
+    el.restartBtn.addEventListener('click', function () {
+      setPaused(false);
+      startDay(S.day);
+    });
+    el.quitBtn.addEventListener('click', quitToTitle);
+    el.pauseSoundBtn.addEventListener('click', function () {
+      S.muted = !S.muted;
+      Sfx.setMuted(S.muted);
+      el.pauseSoundBtn.textContent = 'SOUND: ' + (S.muted ? 'OFF' : 'ON');
+      save();
+    });
+
+    window.addEventListener('resize', resize);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
+    document.addEventListener('visibilitychange', function () {
+      S.paused = document.hidden;
+      // Don't keep a scheduler running against a backgrounded tab's throttled
+      // clock - it comes back as a burst of stacked-up notes.
+      if (document.hidden) Bgm.stop();
+      else { last = 0; if (!S.userPaused && S.screen !== 'title') Bgm.start(); }
+    });
+  }
+
+  /* ------------------------------------------------------------------ boot */
+  var last = 0;
+  function frame(ts) {
+    // Book the next frame before doing any work: one thrown exception in draw()
+    // used to unregister the loop and freeze the game for good.
+    requestAnimationFrame(frame);
+    var dt = last ? Math.min(0.05, (ts - last) / 1000) : 0;
+    last = ts;
+    if (cv.clientWidth !== L.W || cv.clientHeight !== L.H) resize();
+    // A paused kitchen still gets painted - the frozen frame is the backdrop
+    // the pause sheet sits on.
+    if (!S.paused) {
+      if (!S.userPaused) update(dt);
+      draw();
+    }
+  }
+
+  function init() {
+    cv = document.getElementById('stage');
+    ctx = cv.getContext('2d');
+
+    ['dayNum', 'goalText', 'goalFill', 'hearts', 'board', 'pauseBtn',
+      'pause', 'pauseDay', 'pauseEarned', 'pauseRent', 'pauseSoundBtn',
+      'resumeBtn', 'restartBtn', 'quitBtn',
+      'start', 'playBtn', 'continueBtn', 'continueDay',
+      'dayEnd', 'dayEndTitle', 'dayEndBtn', 'dayEndNote', 'rSales', 'rTips', 'rTotal',
+      'rRent', 'rNet', 'rPerfect', 'rServed', 'rWalked',
+      'shop', 'walletText', 'unlockBox', 'unlockList', 'upgradeList', 'nextRent', 'nextKitchen',
+      'nextDayBtn', 'nextDayNum', 'over', 'overTitle', 'overReason', 'overDay',
+      'overBest', 'retryBtn', 'retryDay', 'wipeBtn'
+    ].forEach(function (id) { el[id] = document.getElementById(id); });
+
+    var saved = load();
+    if (saved) {
+      S.day = saved.day;
+      S.bestDay = saved.bestDay || saved.day;
+      S.money = saved.money || 0;
+      S.levels = saved.levels || {};
+      S.muted = !!saved.muted;
+      S.fx = Core.effects(S.levels, S.day);
+      el.continueBtn.hidden = false;
+      el.continueDay.textContent = saved.day;
+    }
+    Sfx.setMuted(S.muted);
+    el.pauseSoundBtn.textContent = 'SOUND: ' + (S.muted ? 'OFF' : 'ON');
+
+    S.menu = Core.dayMenu(S.day);
+    S.sections = Core.menuSections(S.day);
+    for (var i = 0; i < S.fx.plates; i++) S.plates.push({ stack: [] });
+    S.grill = new Array(S.fx.grillSlots).fill(null);
+    S.rent = Core.dayGoal(S.day);
+    resize();
+    syncHud();
+    renderBoard();
+    bind();
+    requestAnimationFrame(frame);
+  }
+
+  // Exposed for the smoke test and for poking at a live shift in DevTools.
+  window.MrBurger = {
+    state: S, layout: L,
+    startDay: startDay, spawnTicket: spawnTicket, endDay: endDay,
+    sendChef: sendChef, arrive: arrive, deliver: deliver,
+    stationAt: stationAt, standPoint: standPoint,
+    setPaused: setPaused, quitToTitle: quitToTitle,
+    crateRect: crateRect, slotRect: slotRect, plateRect: plateRect,
+    hatchRect: hatchRect, binRect: binRect,
+    buyUpgrade: buyUpgrade, ticketOf: ticketOf
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();

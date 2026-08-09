@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1b1210">
+<meta name="description" content="Mr. Burger - drag, stack and serve every ticket on the board before the clock runs out.">
+<title>Mr. Burger</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <header id="hud">
+    <button id="pauseBtn" class="icon-btn pause-icon" aria-label="Pause"><i></i><i></i></button>
+    <div class="progress">
+      <div class="progress-top">
+        <span class="day-tag">DAY <b id="dayNum">1</b></span>
+        <span id="goalText" class="goal-text">$0.00 / $0.00</span>
+      </div>
+      <div class="goal-bar"><div id="goalFill"></div></div>
+    </div>
+    <div id="hearts" class="hearts" aria-label="Mistakes left"></div>
+  </header>
+
+  <!-- Absorbs slack on tall screens so the whole shop sits in thumb reach,
+       and fills it with the storefront sign instead of dead background. -->
+  <div id="spacer">
+    <div class="shopsign">
+      <span class="sign-mr">MR.</span>
+      <span class="sign-burger">BURGER</span>
+      <span class="sign-open">◦ OPEN 24 HRS ◦</span>
+    </div>
+  </div>
+
+  <!-- the order board: every live ticket, Overcooked style -->
+  <div class="board-wrap">
+    <div class="board-rail"><span>ORDERS</span></div>
+    <div id="board" class="board"></div>
+  </div>
+
+  <!-- the kitchen: crates, grill, plates, hatch and the chef -->
+  <canvas id="stage"></canvas>
+
+</div>
+
+<!-- ----------------------------------------------------------- title --->
+<div id="start" class="modal show">
+  <div class="sheet">
+    <div class="logo-wrap">
+      <div class="logo-mr">MR.</div>
+      <div class="logo-burger">BURGER</div>
+    </div>
+    <p class="tag">Run the line. Tap where the chef should go.</p>
+    <button id="playBtn" class="cta">OPEN THE SHOP</button>
+    <ol class="rules">
+      <li><b>Tap anything</b> and the chef walks there and works it.
+          One rule everywhere: <b>empty hands take, full hands give</b>.</li>
+      <li><b>Crates</b> up top hold the fillings. Grab one, carry it to a
+          <b>plate</b> on the right.</li>
+      <li>Patties have to hit the <b>grill</b> on the left first. Come back for
+          them while the bar sits in the green.</li>
+      <li>When a plate is done, pick it up and take it to the
+          <b>serving hatch</b>. It goes to whichever order it matches.</li>
+      <li>Order doesn't matter — just get the right fillings on, fast.</li>
+    </ol>
+    <button id="continueBtn" class="linkbtn" hidden>Continue from Day <span id="continueDay">1</span></button>
+  </div>
+</div>
+
+<!-- ---------------------------------------------------------- paused --->
+<div id="pause" class="modal" hidden>
+  <div class="sheet">
+    <h2 class="sheet-title">PAUSED</h2>
+    <div class="pause-line">
+      DAY <b id="pauseDay">1</b> &nbsp;·&nbsp; <b id="pauseEarned">$0.00</b> of <span id="pauseRent">$0.00</span>
+    </div>
+    <button id="resumeBtn" class="cta">RESUME</button>
+    <button id="restartBtn" class="cta alt">RESTART THIS DAY</button>
+    <button id="pauseSoundBtn" class="cta alt">SOUND: ON</button>
+    <button id="quitBtn" class="linkbtn">Quit to the title screen</button>
+  </div>
+</div>
+
+<!-- -------------------------------------------------------- day end --->
+<div id="dayEnd" class="modal" hidden>
+  <div class="sheet">
+    <h2 id="dayEndTitle" class="sheet-title">DAY 1 CLOSED</h2>
+    <div class="receipt">
+      <div class="line"><span>Food sales</span><b id="rSales">$0.00</b></div>
+      <div class="line"><span>Tips</span><b id="rTips">$0.00</b></div>
+      <div class="line total"><span>Took in</span><b id="rTotal">$0.00</b></div>
+      <div class="line rent"><span>Rent</span><b id="rRent">$0.00</b></div>
+      <div class="line net"><span id="rNetLabel">Profit</span><b id="rNet">$0.00</b></div>
+    </div>
+    <div class="stats-row">
+      <div class="chip"><span id="rPerfect">0</span><small>PERFECT</small></div>
+      <div class="chip"><span id="rServed">0</span><small>SERVED</small></div>
+      <div class="chip"><span id="rWalked">0</span><small>WALKED</small></div>
+    </div>
+    <p id="dayEndNote" class="note"></p>
+    <button id="dayEndBtn" class="cta">TO THE SHOP</button>
+  </div>
+</div>
+
+<!-- ------------------------------------------------------------ shop --->
+<div id="shop" class="modal" hidden>
+  <div class="sheet wide">
+    <h2 class="sheet-title">THE SHOP</h2>
+    <div class="wallet">IN THE TILL <b id="walletText">$0.00</b></div>
+    <div id="unlockBox" class="unlock-box" hidden>
+      <div class="unlock-title">NEW ON THE MENU</div>
+      <div id="unlockList" class="unlock-list"></div>
+    </div>
+    <div id="upgradeList" class="upgrade-list"></div>
+    <div id="nextKitchen" class="next-kitchen"></div>
+    <div class="next-line">Tomorrow's rent <b id="nextRent">$0.00</b></div>
+    <button id="nextDayBtn" class="cta">START DAY <span id="nextDayNum">2</span></button>
+  </div>
+</div>
+
+<!-- ------------------------------------------------------- shut down --->
+<div id="over" class="modal" hidden>
+  <div class="sheet">
+    <h2 id="overTitle" class="sheet-title bad">SHUT DOWN</h2>
+    <p id="overReason" class="note big"></p>
+    <div class="stats-row">
+      <div class="chip"><span id="overDay">1</span><small>DAY REACHED</small></div>
+      <div class="chip"><span id="overBest">1</span><small>BEST DAY</small></div>
+    </div>
+    <button id="retryBtn" class="cta">REOPEN — REPLAY DAY <span id="retryDay">1</span></button>
+    <button id="wipeBtn" class="linkbtn">Start a brand new shop</button>
+  </div>
+</div>
+
+<script src="js/core.js"></script>
+<script src="js/art.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
