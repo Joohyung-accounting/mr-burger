@@ -488,11 +488,12 @@
     ctx.scale(sx, sy);
     ctx.translate(-x, -cy);
 
-    // little legs
+    // Little legs. The swing is wide on purpose: fewer, bigger steps read as
+    // walking, where a small fast shuffle reads as scurrying.
     ctx.fillStyle = '#6b4d7a';
-    rr(ctx, x - s * 0.15 + swing * s * 0.055, cy - s * 0.16, s * 0.12, s * 0.16, s * 0.055);
+    rr(ctx, x - s * 0.15 + swing * s * 0.085, cy - s * 0.16, s * 0.12, s * 0.16, s * 0.055);
     ctx.fill();
-    rr(ctx, x + s * 0.03 - swing * s * 0.055, cy - s * 0.16, s * 0.12, s * 0.16, s * 0.055);
+    rr(ctx, x + s * 0.03 - swing * s * 0.085, cy - s * 0.16, s * 0.12, s * 0.16, s * 0.055);
     ctx.fill();
 
     // rounded chef whites

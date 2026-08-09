@@ -176,9 +176,17 @@
   // The kitchen the speeds in core.js were tuned against: a 412x360 stage.
   // Every other screen scales its walking speed relative to this.
   var REF_FLOOR_DIAG = 282;
-  // Distance covered per full stride, as a multiple of the cook's height. Ties
-  // the leg animation to actual motion instead of a fixed cadence.
-  var STRIDE = 1.15;
+  /*
+   * Strides it takes to walk the floor's diagonal.
+   *
+   * Measured against the cook's own height instead, the cadence came out at
+   * 2.07 steps/s on a phone and 2.86 on a desktop: the character stops growing
+   * at the k cap of 1.5 while the room and the walking speed keep going, so the
+   * legs had to spin faster to keep up. Pinning strides to the room instead
+   * makes the cadence identical everywhere by construction - and 3.1 of them
+   * per diagonal is a stride, not the scurry it was doing before.
+   */
+  var STRIDES_PER_DIAG = 3.1;
 
   function menuLen() { return (S.menu && S.menu.length) || 1; }
 
@@ -223,7 +231,14 @@
        floor: a big phone would otherwise mean a longer walk, and a small one
        would squeeze the stations out of existence between the shelves and
        the hatch. */
-    var k = clamp(H / compactHeight(), 0.72, 1.5);
+    /*
+     * Quantised on purpose. A phone's address bar grows and shrinks the
+     * viewport by a few pixels as you touch the screen, and feeding that
+     * straight into the room scale made the whole kitchen shimmer back and
+     * forth on the first day. Steps of 24px absorb that; the canvas itself
+     * still tracks the exact size so nothing stretches.
+     */
+    var k = clamp(Math.round(H / 24) * 24 / compactHeight(), 0.72, 1.5);
     var gap = GAP * k;
     L.gap = gap;
     L.k = k;
@@ -288,6 +303,7 @@
      */
     var diag = Math.hypot(L.floor.x1 - L.floor.x0, L.floor.y1 - L.floor.y0);
     L.walkScale = clamp(diag / REF_FLOOR_DIAG, 0.6, 2.2);
+    L.stride = Math.max(10, diag / STRIDES_PER_DIAG);
 
     // drop any cook who has not been placed yet into the middle of the floor,
     // spread apart so two of them do not start on top of each other
@@ -762,7 +778,7 @@
     // --- walk every cook. A guest does not simulate: it eases toward the
     // positions the host last sent instead.
     var walkSpeed = S.fx.speed * (L.walkScale || 1);
-    var stride = Math.max(8, (L.chefS || CHEF_S) * STRIDE);
+    var stride = L.stride || 70;
     for (var ci = 0; ci < S.chefs.length; ci++) {
       var c = S.chefs[ci];
       c.blinkIn -= dt;
@@ -2036,8 +2052,18 @@
       enterRoom(code, false);
     });
 
-    window.addEventListener('resize', resize);
-    if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
+    // Debounced: a mobile address bar animating in or out fires this a dozen
+    // times in a row, and re-laying-out on every one of them is the flicker.
+    var resizeTimer = null;
+    function resizeSoon() {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(function () { resizeTimer = null; resize(); }, 120);
+    }
+    window.addEventListener('resize', resizeSoon);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', resizeSoon);
+    window.addEventListener('orientationchange', function () {
+      setTimeout(resize, 250);      // the viewport is still settling on rotate
+    });
     document.addEventListener('visibilitychange', function () {
       S.paused = document.hidden;
       // Don't keep a scheduler running against a backgrounded tab's throttled

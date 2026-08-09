@@ -411,9 +411,28 @@ test('the walk animation keeps pace with the ground covered', function () {
   var small = stridesOver(360, 300);
   var big = stridesOver(560, 520);
   assert.ok(small > 0.5 && big > 0.5, 'the cook never took a step');
-  assert.ok(Math.abs(small - big) / Math.max(small, big) < 0.25,
+  assert.ok(Math.abs(small - big) / Math.max(small, big) < 0.12,
     'crossing the floor takes ' + small.toFixed(1) + ' strides on a phone and ' +
     big.toFixed(1) + ' on a desktop');
+
+  /*
+   * And the cadence itself has to match. Tying stride length to the cook's
+   * height instead of the room gave 2.07 steps/s on a phone and 2.86 on a
+   * desktop, because the character stops growing at the k cap while the room
+   * and the walking speed do not - which is what made the walk look frantic
+   * on one device and not the other.
+   */
+  function cadenceAt(w, h) {
+    stage.clientWidth = w; stage.clientHeight = h;
+    MB.startDay(8);
+    pump(0.1);
+    return (S.fx.speed * (L.walkScale || 1)) / L.stride;
+  }
+  var cadences = [cadenceAt(360, 300), cadenceAt(412, 360), cadenceAt(412, 430), cadenceAt(560, 520)];
+  var cLo = Math.min.apply(null, cadences), cHi = Math.max.apply(null, cadences);
+  assert.ok(cHi / cLo < 1.05,
+    'step cadence differs by screen: ' + cadences.map(function (c) { return c.toFixed(2); }).join(', '));
+  assert.ok(cLo > 1.2 && cHi < 2.4, 'cadence is off the scale: ' + cLo.toFixed(2));
 
   stage.clientWidth = VIEW_W; stage.clientHeight = VIEW_H;
   pump(0.1);
