@@ -895,6 +895,32 @@ test('an impatient ticket walks out and takes a heart with it', function () {
   assert.strictEqual(MB.ticketOf(t.uid), null);
 });
 
+/*
+ * Regression, found by a random-play soak: the "everyone has been served, shut
+ * up shop" check lived only in the code that hands a plate over the counter. If
+ * the last customer of the day walked out instead, nothing checked - and since
+ * day 1 has fewer customers than you have hearts, the day could not even end on
+ * hearts. The player was left in an empty kitchen with no orders, nothing left
+ * to spawn, and no way out but the pause menu.
+ */
+test('the day ends even if the last customer walks out instead of being served', function () {
+  startShift(1);
+  pump(2);
+
+  // let every customer of the day turn up and leave
+  var guard = 0;
+  while (S.screen === 'service' && guard++ < 80) {
+    if (S.tickets.length) S.tickets[0].patience = 0.02;
+    pump(0.5);
+  }
+
+  assert.ok(S.hearts > 0, 'day 1 should not be losable on hearts - that is the point of the case');
+  assert.strictEqual(S.walked, Core.dayConfig(1).customers, 'every customer should have walked');
+  assert.notStrictEqual(S.screen, 'service',
+    'the shift never ended: ' + S.spawned + '/' + Core.dayConfig(1).customers +
+    ' customers in, ' + S.tickets.length + ' left on the board, ' + S.hearts + ' hearts');
+});
+
 test('day 1 cannot be lost on hearts - there are fewer customers than lives', function () {
   assert.ok(Core.dayConfig(1).customers < Core.START_HEARTS,
     'day 1 should be impossible to fail out of; it is the tutorial');

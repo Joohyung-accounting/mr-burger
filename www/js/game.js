@@ -964,6 +964,14 @@
       if (tk.patience <= 0) walkout(tk);
     }
 
+    // The shift is over when the last customer is gone, however they went.
+    // This used to be checked only where a plate was handed over, so if the
+    // last customer of the day walked out instead of being served the day
+    // simply never ended: an empty board, nothing left to spawn, and no way
+    // out but the pause menu. Checking it here covers every way a ticket can
+    // leave, including any added later.
+    if (S.spawned >= S.cfg.customers && S.tickets.length === 0) { endDay(); return; }
+
     // The backing track leans on how close the board is to boiling over:
     // how full it is, and how near the worst ticket is to walking.
     S.musicTimer -= dt;
