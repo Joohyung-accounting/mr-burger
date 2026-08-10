@@ -529,12 +529,31 @@ test('the board always shows more tickets than there are plates to build on', fu
   }
 });
 
-test('the opening days are gentle', function () {
+test('the opening days are gentle, without being a wait', function () {
   var d1 = Core.dayConfig(1);
   assert.ok(d1.patience >= 55, 'day 1 gives ' + d1.patience.toFixed(0) + 's - too tight to learn in');
   assert.ok(d1.customers <= 6, 'day 1 sends ' + d1.customers + ' customers');
-  assert.ok(d1.spawnMin >= 8, 'day 1 queues up too fast');
+  assert.ok(d1.concurrent <= 2, 'day 1 should never have more than two tickets up');
+  // A band, not a floor. This used to demand a gap of at least 8 seconds, which
+  // is a long time to stand in an empty kitchen with nothing to do - the board
+  // was setting the pace rather than the cooking.
+  assert.ok(d1.spawnMin >= 4, 'day 1 queues up too fast to learn in');
+  assert.ok(d1.spawnMin <= 7, 'day 1 leaves you waiting ' + d1.spawnMin.toFixed(1) + 's for something to do');
   assert.ok(Core.dayConfig(12).patience < d1.patience, 'the clock should tighten over time');
+});
+
+test('the line keeps coming faster as the days go on', function () {
+  var gaps = [1, 5, 10, 15, 20].map(function (d) {
+    var c = Core.dayConfig(d);
+    return (c.spawnMin + c.spawnMax) / 2;
+  });
+  for (var i = 1; i < gaps.length; i++) {
+    assert.ok(gaps[i] <= gaps[i - 1],
+      'the gap between customers grew: ' + gaps.map(function (g) { return g.toFixed(1); }).join(', '));
+  }
+  assert.ok(gaps[0] / gaps[gaps.length - 1] >= 1.8,
+    'the pace barely changes across a run: ' + gaps[0].toFixed(1) + 's down to ' +
+    gaps[gaps.length - 1].toFixed(1) + 's');
 });
 
 /* ------------------------------------------------------------- format */
@@ -646,6 +665,68 @@ test('skill is rewarded - a pro out-earns a competent player by a clear margin',
  * and at least 1" - which Infinity satisfies, and a day of Infinity walked
  * dayGoal's forward fill off the end of the world and hung the tab.
  */
+/*
+ * Regression: the shelf stocked floor(day/2) extras but orders allowed
+ * floor(day/2.2) of them, and on day 2 those disagree - so lettuce turned up in
+ * a crate that no ticket could ever ask for. A new ingredient that does nothing
+ * is worse than no new ingredient.
+ */
+test('every crate on the line can actually be ordered', function () {
+  for (var day = 1; day <= 24; day++) {
+    var menu = Core.dayMenu(day);
+    var seen = {};
+    for (var n = 0; n < 2500; n++) {
+      Core.makeOrder(day, Math.random, Core.pickCustomer(day)).items
+        .forEach(function (id) { seen[id] = true; });
+    }
+    var dead = menu.filter(function (id) { return !seen[id]; });
+    assert.strictEqual(dead.length, 0,
+      'day ' + day + ' stocks ' + dead.join(', ') + ' but no order ever asks for it');
+  }
+});
+
+/*
+ * Day 1 is the tutorial and stocks nothing but a bun and a patty, so a day-1
+ * unlock has to queue - but nothing should sit in the back for long. Cheese
+ * used to unlock with the tutorial and not reach the line until day 8.
+ */
+test('a new ingredient reaches the line while it is still news', function () {
+  var firstSeen = {};
+  for (var day = 1; day <= 30; day++) {
+    Core.dayMenu(day).forEach(function (id) {
+      if (firstSeen[id] === undefined) firstSeen[id] = day;
+    });
+  }
+  Core.INGREDIENTS.forEach(function (ing) {
+    var seen = firstSeen[ing.id];
+    assert.ok(seen !== undefined, ing.name + ' never reaches the line at all');
+    assert.ok(seen - ing.day <= 4,
+      ing.name + ' unlocks on day ' + ing.day + ' but does not reach the line until day ' + seen);
+  });
+});
+
+/*
+ * The line splits its crates between toppings and sauces, and a single spare
+ * crate always goes to a topping - so a sauce unlocking on a one-crate day has
+ * to wait for the second. But once the line does carry that group, whatever
+ * unlocked today should be in it: the shop announced it the evening before.
+ */
+test('an ingredient that unlocks today goes out today once its group is stocked', function () {
+  for (var day = 2; day <= 24; day++) {
+    var menu = Core.dayMenu(day);
+    Core.unlockedOn(day).forEach(function (ing) {
+      var sameGroup = menu.filter(function (id) {
+        var other = Core.byId(id);
+        return other.group === ing.group && id !== 'bun' && id !== 'patty';
+      });
+      if (!sameGroup.length) return;          // no crate of that kind today
+      assert.ok(sameGroup.indexOf(ing.id) >= 0,
+        'day ' + day + ' unlocks ' + ing.name + ' and stocks ' + sameGroup.join(', ') +
+        ' - the new one should be among them');
+    });
+  }
+});
+
 test('a save with an impossible day cannot hang the game', function () {
   var t0 = Date.now();
   assert.ok(Core.dayGoal(Infinity) > 0, 'an infinite day should still answer');

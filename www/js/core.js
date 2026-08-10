@@ -49,8 +49,10 @@
     { id: 'bun', name: 'Bun', short: 'Bun', group: 'base', kind: 'bun', price: 90, day: 1 },
     { id: 'patty', name: 'Beef Patty', short: 'Patty', group: 'base', kind: 'patty', price: 220, day: 1, grill: true },
 
-    { id: 'cheese', name: 'Cheese', short: 'Cheese', group: 'topping', kind: 'topping', price: 70, day: 1 },
+    // The line has one spare crate on day 2, and ties on unlock day are broken
+    // by this order - so lettuce is the first thing the player learns to add.
     { id: 'lettuce', name: 'Lettuce', short: 'Lettuce', group: 'topping', kind: 'topping', price: 40, day: 1 },
+    { id: 'cheese', name: 'Cheese', short: 'Cheese', group: 'topping', kind: 'topping', price: 70, day: 1 },
     { id: 'tomato', name: 'Tomato', short: 'Tomato', group: 'topping', kind: 'topping', price: 50, day: 3 },
     { id: 'onion', name: 'Onion', short: 'Onion', group: 'topping', kind: 'topping', price: 40, day: 4 },
     { id: 'pickle', name: 'Pickles', short: 'Pickle', group: 'topping', kind: 'topping', price: 45, day: 6 },
@@ -86,16 +88,25 @@
 
   /* --------------------------------------------------------- day setup */
   function dayConfig(day) {
+    var shelf = extrasOnShelf(day);
     return {
       day: day,
       customers: Math.min(4 + Math.floor(day * 0.9), 16),
       patience: Math.max(30, 62 - day * 1.4),          // seconds, before upgrades
-      spawnMin: Math.max(4.0, 9.5 - day * 0.32),
-      spawnMax: Math.max(7.0, 15.0 - day * 0.5),
-      // extras are everything past the bun and the first patty
-      minExtras: Math.min(Math.floor(day / 5), 3),
-      maxExtras: Math.min(Math.floor(day / 2.2), 4),
-      concurrent: Math.min(2 + Math.floor(day / 3), 5) // tickets on the board
+      /*
+       * The gap between customers. This used to open at 9-14 seconds, which is
+       * a long time to stand in an empty kitchen waiting for something to do -
+       * the board was the pace-setter rather than the cooking. The whole curve
+       * is about a third quicker now and bottoms out lower, so the line keeps
+       * coming instead of trickling.
+       */
+      spawnMin: Math.max(2.6, 6.2 - day * 0.26),
+      spawnMax: Math.max(4.6, 10.0 - day * 0.42),
+      // Extras are everything past the bun and the first patty. Never fewer
+      // than one once the line stocks anything, or the new crate is decoration.
+      minExtras: Math.min(Math.floor(day / 5), 3, shelf),
+      maxExtras: Math.min(Math.max(1, Math.floor(day / 2.2)), shelf, 4),
+      concurrent: Math.min(2 + Math.floor(day / 2.5), 5) // tickets on the board
     };
   }
 
@@ -116,6 +127,38 @@
    */
   var MAX_DAY = 999;
 
+  /**
+   * How many crates past the bun and the patty the line stocks on a given day.
+   * dayConfig reads this too, so the shelf and the order book cannot disagree -
+   * they used to, and day 2 stocked lettuce that no order could ever ask for.
+   */
+  function extrasOnShelf(day) {
+    return clamp(Math.floor(day / 2), 0, MENU_MAX - 2);
+  }
+
+  /**
+   * Everything that has been stocked on any day before this one.
+   *
+   * Built forward and cached, so the walk is done once per day across a whole
+   * run rather than recursively per lookup - dayGoal already asks for every day
+   * in order, and this rides along with it.
+   */
+  var seenCache = { 0: {} };
+  function stockedBefore(day) {
+    if (day < 1) return {};
+    if (seenCache[day]) return seenCache[day];
+    var from = day;
+    while (from > 1 && !seenCache[from - 1]) from--;
+    for (var d = from; d <= day; d++) {
+      if (seenCache[d]) continue;
+      var acc = {}, prev = seenCache[d - 1] || {};
+      for (var k in prev) acc[k] = true;
+      dayMenu(d - 1).forEach(function (id) { acc[id] = true; });
+      seenCache[d] = acc;
+    }
+    return seenCache[day];
+  }
+
   function dayMenu(day) {
     if (menuCache[day]) return menuCache[day];
     var rng = seeded(day * 2654435761 + 7);
@@ -123,15 +166,32 @@
     var toppings = pool.filter(function (i) { return i.group === 'topping'; });
     var sauces = pool.filter(function (i) { return i.group === 'sauce'; });
 
-    // Tracks dayConfig().maxExtras, so the line never stocks a crate no order
-    // can ask for - a day-1 kitchen is a bun and a patty and nothing else.
-    var size = clamp(Math.floor(day / 2), 0, MENU_MAX - 2);
+    var size = extrasOnShelf(day);
     var wantSauce = (size >= 2 && sauces.length) ? clamp(Math.round(size * 0.35), 1, sauces.length) : 0;
     var wantTop = Math.min(size - wantSauce, toppings.length);
     wantSauce = Math.min(size - wantTop, sauces.length);
 
+    /*
+     * Three tiers, then shuffle what is left.
+     *
+     * Whatever unlocked today goes out today - the shop announces it the
+     * evening before under "NEW ON THE MENU", and it read as a lie when the
+     * shuffle left it in the back for another day. Then anything that has never
+     * been on the line at all: the shelf has no room on day 1, so cheese used
+     * to unlock with the tutorial and not turn up until day 8. Everything the
+     * player has already met rotates as before, which is what keeps a run from
+     * looking the same every night.
+     */
+    var everSeen = stockedBefore(day);
     function take(list, n) {
-      return shuffle(list.slice(), rng).slice(0, n)
+      var fresh = [], unseen = [], rest = [];
+      list.forEach(function (i) {
+        if (i.day === day) fresh.push(i);
+        else if (!everSeen[i.id]) unseen.push(i);
+        else rest.push(i);
+      });
+      unseen.sort(function (a, b) { return a.day - b.day; });
+      return fresh.concat(unseen, shuffle(rest, rng)).slice(0, n)
         .sort(function (a, b) { return a.day - b.day; })
         .map(function (i) { return i.id; });
     }
@@ -511,6 +571,47 @@
   var STATION_CAP = 5;
   var MAX_MONEY = 1e12;      // a bound on a tampered save, not on a good run
 
+  /* ------------------------------------------------------------- the room */
+  /**
+   * Which kitchen you are working in tonight.
+   *
+   * Every shift moves the furniture: which wall the grill is on, which wall the
+   * plates are on, where the bin sits, how the line is arranged, and the colour
+   * of the place. Routes you learned yesterday are worth re-reading today,
+   * which is the thing that makes a shift feel like a new shift.
+   *
+   * Purely a function of the day, and it lives here rather than in the layout
+   * code for one reason: co-op. Both machines work it out for themselves and
+   * have to arrive at the same room, and the guest only ever knows the day.
+   *
+   * Deliberately NOT random per run - a player who retries a day gets the same
+   * kitchen back, so a failed night is a fair rematch rather than a reroll.
+   */
+  var SIDES = ['left', 'right'];
+  var LINES = ['centre', 'left', 'right', 'split'];
+  var PALETTES = 6;
+
+  function dayRoom(day) {
+    var d = Math.max(1, Math.floor(Number(day) || 1));
+    var rng = seeded(d * 2246822519 + 3266489917);
+    // burn one so neighbouring days do not share a first draw
+    rng();
+    var grill = SIDES[Math.floor(rng() * SIDES.length) % SIDES.length];
+    var line = LINES[Math.floor(rng() * LINES.length) % LINES.length];
+    var binSide = SIDES[Math.floor(rng() * SIDES.length) % SIDES.length];
+    return {
+      day: d,
+      grill: grill,                                  // which wall the burners are on
+      plates: grill === 'left' ? 'right' : 'left',   // plates always face them
+      line: line,                                    // how the crate row is arranged
+      bin: binSide,                                  // which end of the hatch the bin is
+      palette: Math.floor(rng() * PALETTES) % PALETTES,
+      // Day 1 is the tutorial: leave it in the plainest room so the first
+      // shift is about learning the job, not reading a new floor plan.
+      plain: d === 1
+    };
+  }
+
   /**
    * Beat a stored save into something the rules can be run against.
    *
@@ -614,6 +715,8 @@
     byId: byId,
     MAX_DAY: MAX_DAY,
     sanitiseSave: sanitiseSave,
+    dayRoom: dayRoom,
+    PALETTES: PALETTES,
     unlockedAt: unlockedAt,
     unlockedOn: unlockedOn,
     dayConfig: dayConfig,

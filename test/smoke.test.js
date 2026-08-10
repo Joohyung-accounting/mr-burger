@@ -317,7 +317,9 @@ test('the kitchen fits inside the canvas', function () {
   }
   var h = MB.hatchRect(), b = MB.binRect();
   assert.ok(h.y + h.h <= VIEW_H + 0.01, 'the hatch overflows the canvas');
-  assert.ok(b.x + b.w <= h.x + 0.01, 'the bin overlaps the hatch');
+  // the bin changes ends with the room, so only that they do not overlap
+  assert.ok(b.x + b.w <= h.x + 0.01 || h.x + h.w <= b.x + 0.01, 'the bin overlaps the hatch');
+  assert.ok(b.x >= -0.01 && b.x + b.w <= VIEW_W + 0.01, 'the bin is off-canvas');
 });
 
 test('the floor is a real walkable area between the stations', function () {
@@ -566,6 +568,79 @@ test('a screen too short to hit the stations asks for a turn instead', function 
   pump(0.6);
   assert.strictEqual(S.cramped, false, 'turning back should hand the kitchen over again');
   S.levels = {};
+});
+
+/*
+ * Every shift moves the furniture, so every shift is a room the layout code has
+ * never been asked about before. Walk a long run of them and check each one is
+ * a kitchen you could actually work in.
+ */
+test('every night is a different kitchen, and all of them are workable', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  var seen = {}, sides = {}, palettes = {};
+
+  [[360, 300], [412, 470], [820, 640]].forEach(function (wh) {
+    stage.clientWidth = wh[0]; stage.clientHeight = wh[1];
+    for (var day = 1; day <= 40; day++) {
+      S.levels = { shoes: 3, plate: 2, grill: 3, burner: 2, sign: 3 };
+      MB.startDay(day);
+      pump(0.1);
+      var where = wh.join('x') + ' day ' + day;
+
+      var room = L.room;
+      seen[room.grill + '|' + room.line + '|' + room.bin] = true;
+      sides[room.grill] = true;
+      palettes[room.palette] = true;
+
+      // the two walls never overlap and the floor between them is real
+      var g = MB.slotRect(0), p = MB.plateRect(0);
+      assert.ok(g.x + g.w <= p.x + 0.01 || p.x + p.w <= g.x + 0.01,
+        where + ': the grill and the plates are on top of each other');
+      assert.ok(L.floor.x1 - L.floor.x0 > 40, where + ': no floor left to walk on');
+      assert.ok(L.floor.y1 - L.floor.y0 > 40, where + ': the floor is too short');
+
+      // every station is inside the room and reachable from the floor
+      var targets = [{ kind: 'hatch' }, { kind: 'bin' }];
+      for (var i = 0; i < S.menu.length; i++) targets.push({ kind: 'crate', i: i });
+      for (i = 0; i < S.grill.length; i++) targets.push({ kind: 'grill', i: i });
+      for (i = 0; i < S.plates.length; i++) targets.push({ kind: 'plate', i: i });
+      targets.forEach(function (t) {
+        var s = MB.standPoint(t);
+        assert.ok(isFinite(s.x) && isFinite(s.y), where + ': ' + t.kind + ' has no stand point');
+        assert.ok(s.x >= L.floor.x0 - 1 && s.x <= L.floor.x1 + 1,
+          where + ': you cannot stand at ' + t.kind + ' (' + s.x.toFixed(0) + ' vs floor ' +
+          L.floor.x0.toFixed(0) + '-' + L.floor.x1.toFixed(0) + ')');
+        assert.ok(s.y >= L.floor.y0 - 1 && s.y <= L.floor.y1 + 1,
+          where + ': you cannot stand at ' + t.kind + ' vertically');
+      });
+
+      // and tapping a station still finds it
+      var rc = MB.crateRect(0);
+      var hit = MB.stationAt(rc.x + rc.w / 2, rc.y + rc.h / 2);
+      assert.ok(hit && hit.kind === 'crate' && hit.i === 0,
+        where + ': tapping the first crate found ' + JSON.stringify(hit));
+    }
+  });
+
+  assert.ok(Object.keys(seen).length >= 6,
+    'only ' + Object.keys(seen).length + ' distinct floor plans across 40 days');
+  assert.strictEqual(Object.keys(sides).length, 2, 'the grill never changes wall');
+  assert.ok(Object.keys(palettes).length >= 4,
+    'only ' + Object.keys(palettes).length + ' colour schemes across 40 days');
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  S.levels = {};
+  pump(0.4);
+});
+
+test('the same day is always the same kitchen', function () {
+  // a retry has to be a fair rematch, and in co-op both machines work the
+  // room out for themselves from nothing but the day number
+  for (var day = 1; day <= 30; day++) {
+    var a = Core.dayRoom(day), b = Core.dayRoom(day);
+    assert.deepStrictEqual(a, b, 'day ' + day + ' generated two different rooms');
+  }
+  assert.ok(Core.dayRoom(1).plain, 'day 1 should be the plain tutorial room');
 });
 
 test('the walk animation keeps pace with the ground covered', function () {

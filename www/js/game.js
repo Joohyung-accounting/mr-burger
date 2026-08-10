@@ -286,6 +286,11 @@
     L.k = k;
     L.chefS = CHEF_S * k;      // the cook grows with the room, not against it
 
+    // Tonight's floor plan. Worked out from the day alone so a guest lands in
+    // the same kitchen as the host; see Core.dayRoom.
+    var room = Core.dayRoom(S.day || 1);
+    L.room = room;
+
     /* --- the line along the top wall: every box on one shelf, sized to fit.
        dayMenu() already returns buns, then toppings, then sauces, so the row
        stays organised left to right without needing labelled sections. */
@@ -296,29 +301,56 @@
     L.crateH = box.h;
     L.crates = [];
     var rowW = box.n * box.w + (box.n - 1) * box.gap;
-    var x0 = (W - rowW) / 2;                  // centred, however few there are
     var y = L.pad + 4;
+    var slack = W - rowW;                      // room the row does not fill
+
+    /*
+     * Where the line sits along the wall. On a busy day the row fills the width
+     * and all of these collapse to the same thing, but early on - two or three
+     * crates on a wide shelf - it is the difference between the same kitchen
+     * every night and a room you have to actually look at.
+     */
+    var x0 = slack / 2;
+    var splitAt = -1;
+    if (!room.plain && slack > box.w * 0.6) {
+      if (room.line === 'left') x0 = Math.min(slack, box.gap * 2);
+      else if (room.line === 'right') x0 = slack - Math.min(slack, box.gap * 2);
+      else if (room.line === 'split' && box.n >= 4) {
+        // two shorter runs with the wall showing between them
+        splitAt = Math.ceil(box.n / 2);
+        x0 = slack / 2 - Math.min(slack / 2, box.gap * 1.5);
+      }
+    }
+
+    var extra = splitAt > 0 ? Math.min(slack, box.gap * 3) : 0;
     for (var c = 0; c < box.n; c++) {
-      L.crates[c] = { x: x0 + c * (box.w + box.gap), y: y, w: box.w, h: box.h };
+      L.crates[c] = {
+        x: x0 + c * (box.w + box.gap) + (splitAt > 0 && c >= splitAt ? extra : 0),
+        y: y, w: box.w, h: box.h
+      };
     }
     L.cratesBottom = y + box.h;
     // one counter run, bleeding off both edges of the room
     L.counters = [{ x: -8, y: L.pad - 3, w: W + 16, h: box.h + 12 }];
 
-    // --- serving hatch and bin along the bottom wall
+    // --- serving hatch and bin along the bottom wall. The bin changes ends
+    // with the room, so "throw it away" is not always the same corner.
     L.hatchH = HATCH_H * k;
     L.hatchY = H - L.pad - L.hatchH;
     L.binW = 52 * k;
-    L.binX = L.pad;
-    L.hatchX = L.pad + L.binW + gap;
+    var binRight = !room.plain && room.bin === 'right';
+    L.binX = binRight ? W - L.pad - L.binW : L.pad;
+    L.hatchX = binRight ? L.pad : L.pad + L.binW + gap;
     L.hatchW = W - L.pad * 2 - L.binW - gap;
 
-    // --- grill on the left wall, plates on the right
+    // --- the two working walls. Which one is the grill changes every shift.
     L.midTop = L.cratesBottom + 10 * k;
     L.midBottom = L.hatchY - 10 * k;
     L.colW = clamp(W * 0.19, 62, 92);
-    L.grillX = L.pad;
-    L.plateX = W - L.pad - L.colW;
+    var leftX = L.pad, rightX = W - L.pad - L.colW;
+    var grillLeft = room.plain || room.grill === 'left';
+    L.grillX = grillLeft ? leftX : rightX;
+    L.plateX = grillLeft ? rightX : leftX;
 
     var midH = L.midBottom - L.midTop;
     var gN = S.grill.length || 2, pN = S.plates.length || 2;
@@ -327,10 +359,10 @@
     L.grillTop = L.midTop + (midH - (gN * L.slotH + (gN - 1) * gap)) / 2;
     L.plateTop = L.midTop + (midH - (pN * L.plateH + (pN - 1) * gap)) / 2;
 
-    // --- the walkable floor
+    // --- the walkable floor: whatever is left between the two walls
     L.floor = {
-      x0: L.grillX + L.colW + 16,
-      x1: L.plateX - 16,
+      x0: leftX + L.colW + 16,
+      x1: rightX - 16,
       y0: L.cratesBottom + 16,
       y1: L.hatchY - 14
     };
@@ -1097,9 +1129,36 @@
    * waste. Bake it once per layout and blit it. Keyed on the layout numbers it
    * actually reads, so a resize rebuilds it and nothing else does.
    */
+  /*
+   * Tonight's decor. The plan picks one of these, so the room reads as a
+   * different kitchen at a glance rather than the same one with the furniture
+   * moved. Kept in the same warm family as the rest of the art - a burger place
+   * that redecorates, not six unrelated games.
+   */
+  var ROOMS = [
+    { wallA: '#fdf5e9', wallB: '#f0e0c8', floorA: '#f8e9d3', floorB: '#e9cfae',
+      counterTop: '#e4c496', counterTop2: '#d2ad7c', counterSide: '#a97d4e' },
+    { wallA: '#f2f6f4', wallB: '#dbe7e2', floorA: '#eef3ef', floorB: '#cfded7',
+      counterTop: '#cfd9d0', counterTop2: '#b6c3b8', counterSide: '#7d8d81' },
+    { wallA: '#fdf1ef', wallB: '#f4dcd8', floorA: '#fbe9e6', floorB: '#eccbc6',
+      counterTop: '#e8bfb4', counterTop2: '#d6a396', counterSide: '#a3705f' },
+    { wallA: '#f4f2fb', wallB: '#e0dcf1', floorA: '#efecf9', floorB: '#d3cdea',
+      counterTop: '#cfc7e4', counterTop2: '#b6aad2', counterSide: '#7d709b' },
+    { wallA: '#fbf7e6', wallB: '#efe4bd', floorA: '#f7f0d8', floorB: '#e3d5a6',
+      counterTop: '#ddcb92', counterTop2: '#c6b276', counterSide: '#8f7c46' },
+    { wallA: '#eef4f9', wallB: '#d5e3ee', floorA: '#e9f1f7', floorB: '#c7d9e7',
+      counterTop: '#c6d5e0', counterTop2: '#adbfcd', counterSide: '#728799' }
+  ];
+
+  function decor() {
+    var i = (L.room && !L.room.plain) ? L.room.palette : 0;
+    return ROOMS[i % ROOMS.length] || ROOMS[0];
+  }
+
   var roomCache = null;
   function drawRoom() {
-    var key = L.W + 'x' + L.H + ':' + L.cratesBottom + ':' + (L.k || 1);
+    var key = L.W + 'x' + L.H + ':' + L.cratesBottom + ':' + (L.k || 1) +
+      ':' + (L.room ? L.room.palette + '/' + L.room.plain : '0');
     if (!roomCache || roomCache.key !== key) roomCache = bakeRoom(key);
     if (roomCache.cv) ctx.drawImage(roomCache.cv, 0, 0, L.W, L.H);
     else paintRoom(ctx);          // no offscreen canvas available, paint direct
@@ -1125,11 +1184,12 @@
 
   function paintRoom(g) {
     var floorTop = L.cratesBottom + 8;
+    var D = decor();
 
     // --- tiled back wall
     var wg = g.createLinearGradient(0, 0, 0, floorTop);
-    wg.addColorStop(0, K.wallA);
-    wg.addColorStop(1, K.wallB);
+    wg.addColorStop(0, D.wallA);
+    wg.addColorStop(1, D.wallB);
     g.fillStyle = wg;
     g.fillRect(0, 0, L.W, floorTop);
     g.strokeStyle = K.wallTile;
@@ -1152,7 +1212,7 @@
     for (var y = floorTop; y < y1; y += tile) {
       for (var x = -tile; x < L.W + tile; x += tile) {
         var odd = (Math.floor(x / tile) + Math.floor((y - floorTop) / tile)) % 2;
-        g.fillStyle = odd ? K.floorB : K.floorA;
+        g.fillStyle = odd ? D.floorB : D.floorA;
         g.fillRect(x, y, tile, tile);
       }
     }
@@ -1171,8 +1231,9 @@
   }
 
   function drawCounter() {
+    var D = decor();
     for (var i = 0; i < L.counters.length; i++) {
-      slab(L.counters[i], K.counterTop, K.counterTop2, K.counterSide, 12, DEPTH.counter, false);
+      slab(L.counters[i], D.counterTop, D.counterTop2, D.counterSide, 12, DEPTH.counter, false);
     }
   }
 
