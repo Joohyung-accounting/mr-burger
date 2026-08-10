@@ -127,6 +127,7 @@ global.window = global;
 global.document = {
   readyState: 'complete',
   hidden: false,
+  body: makeEl('body'),
   getElementById: function (id) { return elements[id] || null; },
   createElement: function (tag) {
     var e = makeEl(tag);
@@ -503,6 +504,47 @@ test('the room is painted once per layout, not once per frame', function () {
 
   stage.clientWidth = w0; stage.clientHeight = h0;
   pump(0.4);
+});
+
+/*
+ * The room runs top to bottom - crates, stations, hatch - so a short viewport
+ * squeezes the stations rather than the floor. A phone held sideways left the
+ * grill slots and plates about 15px tall: still drawn correctly, but far too
+ * small to hit on purpose, and the shift kept running while you fumbled.
+ */
+test('a screen too short to hit the stations asks for a turn instead', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  stage.clientWidth = 544; stage.clientHeight = 430;
+  S.levels = { shoes: 3, plate: 2, grill: 3, burner: 2, sign: 3 };
+  MB.startDay(20);
+  pump(0.3);
+
+  assert.ok(L.slotH >= 22 && L.plateH >= 22,
+    'setup: the stations should be hittable at this height, got ' + L.slotH.toFixed(0));
+  assert.strictEqual(S.cramped, false, 'a tall screen should not be asking for a turn');
+  assert.strictEqual(document.body.classList.contains('cramped'), false,
+    'the body should not carry the class on a tall screen');
+
+  // the same kitchen with the phone on its side
+  stage.clientWidth = 544; stage.clientHeight = 220;
+  pump(0.6);
+  assert.ok(L.slotH < 22, 'setup: this height should squeeze the stations, got ' + L.slotH.toFixed(0));
+  assert.strictEqual(S.cramped, true, 'the turn-your-phone sheet should be up');
+  assert.ok(document.body.classList.contains('cramped'), 'the body should carry the class the sheet keys off');
+
+  // and the shift must not tick away while the player cannot reach anything
+  var patience = S.tickets.length ? S.tickets[0].patience : null;
+  var spawned = S.spawned;
+  pump(3);
+  assert.strictEqual(S.spawned, spawned, 'customers kept arriving while the kitchen was unusable');
+  if (patience !== null) {
+    assert.strictEqual(S.tickets[0].patience, patience, 'the patience clock kept running');
+  }
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.6);
+  assert.strictEqual(S.cramped, false, 'turning back should hand the kitchen over again');
+  S.levels = {};
 });
 
 test('the walk animation keeps pace with the ground covered', function () {

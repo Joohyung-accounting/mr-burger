@@ -190,6 +190,23 @@
   </div>
 </div>
 
+<!-- --------------------------------------------------- turn it back --->
+<!--
+  The kitchen is laid out top to bottom - the line of crates, the stations,
+  then the hatch - so a short viewport squeezes the stations rather than the
+  room. Below about 260px of canvas they drop under 22px tall and stop being
+  reliably tappable, which is every phone held sideways. Ask for a turn
+  instead of drawing a kitchen nobody can hit.
+-->
+<div id="rotate">
+  <div class="rotate-inner">
+    <div class="rotate-icon">📱</div>
+    <h2>TURN YOUR PHONE</h2>
+    <p>Mr. Burger runs the line top to bottom. Upright, everything is big
+      enough to hit.</p>
+  </div>
+</div>
+
 <!-- ------------------------------------------------------------ shop --->
 <div id="shop" class="modal" hidden>
   <div class="sheet wide">

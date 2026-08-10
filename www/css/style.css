@@ -656,3 +656,57 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 
 .ticket .pin { display: none; }   /* tickets are matched at the hatch now */
+
+/* ------------------------------------------------------------ turn it back */
+/*
+ * Shown when the canvas is too short to give the stations a hittable size -
+ * layout() works that out from the real numbers and puts .cramped on the body,
+ * so this follows what actually breaks rather than a guess at screen sizes.
+ */
+#rotate { display: none; }
+
+body.cramped #rotate {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: radial-gradient(120% 120% at 50% 0%, #3a2216 0%, #1b0f09 70%);
+  text-align: center;
+}
+
+.rotate-inner { max-width: 380px; }
+
+.rotate-icon {
+  font-size: 42px;
+  line-height: 1;
+  margin-bottom: 10px;
+  display: inline-block;
+  transform: rotate(90deg);
+  animation: rotate-hint 2.4s ease-in-out infinite;
+}
+
+@keyframes rotate-hint {
+  0%, 45%  { transform: rotate(90deg); }
+  60%, 90% { transform: rotate(0deg); }
+  100%     { transform: rotate(90deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rotate-icon { animation: none; }
+}
+
+#rotate h2 {
+  margin: 0 0 8px;
+  font: 900 20px/1.1 'Trebuchet MS', system-ui, sans-serif;
+  letter-spacing: 2px;
+  color: #f4b41a;
+}
+
+#rotate p {
+  margin: 0;
+  font: 600 14px/1.45 'Trebuchet MS', system-ui, sans-serif;
+  color: rgba(255, 244, 224, 0.72);
+}

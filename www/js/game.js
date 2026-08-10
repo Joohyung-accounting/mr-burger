@@ -90,7 +90,8 @@
     flyers: [], cratePop: [],
     musicTimer: 0,
     paused: false,       // tab hidden
-    userPaused: false    // pause menu open
+    userPaused: false,   // pause menu open
+    cramped: false       // screen too short to hit the stations; see showCramped
   };
 
   function makeChef() {
@@ -236,6 +237,28 @@
     cv.height = Math.round(h * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     layout();
+    showCramped();
+  }
+
+  // A finger needs something to aim at. Below this the stations are still drawn
+  // correctly, they are just too small to hit on purpose.
+  var MIN_TAPPABLE = 22;
+
+  /**
+   * The room is laid out top to bottom, so a short viewport squeezes the
+   * stations rather than the floor - and a phone turned sideways leaves them
+   * around 15px tall. Rather than guess at screen sizes in a media query, key
+   * off the size the stations actually came out at.
+   */
+  function showCramped() {
+    var cramped = L.slotH < MIN_TAPPABLE || L.plateH < MIN_TAPPABLE;
+    if (cramped === S.cramped) return;
+    S.cramped = cramped;
+    if (document.body && document.body.classList) {
+      document.body.classList.toggle('cramped', cramped);
+    }
+    // Coming back from it, the loop has been idle: don't hand it a huge dt.
+    if (!cramped) last = 0;
   }
 
   function layout() {
@@ -2503,8 +2526,10 @@
     last = ts;
     if (sizeSettled(ts)) resize();
     // A paused kitchen still gets painted - the frozen frame is the backdrop
-    // the pause sheet sits on.
-    if (!S.paused) {
+    // the pause sheet sits on. A cramped one is covered by the turn-your-phone
+    // sheet, so there is nothing to paint and, more to the point, the shift
+    // must not keep running while the player cannot reach the stations.
+    if (!S.paused && !S.cramped) {
       if (!S.userPaused) update(dt);
       draw();
     }
