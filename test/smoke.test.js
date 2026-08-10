@@ -105,7 +105,8 @@ var elements = { stage: stage };
   'coop', 'hostBtn', 'roomOut', 'joinInput', 'joinBtn', 'coopNote', 'coopClose',
   'shop', 'walletText', 'unlockBox', 'unlockList', 'upgradeList', 'nextRent', 'nextKitchen',
   'nextDayBtn', 'nextDayNum', 'over', 'overTitle', 'overReason', 'overDay',
-  'overBest', 'retryBtn', 'retryDay', 'wipeBtn'
+  'overBest', 'retryBtn', 'retryDay', 'wipeBtn',
+  'clockText', 'clockFill', 'clockBox'
 ].forEach(function (id) { elements[id] = makeEl('div'); });
 
 // Mirror index.html: the flow sheets carry the `hidden` attribute.
@@ -1059,6 +1060,96 @@ test('serving a burger nobody ordered costs a heart', function () {
   assert.strictEqual(S.sales + S.tips, before, 'a rejected burger must not pay');
   assert.strictEqual(S.hearts, Core.START_HEARTS - 1);
   assert.strictEqual(S.served, 0);
+});
+
+/* ------------------------------------------------------------- the clock */
+test('the shift clock counts down and shows the time left', function () {
+  startShift(5);
+  pump(0.1);
+  var full = Core.dayLength(5);
+  assert.strictEqual(S.dayLength, full, 'the shift did not take its length from the day');
+  assert.ok(S.timeLeft > full - 2, 'the clock did not start full: ' + S.timeLeft.toFixed(1));
+  assert.strictEqual(elements.clockText.textContent, Core.clockText(S.timeLeft),
+    'the display does not match the clock');
+
+  pump(10);
+  assert.ok(S.timeLeft < full - 9 && S.timeLeft > full - 12,
+    'ten seconds of play took ' + (full - S.timeLeft).toFixed(1) + 's off the clock');
+  assert.strictEqual(elements.clockText.textContent, Core.clockText(S.timeLeft));
+});
+
+test('a paused shift is not a shift on the clock', function () {
+  startShift(5);
+  pump(2);
+  MB.setPaused(true);
+  var held = S.timeLeft;
+  pump(6);
+  assert.strictEqual(S.timeLeft, held, 'the clock ran while the game was paused');
+  MB.setPaused(false);
+  pump(2);
+  assert.ok(S.timeLeft < held - 1, 'the clock did not start again after unpausing');
+});
+
+/*
+ * Last orders rather than a hard stop: nobody new comes in once the clock is
+ * out, but a plate already in your hands is still worth serving.
+ */
+test('closing time stops new customers and then ends the shift', function () {
+  startShift(6);
+  pump(1);
+  assert.ok(S.cfg.customers > 2, 'setup: expected a day with several customers');
+
+  S.timeLeft = 0.02;
+  pump(0.5);
+  var spawnedAtClose = S.spawned;
+  assert.ok(spawnedAtClose < S.cfg.customers,
+    'setup: the day should still have had customers to come');
+
+  // the board empties on its own - nobody else arrives
+  var guard = 0;
+  while (S.screen === 'service' && guard++ < 400) {
+    if (S.tickets.length) S.tickets[0].patience = 0.02;
+    pump(0.5);
+  }
+  assert.strictEqual(S.spawned, spawnedAtClose, 'customers kept arriving after closing time');
+  assert.notStrictEqual(S.screen, 'service', 'the shift never ended after closing time');
+  assert.strictEqual(S.closedBy, 'clock', 'the receipt will not know the buzzer ended it');
+});
+
+test('a shift finished early does not blame the clock', function () {
+  startShift(1);
+  pump(0.5);
+  var guard = 0;
+  while (S.screen === 'service' && guard++ < 400) {
+    if (S.tickets.length) S.tickets[0].patience = 0.02;
+    pump(0.5);
+  }
+  assert.notStrictEqual(S.screen, 'service', 'setup: the day should have ended');
+  assert.ok(S.timeLeft > 0, 'setup: this should finish well inside the clock');
+  assert.strictEqual(S.closedBy, null, 'the shift ended on customers, not on time');
+});
+
+test('a guest reads the clock off the host rather than running its own', function () {
+  S.role = 'host';
+  startShift(7);
+  pump(4);
+  var hostLeft = S.timeLeft;
+  var snap = MB.snapshot();
+  assert.ok(Math.abs(snap.left - hostLeft) < 0.2, 'the snapshot does not carry the clock');
+
+  S.role = 'guest'; S.me = 1;
+  S.timeLeft = 999; S.dayLength = 999;
+  MB.applySnapshot(snap);
+  assert.ok(Math.abs(S.timeLeft - hostLeft) < 0.2,
+    'the guest is on its own clock: ' + S.timeLeft.toFixed(1) + ' vs the host ' + hostLeft.toFixed(1));
+  assert.strictEqual(S.dayLength, Core.dayLength(7));
+
+  // and it does not tick between packets - two clocks drifting is worse than one stepping
+  var atPacket = S.timeLeft;
+  pump(3);
+  assert.strictEqual(S.timeLeft, atPacket, 'the guest ran the clock itself');
+
+  S.role = 'solo'; S.me = 0;
 });
 
 /* --------------------------------------------------------------- the day */

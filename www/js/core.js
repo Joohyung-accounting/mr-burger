@@ -571,6 +571,38 @@
   var STATION_CAP = 5;
   var MAX_MONEY = 1e12;      // a bound on a tampered save, not on a good run
 
+  /**
+   * How long the shift runs, in seconds.
+   *
+   * Measured rather than guessed. Simulating a sharp player - right order,
+   * sear inside the window, no dawdling, holding the upgrades they would
+   * plausibly own by then - a shift runs about forty seconds plus seven and a
+   * half a day, levelling off around two minutes once the customer count caps
+   * and the kitchen is fully kitted out.
+   *
+   * The clock is that with roughly half again on top. Tight enough that a
+   * scrappy shift ends on the buzzer, loose enough that a clean one never
+   * does - the hearts are what should beat you when you are playing badly, not
+   * a stopwatch.
+   *
+   * Rounded to five seconds, because a countdown starting on an odd number
+   * reads as arbitrary.
+   */
+  var CLOCK_SLACK = 1.45;
+
+  function dayLength(day) {
+    var sharp = clamp(40 + Math.max(1, Math.floor(day)) * 7.5, 45, 120);
+    return Math.round(sharp * CLOCK_SLACK / 5) * 5;
+  }
+
+  /** mm:ss, for the clock in the corner. */
+  function clockText(secs) {
+    var s = Math.max(0, Math.ceil(Number(secs) || 0));
+    var m = Math.floor(s / 60);
+    var r = s % 60;
+    return m + ':' + (r < 10 ? '0' : '') + r;
+  }
+
   /* ------------------------------------------------------------- the room */
   /**
    * Which kitchen you are working in tonight.
@@ -717,6 +749,8 @@
     sanitiseSave: sanitiseSave,
     dayRoom: dayRoom,
     PALETTES: PALETTES,
+    dayLength: dayLength,
+    clockText: clockText,
     unlockedAt: unlockedAt,
     unlockedOn: unlockedOn,
     dayConfig: dayConfig,

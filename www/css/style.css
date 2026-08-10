@@ -93,6 +93,60 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .day-tag { font-size: 10px; letter-spacing: 0.18em; color: var(--muted); font-weight: 700; }
 .day-tag b { color: var(--cream); font-size: 13px; }
 .goal-text { font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--muted); }
+
+/* ------------------------------------------------------------- the clock */
+/*
+ * Sits between the day and the till, because that is the reading order of the
+ * question a player is asking: which shift, how long left, how am I doing.
+ * Tabular numerals so the countdown does not shuffle sideways every second.
+ */
+.clock {
+  font-size: 13px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: var(--cream);
+  margin-left: auto;
+  margin-right: auto;
+  padding: 0 8px;
+  transition: color 0.2s linear;
+}
+
+/* Under a minute the clock warms up; under fifteen seconds it beats. */
+.clock.warm { color: var(--mustard); }
+.clock.urgent { color: #ff6b57; animation: clock-beat 1s steps(1, end) infinite; }
+
+@keyframes clock-beat {
+  0%, 60%  { opacity: 1; }
+  61%, 99% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clock.urgent { animation: none; }
+}
+
+.clock-bar {
+  height: 3px;
+  margin-top: 3px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+#clockFill {
+  height: 100%;
+  width: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #6fd0a0, var(--mustard));
+  transition: width 0.25s linear, background 0.4s linear;
+}
+
+#clockFill.warm { background: linear-gradient(90deg, var(--mustard), #ff8c42); }
+#clockFill.urgent { background: linear-gradient(90deg, #ff8c42, #ff5a44); }
+
+/* Off the clock entirely outside a shift, so the title screen is not lying. */
+body.no-clock .clock,
+body.no-clock .clock-bar { visibility: hidden; }
 .goal-text.met { color: var(--green); }
 
 .goal-bar {

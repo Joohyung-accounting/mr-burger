@@ -542,6 +542,38 @@ test('the opening days are gentle, without being a wait', function () {
   assert.ok(Core.dayConfig(12).patience < d1.patience, 'the clock should tighten over time');
 });
 
+/* ------------------------------------------------------------- the clock */
+test('the shift clock is long enough to actually work the shift', function () {
+  // measured: a sharp player's shift runs about 40s + 7.5s a day, levelling off
+  // near two minutes once the customer count caps
+  for (var day = 1; day <= 30; day++) {
+    var sharp = Math.min(40 + day * 7.5, 120);
+    var limit = Core.dayLength(day);
+    assert.ok(limit >= sharp * 1.25,
+      'day ' + day + ' gives ' + limit + 's for a shift that takes about ' + sharp.toFixed(0) + 's');
+    assert.ok(limit <= sharp * 2.0,
+      'day ' + day + ' gives ' + limit + 's, which is not a limit at all against ' + sharp.toFixed(0) + 's');
+  }
+});
+
+test('the clock never shortens as the days get heavier', function () {
+  for (var day = 2; day <= 30; day++) {
+    assert.ok(Core.dayLength(day) >= Core.dayLength(day - 1),
+      'day ' + day + ' gives less time than day ' + (day - 1) +
+      ' (' + Core.dayLength(day) + 's vs ' + Core.dayLength(day - 1) + 's)');
+  }
+  assert.ok(Core.dayLength(1) >= 60, 'day 1 is the tutorial and should not be a sprint');
+});
+
+test('the clock reads as a clock', function () {
+  assert.strictEqual(Core.clockText(0), '0:00');
+  assert.strictEqual(Core.clockText(9), '0:09');
+  assert.strictEqual(Core.clockText(60), '1:00');
+  assert.strictEqual(Core.clockText(125), '2:05');
+  assert.strictEqual(Core.clockText(-4), '0:00', 'a negative clock should read empty, not broken');
+  assert.strictEqual(Core.clockText(30.2), '0:31', 'part of a second left is still a second on the display');
+});
+
 test('the line keeps coming faster as the days go on', function () {
   var gaps = [1, 5, 10, 15, 20].map(function (d) {
     var c = Core.dayConfig(d);

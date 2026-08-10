@@ -64,6 +64,8 @@
     hearts: 5, sales: 0, tips: 0, served: 0, walked: 0, perfect: 0,
     lifetime: 0,
     spawned: 0, spawnTimer: 0, cfg: null, rent: 0, menu: [],
+    timeLeft: 0, dayLength: 0,   // the shift clock; see Core.dayLength
+    closedBy: null,              // 'clock' when the buzzer ended it
 
     tickets: [],   // { uid, arch, items, patience, max, node, barEl }
     plates: [],    // { stack: [{id, cook}] }
@@ -610,6 +612,9 @@
     S.hearts = Core.START_HEARTS;
     S.sales = 0; S.tips = 0; S.served = 0; S.walked = 0; S.perfect = 0;
     S.spawned = 0; S.spawnTimer = 1.2;
+    S.dayLength = Core.dayLength(day);
+    S.timeLeft = S.dayLength;
+    S.closedBy = null;
     S.tickets = [];
     S.plates = [];
     for (var i = 0; i < S.fx.plates; i++) S.plates.push({ stack: [] });
@@ -863,9 +868,10 @@
 
     dropTicket(t, 'served');
     syncHud();
-
-    if (S.hearts <= 0) { endDay(); return; }
-    if (S.spawned >= S.cfg.customers && S.tickets.length === 0) endDay();
+    // Whether that was the last ticket is update()'s business, on the next
+    // frame. Deciding it here as well is how the shift used to fail to end
+    // when the last customer walked out instead of being served, and how the
+    // receipt then missed that the buzzer was what closed the place.
   }
 
   /* --------------------------------------------------------------- update */
@@ -996,7 +1002,7 @@
     if (S.screen !== 'service') return;
 
     // A guest renders what the host sends and simulates none of it.
-    if (S.role === 'guest') { updateBoardBars(); return; }
+    if (S.role === 'guest') { updateBoardBars(); syncClock(); return; }
 
     for (i = 0; i < S.grill.length; i++) {
       if (S.grill[i]) {
@@ -1011,7 +1017,23 @@
       }
     }
 
-    if (S.spawned < S.cfg.customers && S.tickets.length < S.cfg.concurrent) {
+    /*
+     * The shift clock. Runs down only while the kitchen is actually open, so
+     * the pause menu and the tab going away do not cost the player anything -
+     * update() is not called in either case.
+     *
+     * Nobody new comes in once it is out: the last few minutes of a shift
+     * should be about clearing the board, not being handed a fresh order you
+     * cannot possibly finish.
+     */
+    var wasOpen = S.timeLeft > 0;
+    S.timeLeft = Math.max(0, S.timeLeft - dt);
+    if (wasOpen && S.timeLeft <= 0) {
+      Sfx.warn();
+      banner('LAST ORDERS', 'clear the board', '#e2704f');
+    }
+
+    if (S.timeLeft > 0 && S.spawned < S.cfg.customers && S.tickets.length < S.cfg.concurrent) {
       S.spawnTimer -= dt;
       if (S.spawnTimer <= 0) {
         spawnTicket();
@@ -1030,13 +1052,22 @@
       if (tk.patience <= 0) walkout(tk);
     }
 
+    if (S.hearts <= 0) { endDay(); return; }
+
     // The shift is over when the last customer is gone, however they went.
-    // This used to be checked only where a plate was handed over, so if the
-    // last customer of the day walked out instead of being served the day
-    // simply never ended: an empty board, nothing left to spawn, and no way
-    // out but the pause menu. Checking it here covers every way a ticket can
-    // leave, including any added later.
-    if (S.spawned >= S.cfg.customers && S.tickets.length === 0) { endDay(); return; }
+    // This is the only place that decides it. It used to be checked where a
+    // plate was handed over instead, so a last customer who walked out rather
+    // than being served left the day running forever - an empty board, nothing
+    // to spawn, and no way out but the pause menu.
+    var noneLeftToCome = S.timeLeft <= 0 || S.spawned >= S.cfg.customers;
+    if (noneLeftToCome && S.tickets.length === 0) {
+      // The buzzer gets the credit whenever it went before the shift did,
+      // whether that turned customers away at the door or just drew a line
+      // under a board the player was still working through.
+      if (S.timeLeft <= 0) S.closedBy = 'clock';
+      endDay();
+      return;
+    }
 
     // The backing track leans on how close the board is to boiling over:
     // how full it is, and how near the worst ticket is to walking.
@@ -1052,6 +1083,7 @@
     }
 
     updateBoardBars();
+    syncClock();
   }
 
   /* ----------------------------------------------------------------- draw */
@@ -1822,6 +1854,42 @@
       }
       el.hearts.innerHTML = hearts;
     }
+
+    syncClock();
+  }
+
+  /*
+   * The shift clock, kept out of syncHud's change-detection because it moves
+   * every frame by nature - so it does its own, on the whole second rather than
+   * on the raw number. Rewriting a text node sixty times a second for a display
+   * that only changes once is exactly what made the phone stutter before.
+   */
+  function syncClock() {
+    if (!el.clockText) return;
+    var running = S.screen === 'service' && S.dayLength > 0;
+    if (document.body && document.body.classList) {
+      document.body.classList.toggle('no-clock', !running);
+    }
+    if (!running) { hudLast.clock = null; return; }
+
+    var secs = Math.max(0, Math.ceil(S.timeLeft));
+    var band = secs <= 15 ? 'urgent' : (secs <= 60 ? 'warm' : '');
+    if (hudLast.clock === secs && hudLast.clockBand === band) return;
+
+    if (hudLast.clock !== secs) {
+      hudLast.clock = secs;
+      el.clockText.textContent = Core.clockText(secs);
+      if (el.clockFill) {
+        el.clockFill.style.width = clamp(S.timeLeft / S.dayLength, 0, 1) * 100 + '%';
+      }
+    }
+    if (hudLast.clockBand !== band) {
+      hudLast.clockBand = band;
+      ['warm', 'urgent'].forEach(function (c) {
+        if (el.clockBox) el.clockBox.classList.toggle(c, band === c);
+        if (el.clockFill) el.clockFill.classList.toggle(c, band === c);
+      });
+    }
   }
 
   var MINI_W = 44, MINI_H = 50;
@@ -1891,8 +1959,11 @@
       el.overTitle.textContent = ranOut ? 'SHUT DOWN' : 'RENT UNPAID';
       el.overReason.textContent = ranOut
         ? 'Five orders blown. The landlord changed the locks.'
-        : 'You took in ' + Core.money(total) + ' against ' + Core.money(S.rent) +
-          ' of rent. The landlord is not sympathetic.';
+        : (S.closedBy === 'clock'
+          ? 'Closing time came round with ' + Core.money(total) + ' in the till against ' +
+            Core.money(S.rent) + ' of rent. Faster tomorrow.'
+          : 'You took in ' + Core.money(total) + ' against ' + Core.money(S.rent) +
+            ' of rent. The landlord is not sympathetic.');
       el.overDay.textContent = S.day;
       el.overBest.textContent = S.bestDay;
       el.retryDay.textContent = S.day;
@@ -1908,9 +1979,11 @@
     el.rPerfect.textContent = S.perfect;
     el.rServed.textContent = S.served;
     el.rWalked.textContent = S.walked;
-    el.dayEndNote.textContent = S.perfect === S.served && S.served > 0
-      ? 'Every single ticket perfect. The regulars are talking.'
-      : 'Rent covered. ' + Core.money(S.money) + ' in the till.';
+    el.dayEndNote.textContent = S.closedBy === 'clock'
+      ? 'Closing time, and the rent still made. ' + Core.money(S.money) + ' in the till.'
+      : (S.perfect === S.served && S.served > 0
+        ? 'Every single ticket perfect. The regulars are talking.'
+        : 'Rent covered. ' + Core.money(S.money) + ' in the till.');
     showModal(el.dayEnd);
   }
 
@@ -2254,6 +2327,7 @@
       day: S.day, hearts: S.hearts, sales: S.sales, tips: S.tips, rent: S.rent,
       screen: S.screen, menu: S.menu, concurrent: S.cfg ? S.cfg.concurrent : 3,
       paused: !!S.userPaused,
+      left: Math.round(S.timeLeft * 10) / 10, len: S.dayLength,
       plates: S.plates.map(function (p) { return p.stack; }),
       grill: S.grill.map(function (g) { return g ? { id: g.id, t: g.t } : null; }),
       tickets: S.tickets.map(function (t) {
@@ -2288,6 +2362,15 @@
     var wasService = S.screen === 'service';
     S.screen = m.screen;
     S.hostPaused = !!m.paused;
+    /*
+     * The clock comes down the wire rather than being run locally. It only
+     * arrives eight times a second, but the guest's own update() does not tick
+     * it between packets on purpose: two clocks drifting apart is worse than
+     * one that steps, and a shift that ends at a different moment on each
+     * screen would be indefensible.
+     */
+    if (m.len !== undefined) S.dayLength = m.len;
+    if (m.left !== undefined) S.timeLeft = m.left;
 
     S.plates = m.plates.map(function (st) { return { stack: st }; });
     S.grill = m.grill;
@@ -2681,6 +2764,7 @@
     ctx = cv.getContext('2d');
 
     ['dayNum', 'goalText', 'goalFill', 'hearts', 'board', 'pauseBtn',
+      'clockText', 'clockFill', 'clockBox',
       'pause', 'pauseDay', 'pauseEarned', 'pauseRent', 'pauseSoundBtn',
       'resumeBtn', 'restartBtn', 'quitBtn',
       'start', 'playBtn', 'continueBtn', 'continueDay',
