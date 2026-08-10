@@ -199,18 +199,37 @@
       }
     },
 
+    /*
+     * Cheese pushed to a warm orange and given corners.
+     *
+     * It used to be the same yellow as mustard, and at ticket scale - two or
+     * three pixels of height - "a yellow thing" was all either of them read as.
+     * Orange against mustard's acid yellow separates them by hue, and the
+     * square corners poking past the bun separate them by silhouette, which is
+     * the half that survives when the layer is too thin to have a colour.
+     */
     cheese: {
-      hFrac: 0.10, wFrac: 1.08,
+      hFrac: 0.11, wFrac: 1.12,
       draw: function (ctx, x, y, w, h) {
-        rr(ctx, x, y, w, h, h * 0.3);
-        ctx.fillStyle = grad(ctx, x, y, y + h, '#ffd24a', '#f0a91f');
+        ctx.beginPath();
+        ctx.moveTo(x, y + h * 0.18);
+        ctx.lineTo(x + w * 0.5, y);
+        ctx.lineTo(x + w, y + h * 0.18);
+        ctx.lineTo(x + w, y + h * 0.72);
+        ctx.lineTo(x, y + h * 0.72);
+        ctx.closePath();
+        ctx.fillStyle = grad(ctx, x, y, y + h, '#ffb238', '#ef7f11');
         ctx.fill();
-        // melted drips
-        ctx.fillStyle = '#f6b52a';
-        [0.14, 0.46, 0.78].forEach(function (f, i) {
-          var dw = w * 0.13;
-          var dh = h * (0.9 + hash(i * 17) * 1.4);
-          rr(ctx, x + w * f, y + h * 0.6, dw, dh, dw * 0.45);
+        // melted corners hanging past the bun
+        ctx.fillStyle = '#f79413';
+        [0.10, 0.44, 0.80].forEach(function (f, i) {
+          var dw = w * 0.14;
+          var dh = h * (0.8 + hash(i * 17) * 1.3);
+          ctx.beginPath();
+          ctx.moveTo(x + w * f, y + h * 0.6);
+          ctx.lineTo(x + w * f + dw, y + h * 0.6);
+          ctx.lineTo(x + w * f + dw * 0.5, y + h * 0.6 + dh);
+          ctx.closePath();
           ctx.fill();
         });
       }
@@ -266,17 +285,20 @@
       }
     },
 
+    // Four ingredients on this line are green, so they are separated by how
+    // dark they are and by what shape they make, not by being green.
+    // Pickle is the dark olive one, cut into wide coins.
     pickle: {
       hFrac: 0.085, wFrac: 0.84,
       draw: function (ctx, x, y, w, h) {
         for (var i = 0; i < 4; i++) {
           var cx = x + w * (0.14 + i * 0.24);
           ctx.beginPath();
-          ctx.ellipse(cx, y + h * 0.5, w * 0.10, h * 0.48, 0, 0, Math.PI * 2);
-          ctx.fillStyle = grad(ctx, x, y, y + h, '#9ccc5a', '#5d8f2c');
+          ctx.ellipse(cx, y + h * 0.5, w * 0.11, h * 0.48, 0, 0, Math.PI * 2);
+          ctx.fillStyle = grad(ctx, x, y, y + h, '#9aa832', '#5f6a18');
           ctx.fill();
-          ctx.strokeStyle = 'rgba(40,80,20,0.45)';
-          ctx.lineWidth = Math.max(1, h * 0.10);
+          ctx.strokeStyle = 'rgba(30,40,8,0.6)';
+          ctx.lineWidth = Math.max(1, h * 0.12);
           ctx.stroke();
         }
       }
@@ -304,18 +326,20 @@
       }
     },
 
+    // Vivid emerald rings with a pale eye - the most saturated green on the
+    // line, and the only one made of small circles.
     jalapeno: {
       hFrac: 0.08, wFrac: 0.82,
       draw: function (ctx, x, y, w, h) {
-        for (var i = 0; i < 5; i++) {
-          var cx = x + w * (0.10 + i * 0.20);
+        for (var i = 0; i < 6; i++) {
+          var cx = x + w * (0.08 + i * 0.17);
           ctx.beginPath();
-          ctx.arc(cx, y + h * 0.5, h * 0.46, 0, Math.PI * 2);
-          ctx.fillStyle = '#4fa83c';
+          ctx.arc(cx, y + h * 0.5, h * 0.5, 0, Math.PI * 2);
+          ctx.fillStyle = '#0f9b4c';
           ctx.fill();
           ctx.beginPath();
-          ctx.arc(cx, y + h * 0.5, h * 0.22, 0, Math.PI * 2);
-          ctx.fillStyle = '#e8f5c8';
+          ctx.arc(cx, y + h * 0.5, h * 0.2, 0, Math.PI * 2);
+          ctx.fillStyle = '#f2ffd9';
           ctx.fill();
         }
       }
@@ -344,15 +368,20 @@
       }
     },
 
+    // The pale yellow-green one, in long overlapping fans rather than coins,
+    // so it does not read as pickle with the lights turned up.
     avocado: {
       hFrac: 0.10, wFrac: 0.92,
       draw: function (ctx, x, y, w, h) {
-        for (var i = 0; i < 4; i++) {
-          var cx = x + w * (0.12 + i * 0.25);
+        for (var i = 0; i < 5; i++) {
+          var cx = x + w * (0.10 + i * 0.20);
           ctx.beginPath();
-          ctx.ellipse(cx, y + h * 0.5, w * 0.11, h * 0.46, 0.15, 0, Math.PI * 2);
-          ctx.fillStyle = grad(ctx, x, y, y + h, '#c3e08a', '#7fae54');
+          ctx.ellipse(cx, y + h * 0.5, w * 0.09, h * 0.5, 0.55, 0, Math.PI * 2);
+          ctx.fillStyle = grad(ctx, x, y, y + h, '#d7ea94', '#9cc45c');
           ctx.fill();
+          ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+          ctx.lineWidth = Math.max(0.8, h * 0.07);
+          ctx.stroke();
         }
       }
     }
@@ -362,25 +391,49 @@
   LAYERS.bun = LAYERS.bunTop;
 
   /* -------------------------------------------------------------- sauces */
+  /*
+   * Four sauces that were four wavy bands in four colours - and colour is the
+   * first thing to go when a layer is three pixels tall. Ketchup and BBQ
+   * scored as the single most confusable pair in the whole set.
+   *
+   * Each one gets its own drizzle now: how many passes it makes, how tight the
+   * wave is, and whether it is glossy, matte or speckled. Two of those survive
+   * being shrunk, where the colour on its own did not.
+   */
   var SAUCES = {
-    ketchup: '#d62828',
-    mustard: '#f0bc18',
-    mayo: '#fbf3dd',
-    bbq: '#7a3b18',
-    special: '#ff8fab'
+    ketchup: { fill: '#e02b1d', waves: 3.0, amp: 0.30, passes: 1, gloss: 0.26 },
+    mustard: { fill: '#f2d115', waves: 5.5, amp: 0.34, passes: 1, gloss: 0.30 },
+    mayo:    { fill: '#f6efe2', waves: 2.0, amp: 0.20, passes: 2, gloss: 0.12 },
+    bbq:     { fill: '#4a2411', waves: 3.0, amp: 0.26, passes: 1, gloss: 0.0, speck: '#a2643a' },
+    special: { fill: '#ff8fab', waves: 4.0, amp: 0.30, passes: 1, gloss: 0.24 }
   };
 
   Object.keys(SAUCES).forEach(function (id) {
+    var S = SAUCES[id];
     LAYERS[id] = {
-      hFrac: 0.06, wFrac: 0.88,
+      hFrac: 0.065, wFrac: 0.88,
       sauce: true,
       draw: function (ctx, x, y, w, h) {
-        wavyBand(ctx, x, y + h * 0.15, w, h * 0.55, h * 0.28, 3, 0.9);
-        ctx.fillStyle = SAUCES[id];
-        ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.22)';
-        wavyBand(ctx, x, y + h * 0.15, w, h * 0.22, h * 0.28, 3, 0.9);
-        ctx.fill();
+        for (var p = 0; p < S.passes; p++) {
+          var oy = y + h * (0.14 + p * 0.34);
+          wavyBand(ctx, x, oy, w, h * (S.passes > 1 ? 0.34 : 0.58), h * S.amp, S.waves, 0.9 + p * 1.7);
+          ctx.fillStyle = S.fill;
+          ctx.fill();
+          if (S.gloss > 0) {
+            wavyBand(ctx, x, oy, w, h * 0.20, h * S.amp, S.waves, 0.9 + p * 1.7);
+            ctx.fillStyle = 'rgba(255,255,255,' + S.gloss + ')';
+            ctx.fill();
+          }
+        }
+        if (S.speck) {
+          ctx.fillStyle = S.speck;
+          for (var i = 0; i < 7; i++) {
+            var sx = x + w * (0.08 + i * 0.13);
+            ctx.beginPath();
+            ctx.arc(sx, y + h * (0.34 + hash(i * 31) * 0.34), Math.max(0.6, h * 0.11), 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
       }
     };
   });

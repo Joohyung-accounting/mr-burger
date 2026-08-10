@@ -542,6 +542,70 @@ test('the opening days are gentle, without being a wait', function () {
   assert.ok(Core.dayConfig(12).patience < d1.patience, 'the clock should tighten over time');
 });
 
+/* ---------------------------------------------------------- reading a ticket */
+/*
+ * The swatch is the six-pixel square beside an ingredient's name on a ticket
+ * and the band along the front of its crate. It is what a player scans for, so
+ * no two of them may be close - "cheese and mustard in the same order" was
+ * unreadable, and measured in CIELAB those two sat 21 apart. The palette is
+ * picked by search against these windows rather than by eye; the numbers below
+ * are what stops a later tweak quietly putting two of them back together.
+ */
+function toLab(hex) {
+  var c = [1, 3, 5].map(function (i) {
+    var v = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  });
+  var X = (c[0] * 0.4124 + c[1] * 0.3576 + c[2] * 0.1805) / 0.95047;
+  var Y = (c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722);
+  var Z = (c[0] * 0.0193 + c[1] * 0.1192 + c[2] * 0.9505) / 1.08883;
+  function f(t) { return t > 0.008856 ? Math.cbrt(t) : (7.787 * t + 16 / 116); }
+  return [116 * f(Y) - 16, 500 * (f(X) - f(Y)), 200 * (f(Y) - f(Z))];
+}
+function deltaE(a, b) {
+  var p = toLab(a), q = toLab(b);
+  return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+}
+
+test('every ingredient has a swatch', function () {
+  Core.INGREDIENTS.forEach(function (i) {
+    assert.ok(/^#[0-9a-f]{6}$/.test(i.swatch || ''),
+      i.name + ' has no usable swatch (' + i.swatch + ')');
+  });
+});
+
+test('no two swatches are close enough to mix up', function () {
+  var worst = { d: Infinity };
+  var ing = Core.INGREDIENTS;
+  for (var i = 0; i < ing.length; i++) {
+    for (var j = i + 1; j < ing.length; j++) {
+      var d = deltaE(ing[i].swatch, ing[j].swatch);
+      if (d < worst.d) worst = { d: d, a: ing[i].short, b: ing[j].short };
+    }
+  }
+  assert.ok(worst.d >= 25,
+    worst.a + ' and ' + worst.b + ' are only ' + worst.d.toFixed(1) +
+    ' apart - at six pixels those read as the same colour');
+});
+
+test('the swatches a beginner meets first are the furthest apart', function () {
+  // whatever is on the line in the opening week has to be the easiest to tell
+  // apart, because that is when the player is still learning what is what
+  var early = {};
+  for (var day = 1; day <= 8; day++) {
+    Core.dayMenu(day).forEach(function (id) { early[id] = true; });
+  }
+  var ids = Object.keys(early);
+  for (var i = 0; i < ids.length; i++) {
+    for (var j = i + 1; j < ids.length; j++) {
+      var d = deltaE(Core.byId(ids[i]).swatch, Core.byId(ids[j]).swatch);
+      assert.ok(d >= 30,
+        Core.byId(ids[i]).short + ' and ' + Core.byId(ids[j]).short +
+        ' are both on the line in the first week and only ' + d.toFixed(1) + ' apart');
+    }
+  }
+});
+
 /* ------------------------------------------------------------- the clock */
 test('the shift clock is long enough to actually work the shift', function () {
   // measured: a sharp player's shift runs about 40s + 7.5s a day, levelling off

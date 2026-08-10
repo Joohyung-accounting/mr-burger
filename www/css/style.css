@@ -260,8 +260,71 @@ body.no-clock .clock-bar { visibility: hidden; }
 @keyframes jitter { 0%,100% { transform: translateX(0); } 50% { transform: translateX(1.5px); } }
 
 .ticket .who { font-size: 15px; line-height: 1; }
-.ticket .mini { width: 44px; height: 50px; display: block; }
+.ticket .mini { width: 38px; height: 42px; display: block; }
+
+/* ---------------------------------------------------------- what it wants */
+/*
+ * The picture above cannot carry the answer - a layer is two or three pixels
+ * tall on a phone - so the ticket says it. Chip for scanning, word for
+ * certainty. Sized to fit five tickets across the narrowest phone we support.
+ */
+.order-list {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1px;
+  width: 100%;
+  padding: 0 1px;
+  min-width: 0;
+}
+
+.order-row {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* Square, and it stays square. Deliberately not called .chip - the receipt
+   sheet already has one of those, and its padding inflated these into bars. */
+.order-row .swatch {
+  flex: 0 0 6px;
+  align-self: center;
+  box-sizing: border-box;
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+/* Sized so the longest short name - KETCHUP, MUSTARD, LETTUCE - fits a fifth
+   of the narrowest phone we support without being cut off. */
+.order-row b {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1.3;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  color: rgba(255, 244, 224, 0.92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.order-row.plain {
+  justify-content: center;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: rgba(255, 244, 224, 0.4);
+}
+/* Pinned to the bottom, so a three-line order and a plain one still line their
+   patience bars up with each other across the board. */
 .ticket .bar {
+  margin-top: auto;
   width: 100%;
   height: 4px;
   border-radius: 999px;

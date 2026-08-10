@@ -1351,12 +1351,19 @@
       ctx.strokeStyle = 'rgba(110,70,25,0.45)';
       ctx.lineWidth = 1;
       ctx.stroke();
-      // slat seam
-      ctx.strokeStyle = 'rgba(110,70,25,0.22)';
-      ctx.beginPath();
-      ctx.moveTo(f.x + 3, f.y + f.h * 0.62);
-      ctx.lineTo(f.x + f.w - 3, f.y + f.h * 0.62);
-      ctx.stroke();
+
+      /*
+       * A band of the ingredient's own colour along the bottom of the crate,
+       * the same colour as the square beside its name on a ticket. The board
+       * says CHEESE next to an orange square; the crate to fetch it from wears
+       * the same orange. One glance links them, without having to read either.
+       */
+      if (ing.swatch) {
+        var bandH = Math.max(2.5, f.h * 0.17);
+        Art.rr(ctx, f.x + 2, f.y + f.h - bandH - 1.5, f.w - 4, bandH, bandH * 0.45);
+        ctx.fillStyle = ing.swatch;
+        ctx.fill();
+      }
 
       // a warm tag on anything that has to be cooked first
       if (ing.grill) {
@@ -1892,7 +1899,66 @@
     }
   }
 
-  var MINI_W = 44, MINI_H = 50;
+  // Smaller than it was: the words below it do the identifying now, and the
+  // board had grown to a fifth of a phone screen at the kitchen's expense.
+  var MINI_W = 38, MINI_H = 42;
+
+  /*
+   * What the ticket is actually asking for, in words.
+   *
+   * The little burger above it is charming and it tells you the shape of the
+   * order at a glance, but it cannot tell you what is in one: a layer gets two
+   * or three pixels of height on a phone, and at that size cheese and mustard
+   * are both "a yellow thing". Measured across every pair of ingredients at
+   * ticket scale, sixty of the hundred and five pairs were closer than the
+   * threshold at which they read as different.
+   *
+   * So the burger stays as the picture and this says the words. Bun and patty
+   * are in every order and would only be noise - unless there are two patties,
+   * which is worth calling out.
+   */
+  function orderList(items) {
+    var wrap = document.createElement('span');
+    wrap.className = 'order-list';
+
+    var counts = {};
+    items.forEach(function (id) { counts[id] = (counts[id] || 0) + 1; });
+
+    var rows = [];
+    if (counts.patty > 1) rows.push({ id: 'patty', n: counts.patty });
+    Object.keys(counts).forEach(function (id) {
+      if (id === 'bun' || id === 'patty') return;
+      rows.push({ id: id, n: counts[id] });
+    });
+
+    if (!rows.length) {
+      var plain = document.createElement('span');
+      plain.className = 'order-row plain';
+      plain.textContent = 'PLAIN';
+      wrap.appendChild(plain);
+      return wrap;
+    }
+
+    rows.forEach(function (r) {
+      var ing = Core.byId(r.id);
+      var row = document.createElement('span');
+      row.className = 'order-row';
+
+      // 'swatch', not 'chip' - the receipt already owns .chip for its stat
+      // tiles, and its padding was quietly inflating these into tall bars
+      var chip = document.createElement('i');
+      chip.className = 'swatch';
+      chip.style.background = ing.swatch;
+      row.appendChild(chip);
+
+      var name = document.createElement('b');
+      name.textContent = r.n > 1 ? ing.short + ' x' + r.n : ing.short;
+      row.appendChild(name);
+
+      wrap.appendChild(row);
+    });
+    return wrap;
+  }
 
   function renderBoard() {
     el.board.innerHTML = '';
@@ -1927,6 +1993,8 @@
       var shown = Core.displayStack(t.items);
       var bunW = Art.fitWidth(shown, MINI_W * 0.86, MINI_H - 3);
       Art.drawStack(g, shown, MINI_W / 2, MINI_H - 1, bunW);
+
+      d.insertBefore(orderList(t.items), bar);
 
       t.node = d; t.barEl = fill;
     });
@@ -2835,6 +2903,7 @@
   window.MrBurger = {
     state: S, layout: L,
     startDay: startDay, spawnTicket: spawnTicket, endDay: endDay,
+    renderBoard: renderBoard,
     sendChef: sendChef, arrive: arrive, deliver: deliver,
     stationAt: stationAt, standPoint: standPoint,
     setPaused: setPaused, quitToTitle: quitToTitle,

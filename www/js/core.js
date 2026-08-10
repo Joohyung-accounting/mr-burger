@@ -45,26 +45,34 @@
    * is a naked pile of fillings, and it looks like one on the plate.
    */
   // `short` is what fits on the front of a box when the whole line is one row.
+  /*
+   * `swatch` is the one colour that stands for an ingredient away from the
+   * burger - the chip beside its name on a ticket, and its tint in the crate
+   * label. A cross-section two pixels tall cannot carry identity, so the
+   * ticket names what it wants and the swatch is what you scan for; these are
+   * deliberately pushed apart from each other rather than being the average
+   * colour of the artwork.
+   */
   var INGREDIENTS = [
-    { id: 'bun', name: 'Bun', short: 'Bun', group: 'base', kind: 'bun', price: 90, day: 1 },
-    { id: 'patty', name: 'Beef Patty', short: 'Patty', group: 'base', kind: 'patty', price: 220, day: 1, grill: true },
+    { id: 'bun', name: 'Bun', short: 'Bun', group: 'base', kind: 'bun', price: 90, day: 1, swatch: '#e1af88' },
+    { id: 'patty', name: 'Beef Patty', short: 'Patty', group: 'base', kind: 'patty', price: 220, day: 1, grill: true, swatch: '#8c5a3e' },
 
     // The line has one spare crate on day 2, and ties on unlock day are broken
     // by this order - so lettuce is the first thing the player learns to add.
-    { id: 'lettuce', name: 'Lettuce', short: 'Lettuce', group: 'topping', kind: 'topping', price: 40, day: 1 },
-    { id: 'cheese', name: 'Cheese', short: 'Cheese', group: 'topping', kind: 'topping', price: 70, day: 1 },
-    { id: 'tomato', name: 'Tomato', short: 'Tomato', group: 'topping', kind: 'topping', price: 50, day: 3 },
-    { id: 'onion', name: 'Onion', short: 'Onion', group: 'topping', kind: 'topping', price: 40, day: 4 },
-    { id: 'pickle', name: 'Pickles', short: 'Pickle', group: 'topping', kind: 'topping', price: 45, day: 6 },
-    { id: 'bacon', name: 'Bacon', short: 'Bacon', group: 'topping', kind: 'topping', price: 130, day: 7 },
-    { id: 'jalapeno', name: 'Jalapeño', short: 'Chilli', group: 'topping', kind: 'topping', price: 55, day: 9 },
-    { id: 'egg', name: 'Fried Egg', short: 'Egg', group: 'topping', kind: 'topping', price: 90, day: 11 },
-    { id: 'avocado', name: 'Avocado', short: 'Avo', group: 'topping', kind: 'topping', price: 110, day: 12 },
+    { id: 'lettuce', name: 'Lettuce', short: 'Lettuce', group: 'topping', kind: 'topping', price: 40, day: 1, swatch: '#93d33d' },
+    { id: 'cheese', name: 'Cheese', short: 'Cheese', group: 'topping', kind: 'topping', price: 70, day: 1, swatch: '#ff8e1d' },
+    { id: 'tomato', name: 'Tomato', short: 'Tomato', group: 'topping', kind: 'topping', price: 50, day: 3, swatch: '#ff3e51' },
+    { id: 'onion', name: 'Onion', short: 'Onion', group: 'topping', kind: 'topping', price: 40, day: 4, swatch: '#bc9acd' },
+    { id: 'pickle', name: 'Pickles', short: 'Pickle', group: 'topping', kind: 'topping', price: 45, day: 6, swatch: '#6b7e21' },
+    { id: 'bacon', name: 'Bacon', short: 'Bacon', group: 'topping', kind: 'topping', price: 130, day: 7, swatch: '#df6e73' },
+    { id: 'jalapeno', name: 'Jalapeño', short: 'Chilli', group: 'topping', kind: 'topping', price: 55, day: 9, swatch: '#37a954' },
+    { id: 'egg', name: 'Fried Egg', short: 'Egg', group: 'topping', kind: 'topping', price: 90, day: 11, swatch: '#f6c158' },
+    { id: 'avocado', name: 'Avocado', short: 'Avo', group: 'topping', kind: 'topping', price: 110, day: 12, swatch: '#e0e89b' },
 
-    { id: 'ketchup', name: 'Ketchup', short: 'Ketchup', group: 'sauce', kind: 'sauce', price: 25, day: 2 },
-    { id: 'mustard', name: 'Mustard', short: 'Mustard', group: 'sauce', kind: 'sauce', price: 25, day: 5 },
-    { id: 'mayo', name: 'Mayo', short: 'Mayo', group: 'sauce', kind: 'sauce', price: 30, day: 8 },
-    { id: 'bbq', name: 'BBQ Sauce', short: 'BBQ', group: 'sauce', kind: 'sauce', price: 35, day: 10 }
+    { id: 'ketchup', name: 'Ketchup', short: 'Ketchup', group: 'sauce', kind: 'sauce', price: 25, day: 2, swatch: '#9b200f' },
+    { id: 'mustard', name: 'Mustard', short: 'Mustard', group: 'sauce', kind: 'sauce', price: 25, day: 5, swatch: '#d7cf00' },
+    { id: 'mayo', name: 'Mayo', short: 'Mayo', group: 'sauce', kind: 'sauce', price: 30, day: 8, swatch: '#eeece9' },
+    { id: 'bbq', name: 'BBQ Sauce', short: 'BBQ', group: 'sauce', kind: 'sauce', price: 35, day: 10, swatch: '#341e11' }
   ];
 
   /** The sections the kitchen line is divided into, in display order. */

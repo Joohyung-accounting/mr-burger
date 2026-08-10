@@ -68,6 +68,11 @@ function makeEl(tag) {
     setAttribute: function (k, v) { this['_' + k] = v; },
     getAttribute: function (k) { return this['_' + k]; },
     appendChild: function (c) { this.children.push(c); return c; },
+    insertBefore: function (c, ref) {
+      var i = this.children.indexOf(ref);
+      if (i < 0) this.children.push(c); else this.children.splice(i, 0, c);
+      return c;
+    },
     querySelector: function () { return null; },
     querySelectorAll: function () { return []; },
     closest: function () { return null; },
