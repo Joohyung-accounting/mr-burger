@@ -1292,7 +1292,6 @@
       var id = S.menu[i];
       var ing = Core.byId(id) || {};
       var live = targeted('crate', i);
-      var raw = ing.grill ? { done: 0 } : null;
       var pop = S.cratePop[i] || 0;
 
       // the box recoils a little when something is pulled out of it
@@ -1320,19 +1319,13 @@
       ctx.save();
       Art.rr(ctx, w.x, w.y, w.w, w.h, 4);
       ctx.clip();
-      /* Stack as many as it takes to fill the box. A fixed count left a tub of
-         sauce looking empty (it is 2px tall) while buns overflowed it. */
-      var hFrac = Math.max(0.04, Art.heightOf(id, 1));
-      var iw = Math.min(w.w - 4, (w.h * 0.42) / hFrac);
-      var ih = hFrac * iw;
-      var step = Math.max(1.5, ih * 0.74);
-      var count = clamp(Math.round((w.h * 0.58) / step), 2, 6);
-      var base = w.y + w.h + ih * 0.35;
-      for (var k = count - 1; k >= 0; k--) {
-        ctx.globalAlpha = k === 0 ? 1 : Math.max(0.45, 0.92 - k * 0.1);
-        Art.drawLayer(ctx, id, w.x + w.w / 2, base - ih - k * step, iw, raw);
-      }
-      ctx.globalAlpha = 1;
+      /* The crate holds the INGREDIENT, not a pile of burger layers: half an
+         avocado with the stone in, a whole tomato with its calyx, a bottle of
+         ketchup. Art.drawPortrait draws that; it falls back to the layer art
+         for anything without a portrait of its own. */
+      ctx.translate(w.x, w.y + w.h * 0.04);
+      Art.drawPortrait(ctx, id, w.w, w.h * 0.96);
+      ctx.translate(-w.x, -(w.y + w.h * 0.04));
       var sg = ctx.createLinearGradient(0, w.y, 0, w.y + w.h * 0.5);
       sg.addColorStop(0, 'rgba(40,22,6,0.45)');
       sg.addColorStop(1, 'rgba(40,22,6,0)');
