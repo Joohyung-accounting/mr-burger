@@ -604,14 +604,54 @@ test('every night is a different kitchen, and all of them are workable', functio
       for (var i = 0; i < S.menu.length; i++) targets.push({ kind: 'crate', i: i });
       for (i = 0; i < S.grill.length; i++) targets.push({ kind: 'grill', i: i });
       for (i = 0; i < S.plates.length; i++) targets.push({ kind: 'plate', i: i });
+      /*
+       * Not just "somewhere on the floor" - next to the station it belongs to.
+       * The stand points used to name the floor edges outright, grill at the
+       * left and plates at the right, which held until the room started moving
+       * them: tapping the grill then walked the cook to the plates and did the
+       * grill's business from there.
+       */
+      function rectOf(t) {
+        if (t.kind === 'crate') return MB.crateRect(t.i);
+        if (t.kind === 'grill') return MB.slotRect(t.i);
+        if (t.kind === 'plate') return MB.plateRect(t.i);
+        if (t.kind === 'hatch') return MB.hatchRect();
+        return MB.binRect();
+      }
+      function gap(s, r) {
+        var dx = Math.max(r.x - s.x, 0, s.x - (r.x + r.w));
+        var dy = Math.max(r.y - s.y, 0, s.y - (r.y + r.h));
+        return Math.hypot(dx, dy);
+      }
       targets.forEach(function (t) {
         var s = MB.standPoint(t);
         assert.ok(isFinite(s.x) && isFinite(s.y), where + ': ' + t.kind + ' has no stand point');
-        assert.ok(s.x >= L.floor.x0 - 1 && s.x <= L.floor.x1 + 1,
-          where + ': you cannot stand at ' + t.kind + ' (' + s.x.toFixed(0) + ' vs floor ' +
-          L.floor.x0.toFixed(0) + '-' + L.floor.x1.toFixed(0) + ')');
-        assert.ok(s.y >= L.floor.y0 - 1 && s.y <= L.floor.y1 + 1,
-          where + ': you cannot stand at ' + t.kind + ' vertically');
+        assert.ok(s.x >= L.floor.x0 - 1 && s.x <= L.floor.x1 + 1 &&
+          s.y >= L.floor.y0 - 1 && s.y <= L.floor.y1 + 1,
+          where + ': the stand point for ' + t.kind + ' is off the floor');
+
+        // The bin and the hatch sit on the bottom wall, and on a narrow screen
+        // the bin tucks under a column - the floor does not reach it head on,
+        // so the cook works it from the corner. Within arm's length is the bar.
+        var own = gap(s, rectOf(t));
+        assert.ok(own < 60,
+          where + ': standing ' + own.toFixed(0) + 'px from the ' + t.kind + ' it is meant to work');
+
+        /*
+         * The grill and the plates face each other across the floor and swap
+         * walls from night to night, so this is the pair that goes wrong: get
+         * it backwards and tapping the grill walks the cook to the plates and
+         * does the grill's business from there. The hatch and the bin share
+         * the bottom wall and are always near each other, so they are not a
+         * meaningful comparison.
+         */
+        if (t.kind === 'grill' || t.kind === 'plate') {
+          var facing = t.kind === 'grill' ? MB.plateRect(0) : MB.slotRect(0);
+          assert.ok(gap(s, facing) > own,
+            where + ': the stand point for ' + t.kind + ' ' + t.i +
+            ' is nearer the ' + (t.kind === 'grill' ? 'plates' : 'grill') +
+            ' - tapping one would work the other');
+        }
       });
 
       // and tapping a station still finds it

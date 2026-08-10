@@ -442,30 +442,39 @@
   function hatchRect() { return { x: L.hatchX, y: L.hatchY, w: L.hatchW, h: L.hatchH }; }
   function binRect() { return { x: L.binX, y: L.hatchY, w: L.binW, h: L.hatchH }; }
 
-  /** Where the chef stands to work a station - always inside the floor. */
+  /**
+   * Where the chef stands to work a station - always inside the floor, and
+   * always on the side of it the station is actually on.
+   *
+   * This used to name the edges outright: the grill was f.x0 and the plates
+   * were f.x1, which was true right up until the room started moving them.
+   * Once the grill could be on the right wall, tapping it walked the cook to
+   * the left edge - where the plates now were - and the grill's business was
+   * then done from in front of the plates. Ask the rect which wall it is on.
+   */
   function standPoint(t) {
     var f = L.floor, r;
     if (t.kind === 'crate') {
       r = crateRect(t.i);
-      return { x: clamp(r.x + r.w / 2, f.x0, f.x1), y: f.y0 };
+      return { x: clamp(r.x + r.w / 2, f.x0, f.x1), y: nearEdge(r, f, 'y') };
     }
-    if (t.kind === 'grill') {
-      r = slotRect(t.i);
-      return { x: f.x0, y: clamp(r.y + r.h / 2, f.y0, f.y1) };
+    if (t.kind === 'grill' || t.kind === 'plate') {
+      r = t.kind === 'grill' ? slotRect(t.i) : plateRect(t.i);
+      return { x: nearEdge(r, f, 'x'), y: clamp(r.y + r.h / 2, f.y0, f.y1) };
     }
-    if (t.kind === 'plate') {
-      r = plateRect(t.i);
-      return { x: f.x1, y: clamp(r.y + r.h / 2, f.y0, f.y1) };
-    }
-    if (t.kind === 'hatch') {
-      r = hatchRect();
-      return { x: clamp(r.x + r.w / 2, f.x0, f.x1), y: f.y1 };
-    }
-    if (t.kind === 'bin') {
-      r = binRect();
-      return { x: clamp(r.x + r.w / 2, f.x0, f.x1), y: f.y1 };
+    if (t.kind === 'hatch' || t.kind === 'bin') {
+      r = t.kind === 'hatch' ? hatchRect() : binRect();
+      return { x: clamp(r.x + r.w / 2, f.x0, f.x1), y: nearEdge(r, f, 'y') };
     }
     return { x: clamp(t.x, f.x0, f.x1), y: clamp(t.y, f.y0, f.y1) };
+  }
+
+  /** Whichever edge of the floor this rect is closest to, along one axis. */
+  function nearEdge(r, f, axis) {
+    var mid = axis === 'x' ? r.x + r.w / 2 : r.y + r.h / 2;
+    var lo = axis === 'x' ? f.x0 : f.y0;
+    var hi = axis === 'x' ? f.x1 : f.y1;
+    return Math.abs(mid - lo) <= Math.abs(mid - hi) ? lo : hi;
   }
 
   /** Which station is under this canvas point? */
