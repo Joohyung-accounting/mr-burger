@@ -84,6 +84,7 @@
     snapInterval: 80,    // measured ms between host snapshots
     lastSnapAt: 0,
     clockOff: null,      // host clock -> ours; see hostToLocal()
+    hostPaused: false,   // guest side: the host has the pause menu open
     renderT: null,       // the moment in the buffer we are showing; playoutTime()
 
     floats: [], sparks: [], banner: null, shake: 0,
@@ -1009,7 +1010,6 @@
       Bgm.setIntensity(full * 0.45 + worst * 0.55);
     }
 
-    pumpNetwork(dt);
     updateBoardBars();
   }
 
@@ -1664,7 +1664,62 @@
     drawSparks();
     drawFloats();
     drawBanner();
+    drawWaiting();
 
+    ctx.restore();
+  }
+
+  /*
+   * The host reads its receipt and shops between shifts; the guest has no such
+   * screens, so without this it just sits looking at the last frame of a shift
+   * that already ended - which reads as the game having hung. The banner that
+   * fires on the change is gone in a second; this stays up for as long as the
+   * wait actually lasts.
+   */
+  function drawWaiting() {
+    if (S.role !== 'guest') return;
+    var between = S.screen !== 'service';
+    if (!between && !S.hostPaused) return;
+
+    var title, sub;
+    if (S.hostPaused && !between) {
+      title = 'PAUSED';
+      sub = 'the host stopped the clock';
+    } else if (S.screen === 'over') {
+      title = 'SHIFT OVER';
+      sub = 'waiting for the host';
+    } else {
+      title = 'DAY ' + S.day + ' DONE';
+      sub = 'the host is counting up';
+    }
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(12,7,5,0.62)';
+    ctx.fillRect(0, 0, L.W, L.H);
+
+    var cy = (L.floor.y0 + L.floor.y1) / 2;
+    var size = Math.min(L.W * 0.062, 22);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    ctx.font = '900 ' + size + 'px "Trebuchet MS", system-ui, sans-serif';
+    ctx.fillStyle = '#f4b41a';
+    ctx.fillText(title, L.W / 2, cy - size * 0.6);
+
+    ctx.font = '700 ' + (size * 0.6) + 'px "Trebuchet MS", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,244,224,0.78)';
+    ctx.fillText(sub, L.W / 2, cy + size * 0.5);
+
+    // three dots ticking over, so it is visibly alive rather than frozen
+    var n = Math.floor(nowMs() / 400) % 4;
+    var dot = size * 0.16;
+    for (var i = 0; i < 3; i++) {
+      ctx.globalAlpha = i < n ? 0.9 : 0.25;
+      ctx.beginPath();
+      ctx.arc(L.W / 2 + (i - 1) * dot * 3, cy + size * 1.5, dot, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff4e0';
+      ctx.fill();
+    }
     ctx.restore();
   }
 
@@ -2128,6 +2183,7 @@
       t: Math.round(nowMs()),
       day: S.day, hearts: S.hearts, sales: S.sales, tips: S.tips, rent: S.rent,
       screen: S.screen, menu: S.menu, concurrent: S.cfg ? S.cfg.concurrent : 3,
+      paused: !!S.userPaused,
       plates: S.plates.map(function (p) { return p.stack; }),
       grill: S.grill.map(function (g) { return g ? { id: g.id, t: g.t } : null; }),
       tickets: S.tickets.map(function (t) {
@@ -2161,6 +2217,7 @@
 
     var wasService = S.screen === 'service';
     S.screen = m.screen;
+    S.hostPaused = !!m.paused;
 
     S.plates = m.plates.map(function (st) { return { stack: st }; });
     S.grill = m.grill;
@@ -2534,6 +2591,19 @@
       if (!S.userPaused) update(dt);
       draw();
     }
+
+    /*
+     * Outside all of that on purpose. The guest's entire world is these
+     * packets, and this used to be sent from inside update(), below its
+     * "not in a shift, nothing to do" return - so the host went silent the
+     * instant it stopped playing: reading the day's receipt, in the shop,
+     * or on the pause menu. The guest was left holding the last frame of a
+     * shift that had already ended, tickets frozen on the board, with no
+     * word of what had happened; from their side the host had moved on
+     * without them. Keep talking, and the snapshot's own screen and paused
+     * flags tell them exactly what is going on.
+     */
+    pumpNetwork(dt);
   }
 
   function init() {

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * End-to-end smoke test. Stubs just enough DOM/canvas to boot game.js in Node,
  * then plays real shifts: taps stations, walks the chef across the floor, grills
  * patties, plates them and runs them to the hatch.
@@ -161,6 +161,27 @@ function pump(seconds) {
 
 /* ------------------------------------------------------------------ boot */
 console.log('\nMr. Burger - runtime smoke\n');
+
+/*
+ * game.js captures window.Net once, at load, so this has to be in place before
+ * the require - and it is the only way to see what the host actually puts on
+ * the wire. Everything is a no-op except send, which just records.
+ */
+var sentPackets = [];
+global.Net = {
+  online: false, room: null, id: null, name: null,
+  send: function (m) { sentPackets.push(m); },
+  leave: function () {},
+  connect: function () {},
+  init: function () { return Promise.resolve(this); },
+  push: function () {},
+  pull: function () { return Promise.resolve(null); },
+  leaderboard: function () { return Promise.resolve(null); },
+  makeCode: function () { return Promise.resolve(null); },
+  claim: function () { return Promise.resolve({ error: 'offline' }); },
+  setName: function () { return Promise.resolve(false); },
+  newRoomCode: function () { return 'TESTRM'; }
+};
 
 var Core = require('../www/js/core.js');
 global.Core = Core;
@@ -1506,6 +1527,107 @@ test('a new banner from the host still gets through', function () {
 });
 
 /* ------------------------------------------------------- dropped phones */
+/*
+ * Regression: the packets were sent from inside update(), below its "not in a
+ * shift, nothing to do" return - so the host went silent the moment it stopped
+ * playing. Clearing a day put the receipt and then the shop on the host's
+ * screen, and for that whole time the guest sat holding the last frame of a
+ * shift that had already ended, tickets frozen on the board, with no word of
+ * what had happened. From their side the host had moved on without them.
+ */
+test('the host keeps talking to the guest between shifts', function () {
+  var sent = sentPackets;
+  sent.length = 0;
+  try {
+    S.role = 'host'; S.peer = true;
+    startShift(1);
+    pump(0.5);
+    assert.ok(sent.some(function (m) { return m.type === 'state'; }), 'setup: nothing sent during a shift');
+
+    // the shift ends and the host is left looking at the receipt
+    S.sales = 99999;
+    MB.endDay();
+    pump(0.2);
+    assert.notStrictEqual(S.screen, 'service', 'setup: the day should be over');
+
+    sent.length = 0;
+    pump(1.0);
+    var states = sent.filter(function (m) { return m.type === 'state'; });
+    assert.ok(states.length >= 4,
+      'the host sent ' + states.length + ' updates in a second while on the receipt');
+    assert.strictEqual(states[0].screen, S.screen,
+      'the update should carry the screen the host is actually on');
+  } finally {
+    sentPackets.length = 0;
+    S.role = 'solo'; S.peer = false;
+  }
+});
+
+test('the host keeps talking to the guest while paused', function () {
+  var sent = sentPackets;
+  sent.length = 0;
+  try {
+    S.role = 'host'; S.peer = true;
+    startShift(3);
+    pump(0.5);
+
+    MB.setPaused(true);
+    sent.length = 0;
+    pump(1.0);
+    var states = sent.filter(function (m) { return m.type === 'state'; });
+    assert.ok(states.length >= 4,
+      'the host sent ' + states.length + ' updates in a second while paused');
+    assert.strictEqual(states[0].paused, true, 'the update should say the host is paused');
+
+    MB.setPaused(false);
+    pump(0.3);
+    sent.length = 0;
+    pump(0.5);
+    var back = sent.filter(function (m) { return m.type === 'state'; });
+    assert.ok(back.length && back[0].paused === false, 'unpausing should be sent on too');
+  } finally {
+    sentPackets.length = 0;
+    S.role = 'solo'; S.peer = false;
+    MB.setPaused(false);
+  }
+});
+
+test('a guest is told why the kitchen has stopped, not left guessing', function () {
+  S.role = 'host';
+  startShift(1);
+  pump(0.3);
+  S.sales = 99999;
+  MB.endDay();
+  pump(0.2);
+  var overSnap = MB.snapshot();
+  MB.setPaused(false);
+
+  startShift(1);
+  pump(0.3);
+  S.userPaused = true;
+  var pausedSnap = MB.snapshot();
+  S.userPaused = false;
+
+  S.role = 'guest'; S.me = 1;
+  MB.applySnapshot(overSnap);
+  assert.notStrictEqual(S.screen, 'service', 'the guest should know the day is over');
+
+  MB.applySnapshot(pausedSnap);
+  assert.strictEqual(S.hostPaused, true, 'the guest should know the host paused');
+
+  // and it clears again when the host carries on
+  S.role = 'host';
+  startShift(1);
+  pump(0.3);
+  var live = MB.snapshot();
+  S.role = 'guest';
+  MB.applySnapshot(live);
+  assert.strictEqual(S.hostPaused, false, 'the guest is still showing a stale pause');
+  assert.strictEqual(S.screen, 'service');
+
+  S.role = 'solo'; S.me = 0;
+});
+
 test('a guest dropping does not tear the room down', function () {
   S.role = 'host';
   S.roomCode = 'ABCDE';
