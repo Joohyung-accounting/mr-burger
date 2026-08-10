@@ -90,7 +90,7 @@
     renderT: null,       // the moment in the buffer we are showing; playoutTime()
 
     floats: [], sparks: [], banner: null, shake: 0,
-    flyers: [], cratePop: [],
+    flyers: [], cratePop: [], binPop: 0,
     musicTimer: 0,
     paused: false,       // tab hidden
     userPaused: false,   // pause menu open
@@ -160,25 +160,14 @@
   /* The app chrome is dark; the kitchen itself is a bright little room lit
      from above. Food art reads far better against cream than against brown. */
   /*
-   * Everything in the room is a slab: a top face with a darker side face
-   * peeking out below it. Cheap fake 3D, but with contact shadows and a rim
-   * light it reads as a chunky little kitchen rather than flat rectangles.
+   * The room, the counters, the crates and the crockery are all drawn by
+   * art.js now, from the six kitchen palettes it owns - see decor(). What is
+   * left here is the two appliances that keep their own colours whatever the
+   * decor is, plus the ink the HUD writes in.
    */
   var K = {
-    wallA: '#fdf5e9', wallB: '#f0e0c8',
-    wallTile: 'rgba(150,110,80,0.07)',
-    floorA: '#f8e9d3', floorB: '#e9cfae',
-    counterTop: '#e4c496', counterTop2: '#d2ad7c', counterSide: '#a97d4e',
-    // open crates on the line, contents stacked inside
-    boxTop: '#d9a35f', boxTop2: '#bb8140', boxSide: '#8d5c26',
-    boxIn: '#a5763f', boxIn2: '#7a5225',
-    boxFront: '#e8bd83', boxFront2: '#cd9a5b',
     grillTop: '#57403a', grillTop2: '#3d2b26', grillSide: '#241713',
     plateTop: '#fffaf1', plateTop2: '#f0e5d6', plateSide: '#c9b499',
-    hatchTop: '#fff6e4', hatchTop2: '#f6e3c2', hatchSide: '#c8a878',
-    hatchGoTop: '#d6f2cf', hatchGoTop2: '#b3e2ac', hatchGoSide: '#6ba364',
-    shadow: 'rgba(95,62,42,0.30)',
-    edge: 'rgba(120,80,50,0.32)',
     ink: '#6f4a33',
     inkSoft: 'rgba(111,74,51,0.55)',
     hot: '#e2704f',
@@ -562,12 +551,35 @@
     return null;
   }
 
+  /*
+   * Who actually walked in. The five archetypes are rules - how long they wait
+   * and what they tip - and there are only five of them, so a board of five
+   * tickets used to be five copies of the same face. Each archetype casts from
+   * its own set of people instead: a Rush is somebody with somewhere to be, a
+   * Kid is a child. Art.GUESTS has the fourteen.
+   */
+  var GUEST_CAST = {
+    regular: ['office', 'student', 'artist', 'farmer', 'granny', 'grandpa'],
+    rush:    ['office', 'courier', 'builder', 'police', 'nurse'],
+    chill:   ['teen', 'artist', 'athlete', 'student', 'grandpa'],
+    foodie:  ['office', 'artist', 'student', 'nurse', 'granny'],
+    kid:     ['kid', 'baby', 'kid', 'teen']
+  };
+
+  var GUEST_OK = {};
+  Art.GUESTS.forEach(function (id) { GUEST_OK[id] = true; });
+
+  function castGuest(archId) {
+    var cast = GUEST_CAST[archId] || GUEST_CAST.regular;
+    return cast[Math.floor(Math.random() * cast.length) % cast.length];
+  }
+
   function spawnTicket() {
     var arch = Core.pickCustomer(S.day, Math.random);
     var order = Core.makeOrder(S.day, Math.random, arch);
     var secs = S.cfg.patience * arch.patience;
     S.tickets.push({
-      uid: ++uid, arch: arch, items: order.items,
+      uid: ++uid, arch: arch, guest: castGuest(arch.id), items: order.items,
       patience: secs, max: secs, tick: 0
     });
     S.spawned++;
@@ -815,6 +827,7 @@
     if (t.kind === 'bin') {
       if (!hold) { nope('NOTHING TO BIN', ci); return; }
       me.holding = null;
+      S.binPop = 1;
       float('BINNED', binRect().x + binRect().w / 2, L.hatchY - 16, K.ink, 12);
       Sfx.trash();
       return;
@@ -909,6 +922,7 @@
     for (i = 0; i < S.cratePop.length; i++) {
       if (S.cratePop[i] > 0) S.cratePop[i] = Math.max(0, S.cratePop[i] - dt * 4.5);
     }
+    if (S.binPop > 0) S.binPop = Math.max(0, S.binPop - dt * 2.2);
 
     // --- walk every cook. A guest does not simulate: it eases toward the
     // positions the host last sent instead.
@@ -1098,72 +1112,6 @@
     ctx.restore();
   }
 
-  /**
-   * A station as a solid block: side face dropped below the top face, a soft
-   * contact shadow on the floor, a rim light along the top edge.
-   */
-  function slab(r, topA, topB, side, rad, depth, live) {
-    var d = depth * (L.k || 1);
-
-    ctx.save();
-    ctx.shadowColor = K.shadow;
-    ctx.shadowBlur = 10;
-    ctx.shadowOffsetY = 5;
-    Art.rr(ctx, r.x, r.y + d, r.w, r.h, rad);
-    ctx.fillStyle = side;
-    ctx.fill();
-    ctx.restore();
-
-    var g = ctx.createLinearGradient(0, r.y, 0, r.y + r.h);
-    g.addColorStop(0, topA);
-    g.addColorStop(1, topB);
-    Art.rr(ctx, r.x, r.y, r.w, r.h, rad);
-    ctx.fillStyle = g;
-    ctx.fill();
-
-    // rim light so the top face catches the room light
-    ctx.save();
-    Art.rr(ctx, r.x, r.y, r.w, r.h, rad);
-    ctx.clip();
-    ctx.strokeStyle = 'rgba(255,255,255,0.65)';
-    ctx.lineWidth = 2.4;
-    Art.rr(ctx, r.x + 1.2, r.y + 1.2, r.w - 2.4, r.h - 2.4, Math.max(1, rad - 1));
-    ctx.stroke();
-    ctx.restore();
-
-    if (live) {
-      ctx.save();
-      ctx.shadowColor = K.pick;
-      ctx.shadowBlur = 12;
-      Art.rr(ctx, r.x, r.y, r.w, r.h, rad);
-      ctx.strokeStyle = K.pick;
-      ctx.lineWidth = 2.6;
-      ctx.stroke();
-      ctx.stroke();
-      ctx.restore();
-    } else {
-      Art.rr(ctx, r.x, r.y, r.w, r.h, rad);
-      ctx.strokeStyle = K.edge;
-      ctx.lineWidth = 1.1;
-      ctx.stroke();
-    }
-  }
-
-  /** A recess cut into a slab - grill wells, the hatch window. */
-  function well(r, fill, rad) {
-    Art.rr(ctx, r.x, r.y, r.w, r.h, rad);
-    ctx.fillStyle = fill;
-    ctx.fill();
-    ctx.save();
-    Art.rr(ctx, r.x, r.y, r.w, r.h, rad);
-    ctx.clip();
-    ctx.strokeStyle = 'rgba(0,0,0,0.40)';
-    ctx.lineWidth = 3;
-    Art.rr(ctx, r.x + 1.5, r.y + 1.5, r.w - 3, r.h - 3, Math.max(1, rad - 1));
-    ctx.stroke();
-    ctx.restore();
-  }
-
   /*
    * The room never moves, but painting it cost ~110 floor tiles plus the wall
    * grid on every single frame - the largest fixed cost in the loop, and pure
@@ -1175,25 +1123,17 @@
    * different kitchen at a glance rather than the same one with the furniture
    * moved. Kept in the same warm family as the rest of the art - a burger place
    * that redecorates, not six unrelated games.
+   *
+   * The six palettes live in art.js now, because the floor and the wall are
+   * drawn with the same pen as the food and they need the grout and tile-line
+   * colours that go with each top. Same order, same counter colours as before.
    */
-  var ROOMS = [
-    { wallA: '#fdf5e9', wallB: '#f0e0c8', floorA: '#f8e9d3', floorB: '#e9cfae',
-      counterTop: '#e4c496', counterTop2: '#d2ad7c', counterSide: '#a97d4e' },
-    { wallA: '#f2f6f4', wallB: '#dbe7e2', floorA: '#eef3ef', floorB: '#cfded7',
-      counterTop: '#cfd9d0', counterTop2: '#b6c3b8', counterSide: '#7d8d81' },
-    { wallA: '#fdf1ef', wallB: '#f4dcd8', floorA: '#fbe9e6', floorB: '#eccbc6',
-      counterTop: '#e8bfb4', counterTop2: '#d6a396', counterSide: '#a3705f' },
-    { wallA: '#f4f2fb', wallB: '#e0dcf1', floorA: '#efecf9', floorB: '#d3cdea',
-      counterTop: '#cfc7e4', counterTop2: '#b6aad2', counterSide: '#7d709b' },
-    { wallA: '#fbf7e6', wallB: '#efe4bd', floorA: '#f7f0d8', floorB: '#e3d5a6',
-      counterTop: '#ddcb92', counterTop2: '#c6b276', counterSide: '#8f7c46' },
-    { wallA: '#eef4f9', wallB: '#d5e3ee', floorA: '#e9f1f7', floorB: '#c7d9e7',
-      counterTop: '#c6d5e0', counterTop2: '#adbfcd', counterSide: '#728799' }
-  ];
+  var THEME_IDS = ['diner', 'tiles', 'sunset', 'night', 'brass', 'harbour'];
 
   function decor() {
     var i = (L.room && !L.room.plain) ? L.room.palette : 0;
-    return ROOMS[i % ROOMS.length] || ROOMS[0];
+    var T = Art.scene.THEMES;
+    return T[THEME_IDS[i % THEME_IDS.length]] || T.diner;
   }
 
   var roomCache = null;
@@ -1227,55 +1167,61 @@
     var floorTop = L.cratesBottom + 8;
     var D = decor();
 
-    // --- tiled back wall
-    var wg = g.createLinearGradient(0, 0, 0, floorTop);
-    wg.addColorStop(0, D.wallA);
-    wg.addColorStop(1, D.wallB);
-    g.fillStyle = wg;
-    g.fillRect(0, 0, L.W, floorTop);
-    g.strokeStyle = K.wallTile;
-    g.lineWidth = 1;
-    var t = 18 * (L.k || 1);
-    for (var wy = t; wy < floorTop; wy += t) {
-      g.beginPath(); g.moveTo(0, wy); g.lineTo(L.W, wy); g.stroke();
-    }
-    for (var wx = t * 1.6; wx < L.W; wx += t * 1.6) {
-      g.beginPath(); g.moveTo(wx, 0); g.lineTo(wx, floorTop); g.stroke();
-    }
+    // Subway-tiled back wall and a checkerboard floor, both drawn with the pen
+    // that draws the food: the grout lines wobble and the tiles sit slightly
+    // off their own outlines. Art.scene.floor does its own light falloff.
+    Art.scene.wall(g, 0, 0, L.W, floorTop, D);
+    Art.scene.floor(g, 0, floorTop, L.W, L.H - floorTop, D, Math.max(22, L.W / 10));
 
-    // --- checkerboard floor running to the bottom of the room
-    var y1 = L.H;
-    g.save();
-    g.beginPath();
-    g.rect(0, floorTop, L.W, y1 - floorTop);
-    g.clip();
-    var tile = Math.max(22, L.W / 10);
-    for (var y = floorTop; y < y1; y += tile) {
-      for (var x = -tile; x < L.W + tile; x += tile) {
-        var odd = (Math.floor(x / tile) + Math.floor((y - floorTop) / tile)) % 2;
-        g.fillStyle = odd ? D.floorB : D.floorA;
-        g.fillRect(x, y, tile, tile);
-      }
-    }
-    // the counter casts onto the floor, and the light falls off toward the back
+    // the counter casts onto the floor right below the line of crates
     var vg = g.createLinearGradient(0, floorTop, 0, floorTop + 46);
-    vg.addColorStop(0, 'rgba(95,62,42,0.30)');
+    vg.addColorStop(0, 'rgba(95,62,42,0.26)');
     vg.addColorStop(1, 'rgba(95,62,42,0)');
     g.fillStyle = vg;
     g.fillRect(0, floorTop, L.W, 46);
-    var lg = g.createLinearGradient(0, floorTop, 0, y1);
-    lg.addColorStop(0, 'rgba(255,255,255,0.0)');
-    lg.addColorStop(1, 'rgba(255,255,255,0.30)');
-    g.fillStyle = lg;
-    g.fillRect(0, floorTop, L.W, y1 - floorTop);
-    g.restore();
   }
 
   function drawCounter() {
     var D = decor();
     for (var i = 0; i < L.counters.length; i++) {
-      slab(L.counters[i], D.counterTop, D.counterTop2, D.counterSide, 12, DEPTH.counter, false);
+      var r = L.counters[i];
+      Art.scene.counter(ctx, r.x, r.y, r.w, r.h, DEPTH.counter * (L.k || 1), D);
     }
+  }
+
+  /**
+   * A guest framed head-and-shoulders in a w x h box whose top-left is the
+   * current origin - the order board and the serving window both want that.
+   *
+   * Not Art.drawGuestFace, which anchors the feet and so frames a baby and a
+   * builder by the same rule: the builder loses the top of his hard hat and the
+   * baby sits half out of the bottom. Scaling to the box and standing them a
+   * little below it puts all fourteen behind the same window.
+   */
+  function guestBust(g, id, w, h, mood) {
+    g.save();
+    g.beginPath();
+    g.rect(0, 0, w, h);
+    g.clip();
+    Art.drawGuest(g, w / 2, h * 1.28, h / 0.62, { type: id, mood: mood });
+    g.restore();
+  }
+
+  /**
+   * The ring that says "this is the station the cook is walking to". The slabs
+   * used to draw it themselves; the hand-drawn kitchen objects don't, so it
+   * lives here and goes on over the top of whichever one was tapped.
+   */
+  function pickRing(r, rad) {
+    ctx.save();
+    ctx.shadowColor = K.pick;
+    ctx.shadowBlur = 12;
+    Art.rr(ctx, r.x, r.y, r.w, r.h, rad);
+    ctx.strokeStyle = K.pick;
+    ctx.lineWidth = 2.6;
+    ctx.stroke();
+    ctx.stroke();
+    ctx.restore();
   }
 
   /**
@@ -1303,45 +1249,43 @@
         ctx.translate(-cx0, -cy0);
       }
 
-      slab(r, K.boxTop, K.boxTop2, K.boxSide, 6, DEPTH.crate, live);
+      // a slatted wooden crate with a shadowed inside, drawn in ink
+      Art.scene.crate(ctx, r.x, r.y, r.w, r.h, decor());
 
-      // interior
-      var frontH = Math.max(13, r.h * 0.30);
-      var w = { x: r.x + 3, y: r.y + 3, w: r.w - 6, h: r.h - frontH - 3 };
-      var wg = ctx.createLinearGradient(0, w.y, 0, w.y + w.h);
-      wg.addColorStop(0, K.boxIn2);
-      wg.addColorStop(1, K.boxIn);
-      Art.rr(ctx, w.x, w.y, w.w, w.h, 4);
-      ctx.fillStyle = wg;
-      ctx.fill();
-
-      // contents, stacked so the box reads as stocked
-      ctx.save();
-      Art.rr(ctx, w.x, w.y, w.w, w.h, 4);
-      ctx.clip();
       /* The crate holds the INGREDIENT, not a pile of burger layers: half an
          avocado with the stone in, a whole tomato with its calyx, a bottle of
          ketchup. Art.drawPortrait draws that; it falls back to the layer art
-         for anything without a portrait of its own. */
-      ctx.translate(w.x, w.y + w.h * 0.04);
-      Art.drawPortrait(ctx, id, w.w, w.h * 0.96);
-      ctx.translate(-w.x, -(w.y + w.h * 0.04));
-      var sg = ctx.createLinearGradient(0, w.y, 0, w.y + w.h * 0.5);
-      sg.addColorStop(0, 'rgba(40,22,6,0.45)');
+         for anything without a portrait of its own.
+
+         It sits over the front slats rather than down behind them: a crate is
+         44px wide and the box only leaves a third of that clear above its
+         front, which is not enough of an avocado to recognise. */
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(r.x + 1, r.y + 1, r.w - 2, r.h * 0.86);
+      ctx.clip();
+      ctx.translate(r.x, r.y + r.h * 0.05);
+      Art.drawPortrait(ctx, id, r.w, r.h * 0.80);
+      ctx.translate(-r.x, -(r.y + r.h * 0.05));
+      var sg = ctx.createLinearGradient(0, r.y, 0, r.y + r.h * 0.35);
+      sg.addColorStop(0, 'rgba(40,22,6,0.35)');
       sg.addColorStop(1, 'rgba(40,22,6,0)');
       ctx.fillStyle = sg;
-      ctx.fillRect(w.x, w.y, w.w, w.h * 0.5);
+      ctx.fillRect(r.x, r.y, r.w, r.h * 0.35);
       ctx.restore();
 
-      // front panel, drawn over the contents
-      var f = { x: r.x + 1, y: r.y + r.h - frontH, w: r.w - 2, h: frontH };
-      var fg = ctx.createLinearGradient(0, f.y, 0, f.y + f.h);
-      fg.addColorStop(0, K.boxFront);
-      fg.addColorStop(1, K.boxFront2);
-      Art.rr(ctx, f.x, f.y, f.w, f.h, 5);
-      ctx.fillStyle = fg;
+      if (live) pickRing(r, 6);
+
+      /*
+       * A paper label nailed to the slats. It needs its own pale ground now
+       * that the front is grained wood - ink on walnut is not readable at 44px.
+       */
+      var labH = Math.max(13, r.h * 0.30);
+      var lab = { x: r.x + 2.5, y: r.y + r.h - labH - 1.5, w: r.w - 5, h: labH };
+      Art.rr(ctx, lab.x, lab.y, lab.w, lab.h, 3);
+      ctx.fillStyle = 'rgba(253,246,230,0.94)';
       ctx.fill();
-      ctx.strokeStyle = 'rgba(110,70,25,0.45)';
+      ctx.strokeStyle = 'rgba(111,69,38,0.55)';
       ctx.lineWidth = 1;
       ctx.stroke();
 
@@ -1352,20 +1296,20 @@
        * the same orange. One glance links them, without having to read either.
        */
       if (ing.swatch) {
-        var bandH = Math.max(2.5, f.h * 0.17);
-        Art.rr(ctx, f.x + 2, f.y + f.h - bandH - 1.5, f.w - 4, bandH, bandH * 0.45);
+        var bandH = Math.max(2.5, lab.h * 0.17);
+        Art.rr(ctx, lab.x + 1.5, lab.y + lab.h - bandH - 1.5, lab.w - 3, bandH, bandH * 0.45);
         ctx.fillStyle = ing.swatch;
         ctx.fill();
       }
 
       // a warm tag on anything that has to be cooked first
       if (ing.grill) {
-        Art.rr(ctx, f.x + 2.5, f.y + 2.5, 3.5, f.h - 5, 1.8);
+        Art.rr(ctx, lab.x + 1.5, lab.y + 2, 3.5, lab.h - 4, 1.8);
         ctx.fillStyle = K.hot;
         ctx.fill();
       }
 
-      label(ing.short || ing.name || id, r.x + r.w / 2, f.y + f.h * 0.35, '#5b3a17',
+      label(ing.short || ing.name || id, r.x + r.w / 2, lab.y + lab.h * 0.35, '#5b3a17',
         Math.min(8, r.w * 0.145));
       ctx.restore();
     }
@@ -1400,7 +1344,9 @@
       x: L.grillX - 3, y: L.grillTop - 16,
       w: L.colW + 6, h: (last.y + last.h) - L.grillTop + 22
     };
-    slab(body, K.grillTop, K.grillTop2, K.grillSide, 13, DEPTH.grill, false);
+    // the chassis, in the same ink as the counters but in cast-iron colours
+    Art.scene.counter(ctx, body.x, body.y, body.w, body.h, DEPTH.grill * (L.k || 1),
+      { top: K.grillTop, top2: K.grillTop2, side: K.grillSide });
     label('GRILL', body.x + body.w / 2, L.grillTop - 8, '#ffb59c', 8);
 
     var win = S.fx.perfectWindow;
@@ -1410,29 +1356,33 @@
       var r = slotRect(i);
       var g = S.grill[i];
       var live = targeted('grill', i);
-      well(r, g ? '#2a1a15' : '#1f1310', 10);
 
+      /*
+       * One burner per slot. Drawn taller than the slot and cropped to it: the
+       * control knobs live at 80% of the grill's height, which on a 42px slot
+       * put two dials straight through the cooking timer. Off the bottom they
+       * go, and the bars fill the slot instead of sharing it.
+       */
       ctx.save();
-      Art.rr(ctx, r.x, r.y, r.w, r.h, 10);
+      ctx.beginPath();
+      ctx.rect(r.x, r.y, r.w, r.h);
       ctx.clip();
-      ctx.strokeStyle = 'rgba(255,255,255,0.09)';
-      ctx.lineWidth = 2;
-      for (var gx = r.x + 4; gx < r.x + r.w; gx += 8) {
-        ctx.beginPath();
-        ctx.moveTo(gx, r.y);
-        ctx.lineTo(gx, r.y + r.h);
-        ctx.stroke();
-      }
+      Art.scene.grill(ctx, r.x, r.y - r.h * 0.10, r.w, r.h * 1.45, { hot: g ? 1 : 0 });
+      ctx.restore();
+
       // embers under whatever is cooking
       if (g) {
+        ctx.save();
+        Art.rr(ctx, r.x, r.y, r.w, r.h, 10);
+        ctx.clip();
         var eg = ctx.createRadialGradient(r.x + r.w / 2, r.y + r.h * 0.5, 2,
           r.x + r.w / 2, r.y + r.h * 0.5, r.w * 0.6);
         eg.addColorStop(0, 'rgba(255,120,50,0.30)');
         eg.addColorStop(1, 'rgba(255,120,50,0)');
         ctx.fillStyle = eg;
         ctx.fillRect(r.x, r.y, r.w, r.h);
+        ctx.restore();
       }
-      ctx.restore();
 
       if (live) {
         Art.rr(ctx, r.x - 1, r.y - 1, r.w + 2, r.h + 2, 11);
@@ -1477,6 +1427,31 @@
     }
   }
 
+  /**
+   * How close this plate is to being somebody's order, 0..1. Only a plate that
+   * is nearly right lights up - a halo on every plate with food on it would
+   * say nothing.
+   *
+   * Scoring a plate against every waiting ticket is a dozen Core.evaluate calls
+   * and the object churn that comes with them, and none of it can change
+   * between two frames without a tap. Cached on the plate, refreshed 8 times a
+   * second, which no eye can tell from every frame on a halo that fades in.
+   */
+  function plateGlow(p) {
+    if (!p.stack || !p.stack.length) return 0;
+    var now = nowMs();
+    if (p.glowAt === undefined || now - p.glowAt >= 120) {
+      p.glowAt = now;
+      var best = 0;
+      for (var i = 0; i < S.tickets.length; i++) {
+        var q = Core.evaluate(S.tickets[i].items, p.stack).quality;
+        if (q > best) best = q;
+      }
+      p.glow = clamp((best - 0.75) / 0.25, 0, 1);
+    }
+    return p.glow || 0;
+  }
+
   function drawPlates() {
     // one plating bench with the plates sitting on it
     var n = S.plates.length;
@@ -1485,7 +1460,8 @@
       x: L.plateX - 3, y: L.plateTop - 16,
       w: L.colW + 6, h: (last.y + last.h) - L.plateTop + 22
     };
-    slab(body, K.plateTop, K.plateTop2, K.plateSide, 13, DEPTH.plate, false);
+    Art.scene.counter(ctx, body.x, body.y, body.w, body.h, DEPTH.plate * (L.k || 1),
+      { top: K.plateTop, top2: K.plateTop2, side: K.plateSide });
     label('PLATES', body.x + body.w / 2, L.plateTop - 8, '#5a86b8', 8);
 
     for (var i = 0; i < n; i++) {
@@ -1494,24 +1470,9 @@
       var live = targeted('plate', i);
       var cx = r.x + r.w / 2, py = r.y + r.h - 10;
 
-      // the plate, as a shallow dish with a rim
-      ctx.save();
-      ctx.shadowColor = 'rgba(95,62,42,0.28)';
-      ctx.shadowBlur = 6;
-      ctx.shadowOffsetY = 3;
-      ctx.beginPath();
-      ctx.ellipse(cx, py, r.w * 0.40, r.h * 0.13, 0, 0, Math.PI * 2);
-      ctx.fillStyle = '#d9e3ec';
-      ctx.fill();
-      ctx.restore();
-      ctx.beginPath();
-      ctx.ellipse(cx, py - 2, r.w * 0.40, r.h * 0.13, 0, 0, Math.PI * 2);
-      ctx.fillStyle = '#f4f8fb';
-      ctx.fill();
-      ctx.beginPath();
-      ctx.ellipse(cx, py - 2, r.w * 0.26, r.h * 0.085, 0, 0, Math.PI * 2);
-      ctx.fillStyle = '#e6eef5';
-      ctx.fill();
+      // A plate that would be taken as it stands wears a halo, so a finished
+      // order is visible from across the room instead of needing to be read.
+      Art.scene.plate(ctx, cx, py - 2, r.w * 0.80, { glow: plateGlow(p) });
 
       if (live) {
         Art.rr(ctx, r.x, r.y, r.w, r.h, 11);
@@ -1534,49 +1495,36 @@
     var h = hatchRect();
     var live = targeted('hatch');
     var ready = anyPlateHeld();
-    slab(h,
-      ready ? K.hatchGoTop : K.hatchTop,
-      ready ? K.hatchGoTop2 : K.hatchTop2,
-      ready ? K.hatchGoSide : K.hatchSide, 14, DEPTH.hatch, live);
 
-    // a serving window cut through to the lit dining room beyond
-    var wRect = { x: h.x + 8, y: h.y + 6, w: h.w - 16, h: h.h - 22 };
-    well(wRect, ready ? '#cdf0c6' : '#fff0cf', 8);
-    label('▲  S E R V E  ▲', h.x + h.w / 2, wRect.y + wRect.h / 2,
-      ready ? '#2c7038' : '#8a6039', 10);
-    label(S.tickets.length + ' waiting', h.x + h.w / 2, h.y + h.h - 8, K.inkSoft, 7.5);
+    // a window onto the lit dining room, with an awning and a call bell. It
+    // brightens the moment a finished plate is in someone's hands.
+    Art.scene.hatch(ctx, h.x, h.y, h.w, h.h, decor(), { lit: ready ? 1 : 0.30 });
+
+    /*
+     * Somebody is actually standing there. The window used to say SERVE into an
+     * empty lit hole; the person who has been waiting longest is a better sign
+     * than the word, and their face sours as their bar runs down.
+     */
+    var next = S.tickets[0];
+    if (next && next.guest) {
+      ctx.save();
+      ctx.translate(h.x + h.w * 0.07, h.y + h.h * 0.27);
+      guestBust(ctx, next.guest, h.w * 0.86, h.h * 0.54,
+        clamp(next.patience / next.max, 0, 1));
+      ctx.restore();
+    }
+
+    // the prompt moves down to the sill so it does not sit across their face
+    label(ready ? '▲  S E R V E  ▲' : S.tickets.length + ' waiting',
+      h.x + h.w / 2, h.y + h.h * 0.87, ready ? '#2c7038' : K.inkSoft, ready ? 9 : 7.5);
+    if (live) pickRing(h, 14);
 
     var b = binRect();
     var bl = targeted('bin');
-    slab(b, K.hatchTop, K.hatchTop2, K.hatchSide, 14, DEPTH.hatch, bl);
-
-    // Drawn rather than an emoji: 🗑 has no glyph on plenty of Android builds.
-    var cx = b.x + b.w / 2, cy = b.y + b.h / 2 - 4;
-    var bw = Math.min(b.w * 0.44, 20), bh = bw * 1.05;
-    ctx.save();
-    ctx.fillStyle = '#8fa3ae';
-    Art.rr(ctx, cx - 4, cy - bh / 2 - 8, 8, 3, 1.5);            // handle
-    ctx.fill();
-    Art.rr(ctx, cx - bw / 2 - 3, cy - bh / 2 - 5, bw + 6, 4, 2); // lid
-    ctx.fill();
-    ctx.beginPath();                                            // tapered body
-    ctx.moveTo(cx - bw / 2, cy - bh / 2);
-    ctx.lineTo(cx + bw / 2, cy - bh / 2);
-    ctx.lineTo(cx + bw * 0.36, cy + bh / 2);
-    ctx.lineTo(cx - bw * 0.36, cy + bh / 2);
-    ctx.closePath();
-    ctx.fillStyle = '#a8bcc7';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(90,115,130,0.65)';
-    ctx.lineWidth = 1.4;
-    for (var s = -1; s <= 1; s++) {
-      ctx.beginPath();
-      ctx.moveTo(cx + s * bw * 0.24, cy - bh * 0.32);
-      ctx.lineTo(cx + s * bw * 0.18, cy + bh * 0.36);
-      ctx.stroke();
-    }
-    ctx.restore();
-    label('BIN', cx, b.y + b.h - 8, K.inkSoft, 7);
+    // The lid flips up as something goes in. Same recoil timer the crates use.
+    Art.scene.bin(ctx, b.x, b.y, b.w, b.h, { open: S.binPop || 0 });
+    if (bl) pickRing(b, 14);
+    label('BIN', b.x + b.w / 2, b.y + b.h * 0.99, K.inkSoft, 7);
   }
 
   /**
@@ -1895,6 +1843,8 @@
   // Smaller than it was: the words below it do the identifying now, and the
   // board had grown to a fifth of a phone screen at the kitchen's expense.
   var MINI_W = 38, MINI_H = 42;
+  // the customer's head, cropped at the shoulders. guestBust fills it.
+  var WHO_W = 34, WHO_H = 24;
 
   /*
    * What the ticket is actually asking for, in words.
@@ -1962,10 +1912,14 @@
       d.className = 'ticket' + (t.arch.id === 'rush' ? ' rush' : '');
       d.setAttribute('data-uid', t.uid);
 
-      var who = document.createElement('span');
+      // the customer, drawn with the same pen as the cook rather than an emoji
+      var who = document.createElement('canvas');
       who.className = 'who';
-      who.textContent = t.arch.emoji;
+      who.width = Math.round(WHO_W * dpr);
+      who.height = Math.round(WHO_H * dpr);
       d.appendChild(who);
+      t.faceEl = who;
+      t.faceMood = -1;
 
       var c = document.createElement('canvas');
       c.className = 'mini';
@@ -2001,11 +1955,30 @@
     updateBoardBars();
   }
 
+  /**
+   * The customer on a ticket, redrawn only when their face would actually
+   * change. A guest is a couple of hundred pen strokes; drawing one on every
+   * bar update would repaint four of them sixty times a second for nothing.
+   */
+  function drawTicketFace(t, ratio) {
+    // 4 steps of mood: happy while there is time, then souring toward a scowl
+    var step = Math.min(3, Math.floor(clamp(ratio, 0, 1) * 4));
+    if (!t.faceEl || t.faceMood === step) return;
+    t.faceMood = step;
+    var g = t.faceEl.getContext('2d');
+    if (!g) return;
+    var dpr = Math.min(window.devicePixelRatio || 1, 3);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, WHO_W, WHO_H);
+    guestBust(g, t.guest, WHO_W, WHO_H, step / 3);
+  }
+
   function updateBoardBars() {
     for (var i = 0; i < S.tickets.length; i++) {
       var t = S.tickets[i];
-      if (!t.barEl) continue;
       var ratio = clamp(t.patience / t.max, 0, 1);
+      drawTicketFace(t, ratio);
+      if (!t.barEl) continue;
       t.barEl.style.width = (ratio * 100) + '%';
       t.barEl.className = ratio < 0.12 ? 'crit' : (ratio < 0.28 ? 'warn' : '');
     }
@@ -2392,7 +2365,7 @@
       plates: S.plates.map(function (p) { return p.stack; }),
       grill: S.grill.map(function (g) { return g ? { id: g.id, t: g.t } : null; }),
       tickets: S.tickets.map(function (t) {
-        return { uid: t.uid, a: t.arch.id, items: t.items, p: t.patience, m: t.max };
+        return { uid: t.uid, a: t.arch.id, g: t.guest, items: t.items, p: t.patience, m: t.max };
       }),
       chefs: S.chefs.map(function (c) {
         return {
@@ -2445,6 +2418,8 @@
       if (!old) changed = true;
       var tk = old || { uid: t.uid, tick: 0 };
       tk.arch = ARCH_BY_ID[t.a] || Core.CUSTOMERS[0];
+      // both screens have to show the same person at the window
+      tk.guest = GUEST_OK[t.g] ? t.g : castGuest(tk.arch.id);
       tk.items = t.items;
       tk.patience = t.p; tk.max = t.m;
       return tk;

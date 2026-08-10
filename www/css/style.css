@@ -259,7 +259,8 @@ body.no-clock .clock-bar { visibility: hidden; }
 .ticket.rush .who { animation: jitter 0.5s infinite; }
 @keyframes jitter { 0%,100% { transform: translateX(0); } 50% { transform: translateX(1.5px); } }
 
-.ticket .who { font-size: 15px; line-height: 1; }
+/* the customer, drawn on a canvas by guestBust in game.js - not an emoji */
+.ticket .who { width: 34px; height: 24px; display: block; }
 .ticket .mini { width: 38px; height: 42px; display: block; }
 
 /* ---------------------------------------------------------- what it wants */
@@ -768,7 +769,7 @@ body.no-clock .clock-bar { visibility: hidden; }
 
 @media (max-height: 700px) {
   .ticket .mini { width: 38px; height: 42px; }
-  .ticket .who { font-size: 13px; }
+  .ticket .who { width: 30px; height: 21px; }
   #stage { min-height: 220px; }
 }
 

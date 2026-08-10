@@ -592,8 +592,37 @@
     }
   };
 
-  // The 'bun' crate and the bun a customer orders both show the crown.
-  LAYERS.bun = LAYERS.bunTop;
+  /* The heel: a flat slab with a pale cut face on top and a rounded bottom.
+   * It used to alias to bunTop, which put a seeded crown under the patty and
+   * made every burger look like two lids stuck together. */
+  LAYERS.bun = {
+    hFrac: 0.20, wFrac: 1.00,
+    draw: function (ctx, x, y, w, h) {
+      var lw = pen(w, h), s = 29, i;
+      var d = [], n = 14;
+      // rounded underside
+      for (i = 0; i <= n; i++) {
+        var t = i / n * Math.PI;
+        d.push([x + w * 0.5 - Math.cos(t) * w * 0.5, y + h * 0.42 + Math.sin(t) * h * 0.60]);
+      }
+      d.push([x + w * 0.5, y + h * 0.30], [x, y + h * 0.42]);
+      jitter(d, w * 0.010, s);
+      ink(ctx, d, '#e0a75f', { lw: lw, off: w * 0.010, line: '#8f5a24', seed: s });
+      hatch(ctx, d, '#a4692c', s, { n: 4, alpha: 0.22, gap: h * 0.30 });
+      // pale cut face along the top, the giveaway that this is a sliced heel
+      var cut = [];
+      for (i = 0; i <= 12; i++) {
+        var f = i / 12;
+        cut.push([x + f * w, y + h * (0.30 + 0.05 * Math.sin(f * 5))]);
+      }
+      for (i = 12; i >= 0; i--) {
+        var g2 = i / 12;
+        cut.push([x + g2 * w, y + h * (0.62 + 0.05 * Math.sin(g2 * 5 + 1.4))]);
+      }
+      jitter(cut, w * 0.008, s + 3);
+      ink(ctx, cut, '#f6dcae', { lw: lw * 0.8, off: w * 0.006, line: '#a8763f', lineAlpha: 0.7, seed: s + 3 });
+    }
+  };
 
   /* -------------------------------------------------------------- sauces */
   /* Five sauces that have to be told apart in a 6px band, so each one gets its
@@ -1177,6 +1206,711 @@
     drawLayer(ctx, id, w / 2, (h - lh) / 2, bun, opts);
   }
 
+  /* ------------------------------------------------------------- the room
+   * Everything that is not food: floor, wall, counter, crate boxes, grill,
+   * plates, serving hatch, bin. Same pen, same off-register fills, so the
+   * kitchen looks drawn by the hand that drew the burger instead of being a
+   * set of rounded rectangles the ingredients happen to sit on.
+   *
+   * Every function takes a THEME object (see SCENE_THEMES) so the six kitchens
+   * in game.js keep their identities.
+   */
+  var SCENE_THEMES = {
+    diner:   { floorA: '#e8d5b8', floorB: '#c9a87d', grout: '#a8845a', wall: '#f2e2c6', wallLine: '#c9ab82',
+               top: '#e4c496', top2: '#d2ad7c', side: '#a97d4e', trim: '#c0562f' },
+    tiles:   { floorA: '#e4ece4', floorB: '#b9cbbd', grout: '#8ba394', wall: '#eef3ec', wallLine: '#b6c8bb',
+               top: '#cfd9d0', top2: '#b6c3b8', side: '#7d8d81', trim: '#4f8f7a' },
+    sunset:  { floorA: '#f7dfd2', floorB: '#e0b0a0', grout: '#b8877a', wall: '#fbe8dd', wallLine: '#d3a695',
+               top: '#e8bfb4', top2: '#d6a396', side: '#a3705f', trim: '#d2603f' },
+    night:   { floorA: '#ddd4ec', floorB: '#b3a6cf', grout: '#8b7cae', wall: '#e6dff2', wallLine: '#ab9cc9',
+               top: '#cfc7e4', top2: '#b6aad2', side: '#7d709b', trim: '#6a4fa3' },
+    brass:   { floorA: '#efe0b6', floorB: '#cbb883', grout: '#a08f5c', wall: '#f5ead0', wallLine: '#c4b184',
+               top: '#ddcb92', top2: '#c6b276', side: '#8f7c46', trim: '#b08420' },
+    harbour: { floorA: '#e2ecf2', floorB: '#b5c8d6', grout: '#8ba0b0', wall: '#eaf1f6', wallLine: '#adc0cd',
+               top: '#c6d5e0', top2: '#adbfcd', side: '#728799', trim: '#3f6f92' }
+  };
+
+  /** Checkerboard floor, drawn in rows so the grout lines wobble like grout. */
+  function drawFloor(ctx, x, y, w, h, T, tile) {
+    T = T || SCENE_THEMES.diner;
+    tile = tile || Math.max(14, w / 8);
+    var s = 601, cols = Math.ceil(w / tile) + 1, rows = Math.ceil(h / tile) + 1, r, c;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+    ctx.fillStyle = T.floorA;
+    ctx.fillRect(x, y, w, h);
+    for (r = 0; r < rows; r++) {
+      for (c = 0; c < cols; c++) {
+        if ((r + c) % 2) continue;
+        var tx = x + c * tile, ty = y + r * tile;
+        trace(ctx, rectPts(tx, ty, tile, tile, tile * 0.06, tile * 0.035, s + r * 31 + c));
+        ctx.fillStyle = T.floorB;
+        ctx.fill();
+      }
+    }
+    // grout, drawn over the top as a single wobbling pen
+    ctx.strokeStyle = T.grout;
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = Math.max(0.7, tile * 0.035);
+    ctx.lineCap = 'round';
+    for (r = 0; r <= rows; r++) {
+      ctx.beginPath();
+      for (c = 0; c <= cols * 2; c++) {
+        var gx = x + c * tile / 2;
+        ctx.lineTo(gx, y + r * tile + wob(s + r, c) * tile * 0.05);
+      }
+      ctx.stroke();
+    }
+    for (c = 0; c <= cols; c++) {
+      ctx.beginPath();
+      for (r = 0; r <= rows * 2; r++) {
+        var gy = y + r * tile / 2;
+        ctx.lineTo(x + c * tile + wob(s + c + 90, r) * tile * 0.05, gy);
+      }
+      ctx.stroke();
+    }
+    // light falls off toward the back of the room
+    ctx.globalAlpha = 1;
+    var g = ctx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, 'rgba(60,34,18,0.26)');
+    g.addColorStop(0.45, 'rgba(60,34,18,0.04)');
+    g.addColorStop(1, 'rgba(60,34,18,0.16)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x, y, w, h);
+    ctx.restore();
+  }
+
+  /** Back wall: subway tiles, a rail and a hanging bulb. */
+  function drawWall(ctx, x, y, w, h, T) {
+    T = T || SCENE_THEMES.diner;
+    var s = 631, rowH = Math.max(8, h / 5), r, c;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+    ctx.fillStyle = T.wall;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = T.wallLine;
+    ctx.globalAlpha = 0.7;
+    ctx.lineWidth = Math.max(0.7, rowH * 0.05);
+    ctx.lineCap = 'round';
+    for (r = 0; r * rowH < h + rowH; r++) {
+      var ty = y + r * rowH;
+      ctx.beginPath();
+      for (c = 0; c <= 10; c++) ctx.lineTo(x + c * w / 10, ty + wob(s + r, c) * rowH * 0.05);
+      ctx.stroke();
+      var off = (r % 2) * rowH * 0.9;
+      for (c = 0; c * rowH * 1.8 < w + rowH * 2; c++) {
+        var vx = x + off + c * rowH * 1.8;
+        ctx.beginPath();
+        ctx.moveTo(vx + wob(s + c, r) * rowH * 0.05, ty);
+        ctx.lineTo(vx + wob(s + c, r + 5) * rowH * 0.05, ty + rowH);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  /** A worktop slab seen slightly from above: top face + front face. */
+  function drawCounter(ctx, x, y, w, h, depth, T) {
+    T = T || SCENE_THEMES.diner;
+    var s = 641, lw = Math.max(1, Math.min(w * 0.004, 2.2));
+    var front = rectPts(x, y + h - depth, w, depth, Math.min(6, depth * 0.4), w * 0.002, s + 1);
+    ink(ctx, front, T.side, { lw: lw, off: w * 0.0015, seed: s + 1 });
+    hatch(ctx, front, mixHex(T.side, '#2a1a10', 0.5), s + 1, { n: 6, alpha: 0.16, gap: depth * 0.5 });
+    var top = rectPts(x, y, w, h - depth * 0.4, Math.min(8, h * 0.2), w * 0.002, s);
+    ink(ctx, top, T.top, { lw: lw, off: w * 0.0015, seed: s });
+    ctx.save();
+    trace(ctx, top); ctx.clip();
+    ctx.strokeStyle = T.top2;
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = Math.max(0.7, h * 0.03);
+    ctx.lineCap = 'round';
+    for (var i = 0; i < 5; i++) {
+      var gy = y + h * (0.14 + i * 0.17);
+      ctx.beginPath();
+      for (var c = 0; c <= 14; c++) ctx.lineTo(x + c * w / 14, gy + Math.sin(c * 0.9 + i) * h * 0.02);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /** A wooden crate: slatted front, dark inside, name板 in the middle. */
+  function drawCrate(ctx, x, y, w, h, T) {
+    var s = 653, lw = Math.max(1, w * 0.02), i;
+    // shadowed interior
+    ink(ctx, rectPts(x + w * 0.05, y, w * 0.90, h * 0.52, w * 0.04, w * 0.006, s + 1),
+        '#5b3d24', { lw: lw * 0.8, seed: s + 1 });
+    // front panel with three slats
+    var f = rectPts(x, y + h * 0.34, w, h * 0.66, w * 0.05, w * 0.006, s);
+    ink(ctx, f, '#c89a63', { lw: lw, off: w * 0.006, line: '#6f4526', seed: s });
+    ctx.save();
+    trace(ctx, f); ctx.clip();
+    ctx.strokeStyle = '#8f6437';
+    ctx.globalAlpha = 0.6;
+    ctx.lineWidth = Math.max(0.8, w * 0.016);
+    for (i = 1; i < 3; i++) {
+      var ly = y + h * 0.34 + h * 0.66 * i / 3;
+      ctx.beginPath();
+      for (var c = 0; c <= 8; c++) ctx.lineTo(x + c * w / 8, ly + wob(s + i, c) * h * 0.012);
+      ctx.stroke();
+    }
+    ctx.restore();
+    hatch(ctx, f, '#6f4526', s, { n: 5, alpha: 0.14, gap: h * 0.14 });
+    // corner bands
+    [x + w * 0.02, x + w * 0.88].forEach(function (bx, k) {
+      ink(ctx, rectPts(bx, y + h * 0.34, w * 0.10, h * 0.66, w * 0.03, w * 0.005, s + 10 + k),
+          '#a87c48', { lw: lw * 0.9, line: '#6f4526', seed: s + 10 + k });
+    });
+  }
+
+  /** Cast-iron grill: body, bars, two knobs, optional heat shimmer. */
+  function drawGrill(ctx, x, y, w, h, opts) {
+    var s = 661, lw = Math.max(1, w * 0.012), i;
+    var hot = (opts && opts.hot) || 0;
+    var body = rectPts(x, y + h * 0.18, w, h * 0.82, h * 0.14, w * 0.005, s);
+    ink(ctx, body, '#5a5350', { lw: lw, off: w * 0.004, line: '#2b2523', seed: s });
+    hatch(ctx, body, '#2b2523', s, { n: 6, alpha: 0.22, gap: h * 0.14 });
+    // cooking surface
+    var top = rectPts(x + w * 0.04, y + h * 0.10, w * 0.92, h * 0.44, h * 0.10, w * 0.005, s + 1);
+    ink(ctx, top, '#3a3330', { lw: lw, off: w * 0.004, line: '#1c1715', seed: s + 1 });
+    ctx.save();
+    trace(ctx, top); ctx.clip();
+    for (i = 0; i < 5; i++) {
+      var by = y + h * 0.14 + i * h * 0.09;
+      ctx.strokeStyle = mixHex('#6b615c', '#ff7a3c', hot * 0.85);
+      ctx.globalAlpha = 0.9;
+      ctx.lineWidth = Math.max(1, h * 0.035);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (var c = 0; c <= 10; c++) ctx.lineTo(x + w * 0.08 + c * w * 0.084, by + wob(s + i, c) * h * 0.012);
+      ctx.stroke();
+    }
+    ctx.restore();
+    // knobs
+    [0.26, 0.74].forEach(function (f, k) {
+      ink(ctx, ellPts(x + w * f, y + h * 0.80, w * 0.055, w * 0.055, 14, w * 0.004, s + 20 + k),
+          '#d9cfc6', { lw: lw * 0.9, line: '#2b2523', seed: s + 20 + k });
+      ctx.save();
+      ctx.strokeStyle = '#2b2523';
+      ctx.lineWidth = Math.max(0.9, w * 0.012);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x + w * f, y + h * 0.80);
+      ctx.lineTo(x + w * f - w * 0.03, y + h * 0.755);
+      ctx.stroke();
+      ctx.restore();
+    });
+    if (hot > 0.05) {
+      ctx.save();
+      ctx.globalAlpha = 0.30 * hot;
+      ctx.strokeStyle = '#ff9d5c';
+      ctx.lineWidth = Math.max(0.9, h * 0.02);
+      ctx.lineCap = 'round';
+      for (i = 0; i < 3; i++) {
+        ctx.beginPath();
+        for (var t = 0; t <= 6; t++) {
+          ctx.lineTo(x + w * (0.24 + i * 0.26) + Math.sin(t * 1.3 + i) * w * 0.02,
+                     y + h * 0.08 - t * h * 0.045);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  /** A plate seen from above, with the rim ring drawn as its own pass. */
+  function drawPlate(ctx, cx, cy, w, opts) {
+    var s = 673, r = w / 2, lw = Math.max(1, w * 0.018);
+    var glow = (opts && opts.glow) || 0;
+    if (glow > 0.02) {
+      ctx.save();
+      ctx.globalAlpha = 0.35 * glow;
+      ctx.fillStyle = '#f4b41a';
+      trace(ctx, ellPts(cx, cy, r * 1.22, r * 0.52, 20, w * 0.006, s + 9));
+      ctx.fill();
+      ctx.restore();
+    }
+    ink(ctx, ellPts(cx, cy, r, r * 0.40, 24, w * 0.008, s), '#f4f8fb',
+        { lw: lw, off: w * 0.006, line: '#8fa3ae', seed: s });
+    ink(ctx, ellPts(cx, cy, r * 0.70, r * 0.27, 20, w * 0.006, s + 1), '#e6eef5',
+        { lw: lw * 0.7, line: '#8fa3ae', lineAlpha: 0.7, seed: s + 1 });
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = '#ffffff';
+    trace(ctx, ellPts(cx - r * 0.34, cy - r * 0.12, r * 0.26, r * 0.07, 12, w * 0.004, s + 2));
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /** The serving hatch: a window in the wall with a little awning and a bell. */
+  function drawHatch(ctx, x, y, w, h, T, opts) {
+    T = T || SCENE_THEMES.diner;
+    var s = 683, lw = Math.max(1, w * 0.008), i;
+    var lit = (opts && opts.lit) || 0;
+    // the dark opening
+    var hole = rectPts(x + w * 0.06, y + h * 0.26, w * 0.88, h * 0.56, h * 0.10, w * 0.003, s + 1);
+    ink(ctx, hole, mixHex('#2a1a12', '#f4b41a', lit * 0.35), { lw: lw, line: '#1a100b', seed: s + 1 });
+    // sill
+    ink(ctx, rectPts(x, y + h * 0.74, w, h * 0.24, h * 0.07, w * 0.003, s + 2),
+        T.top, { lw: lw, off: w * 0.002, line: mixHex(T.side, '#2a1a10', 0.4), seed: s + 2 });
+    // scalloped awning
+    var aw = [];
+    aw.push([x, y + h * 0.24]);
+    aw.push([x + w * 0.03, y]);
+    aw.push([x + w * 0.97, y]);
+    aw.push([x + w, y + h * 0.24]);
+    for (i = 8; i >= 0; i--) {
+      var f = i / 8;
+      aw.push([x + f * w, y + h * (0.24 + 0.055 * Math.abs(Math.sin(f * 9)))]);
+    }
+    jitter(aw, w * 0.003, s);
+    ink(ctx, aw, '#f2e2c6', { lw: lw, off: w * 0.002, line: '#a8845a', seed: s });
+    ctx.save();
+    trace(ctx, aw); ctx.clip();
+    ctx.fillStyle = T.trim;
+    for (i = 0; i < 5; i++) {
+      ctx.globalAlpha = 0.9;
+      ctx.fillRect(x + w * (0.06 + i * 0.19), y - h * 0.05, w * 0.095, h * 0.36);
+    }
+    ctx.restore();
+    // call bell on the sill
+    ink(ctx, ellPts(x + w * 0.82, y + h * 0.78, w * 0.055, w * 0.040, 14, w * 0.003, s + 5),
+        '#e8c56a', { lw: lw, line: '#8a6416', seed: s + 5 });
+    ink(ctx, rectPts(x + w * 0.795, y + h * 0.80, w * 0.05, h * 0.045, h * 0.02, w * 0.002, s + 6),
+        '#c9a33f', { lw: lw * 0.8, line: '#8a6416', seed: s + 6 });
+  }
+
+  /** Kerbside bin: pedal, ribbed drum, bag folded over the rim, hinged lid. */
+  function drawBin(ctx, x, y, w, h, opts) {
+    var s = 691, lw = Math.max(1, w * 0.030), i;
+    var open = (opts && opts.open) || 0;
+    var bodyTop = y + h * 0.34;
+    var footY = y + h * 0.94;
+
+    // pedal and foot, so it reads as a bin you step on rather than a vase
+    ink(ctx, rectPts(x + w * 0.06, footY - h * 0.01, w * 0.26, h * 0.050, w * 0.02, w * 0.006, s + 8),
+        '#6e828c', { lw: lw * 0.85, line: '#33454e', seed: s + 8 });
+
+    // drum: a cylinder, so the sides are parallel and the foot is an ellipse
+    var bodyW = w * 0.72, bx = x + (w - bodyW) / 2;
+    var body = jitter([[bx, bodyTop], [bx + bodyW, bodyTop],
+                       [bx + bodyW, footY], [bx, footY]], w * 0.008, s);
+    ink(ctx, body, '#93a7b2', { lw: lw, off: w * 0.008, line: '#33454e', seed: s });
+    // the base, seen as a shallow ellipse - what makes it read as round
+    ink(ctx, ellPts(x + w * 0.5, footY, bodyW / 2, h * 0.055, 20, w * 0.007, s + 11),
+        '#7f95a1', { lw: lw, off: w * 0.006, line: '#33454e', seed: s + 11 });
+    ctx.save();
+    trace(ctx, body); ctx.clip();
+    // a soft shade down each side turns the flat drum into a cylinder
+    var cyl = ctx.createLinearGradient(bx, 0, bx + bodyW, 0);
+    cyl.addColorStop(0, 'rgba(30,48,58,0.34)');
+    cyl.addColorStop(0.32, 'rgba(255,255,255,0.16)');
+    cyl.addColorStop(0.62, 'rgba(255,255,255,0.05)');
+    cyl.addColorStop(1, 'rgba(30,48,58,0.40)');
+    ctx.fillStyle = cyl;
+    ctx.fillRect(bx, bodyTop, bodyW, footY - bodyTop);
+    // vertical ribs
+    ctx.strokeStyle = '#637c88';
+    ctx.globalAlpha = 0.45;
+    ctx.lineWidth = Math.max(0.9, w * 0.022);
+    ctx.lineCap = 'round';
+    for (i = 0; i < 5; i++) {
+      var vx = bx + bodyW * (0.16 + i * 0.17);
+      ctx.beginPath();
+      ctx.moveTo(vx, bodyTop + h * 0.05);
+      ctx.lineTo(vx, footY - h * 0.02);
+      ctx.stroke();
+    }
+    // two hoop bands, bowed like the rim so they wrap the drum
+    ctx.globalAlpha = 0.7;
+    ctx.strokeStyle = '#5b737f';
+    ctx.lineWidth = Math.max(1, w * 0.034);
+    [0.30, 0.72].forEach(function (f) {
+      var by = bodyTop + (footY - bodyTop) * f;
+      ctx.beginPath();
+      for (var c = 0; c <= 10; c++) {
+        var t = c / 10;
+        ctx.lineTo(bx + bodyW * t, by + Math.sin(t * Math.PI) * h * 0.022);
+      }
+      ctx.stroke();
+    });
+    ctx.restore();
+    hatch(ctx, body, '#33454e', s, { n: 4, alpha: 0.10, gap: h * 0.22 });
+
+    // rim, dark mouth, and the bag folded over the lip
+    ink(ctx, ellPts(x + w * 0.5, bodyTop, bodyW / 2, h * 0.070, 20, w * 0.008, s + 2),
+        '#aebfc9', { lw: lw, off: w * 0.006, line: '#33454e', seed: s + 2 });
+    ink(ctx, ellPts(x + w * 0.5, bodyTop + h * 0.006, bodyW * 0.38, h * 0.048, 18, w * 0.006, s + 7),
+        '#2b3a42', { lw: lw * 0.7, line: '#17222a', seed: s + 7 });
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    for (i = 0; i < 5; i++) {
+      var a = Math.PI * (0.10 + i * 0.20);
+      ink(ctx, blobPts(x + w * 0.5 + Math.cos(a) * bodyW * 0.40, bodyTop + Math.sin(a) * h * 0.048 + h * 0.012,
+                       w * 0.075, h * 0.028, 4, 0.22, i, 14, w * 0.005, s + 20 + i),
+          '#3d4a52', { lw: lw * 0.6, line: '#1c262b', lineAlpha: 0.8, seed: s + 20 + i });
+    }
+    ctx.restore();
+
+    // lid, hinged at the back-left and lifted clear when open
+    ctx.save();
+    ctx.translate(bx + bodyW * 0.06, bodyTop - h * 0.06);
+    ctx.rotate(-open * 0.66);
+    ctx.translate(-(bx + bodyW * 0.06), -(bodyTop - h * 0.06));
+    ctx.translate(0, -open * h * 0.055);
+    ink(ctx, ellPts(x + w * 0.5, bodyTop - h * 0.075, bodyW * 0.60, h * 0.072, 20, w * 0.008, s + 3),
+        '#c2d3dc', { lw: lw, off: w * 0.007, line: '#33454e', seed: s + 3 });
+    ink(ctx, ellPts(x + w * 0.5, bodyTop - h * 0.105, bodyW * 0.40, h * 0.048, 18, w * 0.006, s + 9),
+        '#aebfc9', { lw: lw * 0.8, line: '#33454e', lineAlpha: 0.7, seed: s + 9 });
+    ctx.save();
+    ctx.strokeStyle = '#5b737f';
+    ctx.lineWidth = Math.max(1.2, w * 0.030);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(x + w * 0.5, bodyTop - h * 0.135, bodyW * 0.16, Math.PI * 1.05, Math.PI * 1.95);
+    ctx.stroke();
+    ctx.restore();
+    ctx.restore();
+  }
+
+  var SCENE = {
+    THEMES: SCENE_THEMES,
+    floor: drawFloor,
+    wall: drawWall,
+    counter: drawCounter,
+    crate: drawCrate,
+    grill: drawGrill,
+    plate: drawPlate,
+    hatch: drawHatch,
+    bin: drawBin
+  };
+
+  /* ------------------------------------------------------------- guests
+   * The people on the other side of the hatch, drawn to the chef's own recipe:
+   * one head, one soft body, dot eyes, rosy cheeks. Everything that makes a
+   * guest a PERSON rather than a palette swap lives in three places - the
+   * silhouette on top of the head, the shape of the torso, and one prop.
+   *
+   * Art.drawGuest(ctx, x, y, s, { type, blink, bob, mood })
+   *   x, y  feet baseline    s  the same scale number you pass drawChef
+   */
+  var GUESTS = {
+    kid:      { h: 0.74, skin: '#f7cfa4', hair: '#6b4423', top: '#f2b33c', bot: '#5f8fc4', style: 'mop',    prop: 'balloon' },
+    student:  { h: 0.86, skin: '#f2c08a', hair: '#3a2a20', top: '#4f6fa8', bot: '#3a4a63', style: 'bob',    prop: 'satchel' },
+    teen:     { h: 0.94, skin: '#f7cfa4', hair: '#2f2a28', top: '#7a5a8a', bot: '#43506b', style: 'capBack',prop: 'phone' },
+    office:   { h: 1.00, skin: '#f2c08a', hair: '#3a2a20', top: '#4a5568', bot: '#2f3542', style: 'part',   prop: 'coffee' },
+    nurse:    { h: 0.98, skin: '#eab98a', hair: '#4a3226', top: '#dff0ea', bot: '#8fbfae', style: 'bun',    prop: 'clipboard' },
+    police:   { h: 1.02, skin: '#d9a06a', hair: '#2f2a28', top: '#3f5a8a', bot: '#2b3a56', style: 'peaked', prop: null },
+    builder:  { h: 1.00, skin: '#e0a06a', hair: '#4a3226', top: '#e8a021', bot: '#6b5a4a', style: 'hardhat',prop: 'plank' },
+    courier:  { h: 0.96, skin: '#c98a58', hair: '#2f2a28', top: '#c0562f', bot: '#3a3a3a', style: 'helmet', prop: 'box' },
+    farmer:   { h: 0.98, skin: '#e0a06a', hair: '#7a6a4a', top: '#8fa8c4', bot: '#6b7a4a', style: 'straw',  prop: null },
+    athlete:  { h: 1.00, skin: '#b87a4a', hair: '#2f2a28', top: '#e8e2d2', bot: '#c9302c', style: 'ponytail',prop: 'bottle' },
+    artist:   { h: 0.96, skin: '#f2c08a', hair: '#8a4a2a', top: '#c9a8d6', bot: '#4a4a4a', style: 'beret',  prop: null },
+    granny:   { h: 0.88, skin: '#f0d0b0', hair: '#d8d2cc', top: '#d68aa0', bot: '#7a6a8a', style: 'bunGrey',prop: 'bag' },
+    grandpa:  { h: 0.90, skin: '#e8c4a0', hair: '#d8d2cc', top: '#8a9a7a', bot: '#5a5a4a', style: 'flatcap',prop: 'cane' },
+    baby:     { h: 0.62, skin: '#fbd9b8', hair: '#c9a06a', top: '#f7c9d6', bot: '#f7c9d6', style: 'curl',   prop: null }
+  };
+  var GUEST_IDS = ['baby', 'kid', 'student', 'teen', 'athlete', 'courier', 'builder',
+                   'police', 'nurse', 'office', 'artist', 'farmer', 'granny', 'grandpa'];
+
+  function drawGuest(ctx, x, y, s, opts) {
+    opts = opts || {};
+    var G = GUESTS[opts.type] || GUESTS.office;
+    var blink = opts.blink || 0;
+    var swing = Math.sin((opts.bob || 0) * TAU);
+    var mood = opts.mood === undefined ? 1 : opts.mood;   // 1 happy .. 0 cross
+    s = s * G.h;
+    var lw = Math.max(1, s * 0.018);
+    var sd = 811 + GUEST_IDS.indexOf(opts.type) * 7;
+    var cy = y - Math.abs(swing) * s * 0.04;
+
+    // scribbled contact shadow, same three strokes as the chef
+    ctx.save();
+    ctx.strokeStyle = INK;
+    ctx.lineCap = 'round';
+    for (var q = 0; q < 3; q++) {
+      ctx.globalAlpha = 0.13;
+      ctx.lineWidth = s * 0.030;
+      var ww = s * 0.24 * (1 - q * 0.18);
+      ctx.beginPath();
+      ctx.moveTo(x - ww, y + q * s * 0.018);
+      ctx.quadraticCurveTo(x, y + q * s * 0.018 + s * 0.01, x + ww, y + q * s * 0.018);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // legs
+    ink(ctx, rectPts(x - s * 0.15 + swing * s * 0.07, cy - s * 0.16, s * 0.12, s * 0.16, s * 0.05, s * 0.006, sd),
+        G.bot, { lw: lw * 0.9, off: s * 0.006, seed: sd });
+    ink(ctx, rectPts(x + s * 0.03 - swing * s * 0.07, cy - s * 0.16, s * 0.12, s * 0.16, s * 0.05, s * 0.006, sd + 2),
+        G.bot, { lw: lw * 0.9, off: s * 0.006, seed: sd + 2 });
+
+    // torso
+    var bw = s * 0.44, bh = s * 0.32;
+    var body = rectPts(x - bw / 2, cy - s * 0.46, bw, bh, s * 0.14, s * 0.008, sd + 4);
+    ink(ctx, body, G.top, { lw: lw, off: s * 0.007, seed: sd + 4 });
+    hatch(ctx, body, mixHex(G.top, '#2a1a12', 0.45), sd + 4, { n: 4, alpha: 0.20, gap: s * 0.035 });
+
+    // one detail that says the job, drawn on the chest
+    if (opts.type === 'police') {
+      ink(ctx, blobPts(x - bw * 0.26, cy - s * 0.38, s * 0.045, s * 0.045, 5, 0.30, 1.6, 18, s * 0.004, sd + 5),
+          '#f4d35e', { lw: lw * 0.7, line: '#8a6416', seed: sd + 5 });
+    } else if (opts.type === 'nurse') {
+      ctx.save();
+      ctx.fillStyle = '#c9302c';
+      ctx.fillRect(x - s * 0.018, cy - s * 0.41, s * 0.036, s * 0.10);
+      ctx.fillRect(x - s * 0.050, cy - s * 0.378, s * 0.10, s * 0.036);
+      ctx.restore();
+    } else if (opts.type === 'athlete') {
+      ctx.save();
+      ctx.strokeStyle = '#c9302c';
+      ctx.lineWidth = Math.max(1, s * 0.022);
+      ctx.beginPath();
+      ctx.moveTo(x - bw * 0.30, cy - s * 0.44);
+      ctx.lineTo(x + bw * 0.10, cy - s * 0.20);
+      ctx.stroke();
+      ctx.restore();
+    } else if (opts.type === 'office') {
+      ink(ctx, jitter([[x - s * 0.030, cy - s * 0.455], [x + s * 0.030, cy - s * 0.455],
+                       [x + s * 0.012, cy - s * 0.30], [x - s * 0.012, cy - s * 0.30]], s * 0.005, sd + 6),
+          '#c9302c', { lw: lw * 0.7, line: '#7a1a16', seed: sd + 6 });
+    } else if (opts.type === 'farmer') {
+      ctx.save();
+      ctx.strokeStyle = mixHex(G.top, '#2a1a12', 0.5);
+      ctx.lineWidth = Math.max(1, s * 0.014);
+      [-1, 1].forEach(function (d) {
+        ctx.beginPath();
+        ctx.moveTo(x + d * bw * 0.20, cy - s * 0.46);
+        ctx.lineTo(x + d * bw * 0.20, cy - s * 0.22);
+        ctx.stroke();
+      });
+      ctx.restore();
+    }
+
+    // head
+    var hy = cy - s * 0.62, hr = s * 0.215;
+    var head = blobPts(x, hy, hr, hr, 5, 0.02, 0.9, 20, s * 0.006, sd + 11);
+    ink(ctx, head, G.skin, { lw: lw, off: s * 0.006, seed: sd + 11 });
+    hatch(ctx, head, mixHex(G.skin, '#8a5a30', 0.55), sd + 11, { n: 3, alpha: 0.18, gap: s * 0.030 });
+
+    drawHair(ctx, x, hy, hr, s, lw, G, sd);
+
+    // cheeks
+    ctx.save();
+    ctx.globalAlpha = 0.45;
+    ctx.fillStyle = '#f4948a';
+    trace(ctx, ellPts(x - hr * 0.55, hy + hr * 0.28, hr * 0.24, hr * 0.16, 9, s * 0.003, sd + 13)); ctx.fill();
+    trace(ctx, ellPts(x + hr * 0.55, hy + hr * 0.28, hr * 0.24, hr * 0.16, 9, s * 0.003, sd + 14)); ctx.fill();
+    ctx.restore();
+
+    // eyes and mouth
+    var eo = hr * 0.34, ey = hy - hr * 0.02, open = 1 - blink;
+    ctx.save();
+    ctx.fillStyle = INK;
+    ctx.strokeStyle = INK;
+    ctx.lineCap = 'round';
+    if (open > 0.12) {
+      trace(ctx, ellPts(x - eo, ey, hr * 0.10, hr * 0.13 * open, 8, s * 0.002, sd + 15)); ctx.fill();
+      trace(ctx, ellPts(x + eo, ey, hr * 0.10, hr * 0.13 * open, 8, s * 0.002, sd + 16)); ctx.fill();
+    } else {
+      ctx.lineWidth = lw * 0.9;
+      [-1, 1].forEach(function (d) {
+        ctx.beginPath();
+        ctx.moveTo(x + d * eo - hr * 0.10, ey);
+        ctx.lineTo(x + d * eo + hr * 0.10, ey);
+        ctx.stroke();
+      });
+    }
+    ctx.lineWidth = lw * 0.95;
+    ctx.beginPath();
+    ctx.moveTo(x - hr * 0.17, hy + hr * 0.38);
+    ctx.quadraticCurveTo(x, hy + hr * (0.38 + 0.34 * (mood * 2 - 1)), x + hr * 0.17, hy + hr * 0.38);
+    ctx.stroke();
+    if (opts.type === 'grandpa' || opts.type === 'farmer') {
+      // glasses / squint lines, drawn after the eyes so they read as worn
+      ctx.lineWidth = lw * 0.7;
+      ctx.globalAlpha = 0.7;
+      [-1, 1].forEach(function (d) {
+        ctx.beginPath();
+        ctx.arc(x + d * eo, ey, hr * 0.20, 0, TAU);
+        ctx.stroke();
+      });
+    }
+    ctx.restore();
+
+    drawGuestProp(ctx, x, cy, s, lw, G, sd);
+  }
+
+  function drawHair(ctx, x, hy, hr, s, lw, G, sd) {
+    var st = G.style, c = G.hair;
+    function cap(fill, wide, tall, lobes) {
+      ink(ctx, blobPts(x, hy - hr * 0.34, hr * (wide || 1.06), hr * (tall || 0.72), lobes || 4, 0.10, 0.8, 24, s * 0.006, sd + 20),
+          fill, { lw: lw, off: s * 0.005, seed: sd + 20 });
+    }
+    if (st === 'mop') {
+      cap(c, 1.10, 0.80, 6);
+      ink(ctx, blobPts(x - hr * 0.72, hy - hr * 0.05, hr * 0.30, hr * 0.42, 4, 0.20, 1.2, 18, s * 0.005, sd + 21), c, { lw: lw * 0.8, seed: sd + 21 });
+      ink(ctx, blobPts(x + hr * 0.72, hy - hr * 0.05, hr * 0.30, hr * 0.42, 4, 0.20, 0.4, 18, s * 0.005, sd + 22), c, { lw: lw * 0.8, seed: sd + 22 });
+    } else if (st === 'curl') {
+      cap(c, 0.72, 0.52, 5);
+      ink(ctx, ellPts(x + hr * 0.30, hy - hr * 0.92, hr * 0.16, hr * 0.20, 12, s * 0.004, sd + 23), c, { lw: lw * 0.8, seed: sd + 23 });
+    } else if (st === 'bob') {
+      cap(c, 1.12, 0.74, 4);
+      [-1, 1].forEach(function (d, i) {
+        ink(ctx, rectPts(x + d * hr * 0.92 - hr * 0.16, hy - hr * 0.55, hr * 0.32, hr * 1.10, hr * 0.14, s * 0.005, sd + 24 + i), c, { lw: lw * 0.85, seed: sd + 24 + i });
+      });
+    } else if (st === 'part') {
+      cap(c, 1.08, 0.62, 3);
+      ctx.save();
+      ctx.strokeStyle = mixHex(c, '#ffffff', 0.25);
+      ctx.lineWidth = lw * 0.8;
+      ctx.beginPath();
+      ctx.moveTo(x - hr * 0.30, hy - hr * 0.86);
+      ctx.lineTo(x - hr * 0.05, hy - hr * 0.40);
+      ctx.stroke();
+      ctx.restore();
+    } else if (st === 'bun' || st === 'bunGrey') {
+      cap(c, 1.06, 0.66, 3);
+      ink(ctx, blobPts(x, hy - hr * 1.06, hr * 0.36, hr * 0.32, 4, 0.14, 0.5, 18, s * 0.005, sd + 26), c, { lw: lw * 0.85, seed: sd + 26 });
+    } else if (st === 'ponytail') {
+      cap(c, 1.06, 0.66, 3);
+      ink(ctx, blobPts(x + hr * 1.02, hy - hr * 0.28, hr * 0.26, hr * 0.58, 4, 0.18, 1.1, 20, s * 0.005, sd + 27), c, { lw: lw * 0.85, seed: sd + 27 });
+    } else if (st === 'capBack') {
+      cap(c, 1.06, 0.58, 3);
+      ink(ctx, blobPts(x, hy - hr * 0.62, hr * 1.02, hr * 0.52, 3, 0.06, 0.6, 22, s * 0.005, sd + 28), '#3f7a2a', { lw: lw, seed: sd + 28 });
+      ink(ctx, rectPts(x + hr * 0.72, hy - hr * 0.72, hr * 0.60, hr * 0.26, hr * 0.10, s * 0.005, sd + 29), '#3f7a2a', { lw: lw * 0.9, seed: sd + 29 });
+    } else if (st === 'peaked') {
+      ink(ctx, blobPts(x, hy - hr * 0.66, hr * 1.04, hr * 0.50, 3, 0.05, 0.6, 22, s * 0.005, sd + 30), '#2b3a56', { lw: lw, seed: sd + 30 });
+      ink(ctx, rectPts(x - hr * 1.10, hy - hr * 0.46, hr * 2.20, hr * 0.22, hr * 0.10, s * 0.005, sd + 31), '#1e2a40', { lw: lw * 0.9, seed: sd + 31 });
+      ink(ctx, ellPts(x, hy - hr * 0.86, hr * 0.16, hr * 0.14, 10, s * 0.004, sd + 32), '#f4d35e', { lw: lw * 0.7, line: '#8a6416', seed: sd + 32 });
+    } else if (st === 'hardhat') {
+      ink(ctx, blobPts(x, hy - hr * 0.60, hr * 1.06, hr * 0.66, 3, 0.04, 0.6, 24, s * 0.005, sd + 33), '#f4b41a', { lw: lw, line: '#8a6416', seed: sd + 33 });
+      ink(ctx, rectPts(x - hr * 1.18, hy - hr * 0.44, hr * 2.36, hr * 0.20, hr * 0.09, s * 0.005, sd + 34), '#e8a021', { lw: lw * 0.9, line: '#8a6416', seed: sd + 34 });
+      ctx.save();
+      ctx.strokeStyle = '#c98a10';
+      ctx.lineWidth = lw * 0.8;
+      ctx.beginPath();
+      ctx.moveTo(x, hy - hr * 1.22);
+      ctx.lineTo(x, hy - hr * 0.50);
+      ctx.stroke();
+      ctx.restore();
+    } else if (st === 'helmet') {
+      ink(ctx, blobPts(x, hy - hr * 0.44, hr * 1.14, hr * 0.94, 3, 0.04, 0.6, 26, s * 0.005, sd + 35), '#c0562f', { lw: lw, line: '#6f2a14', seed: sd + 35 });
+      ink(ctx, rectPts(x - hr * 1.16, hy - hr * 0.30, hr * 2.32, hr * 0.20, hr * 0.09, s * 0.005, sd + 36), '#9e3f20', { lw: lw * 0.9, seed: sd + 36 });
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = '#ffffff';
+      trace(ctx, ellPts(x - hr * 0.40, hy - hr * 0.72, hr * 0.24, hr * 0.14, 12, s * 0.003, sd + 37));
+      ctx.fill();
+      ctx.restore();
+    } else if (st === 'straw') {
+      cap(c, 1.02, 0.52, 3);
+      ink(ctx, ellPts(x, hy - hr * 0.52, hr * 1.60, hr * 0.34, 22, s * 0.006, sd + 38), '#e0c06a', { lw: lw, line: '#a08430', seed: sd + 38 });
+      ink(ctx, blobPts(x, hy - hr * 0.80, hr * 0.70, hr * 0.40, 3, 0.05, 0.6, 20, s * 0.005, sd + 39), '#eacf82', { lw: lw * 0.9, line: '#a08430', seed: sd + 39 });
+    } else if (st === 'beret') {
+      cap(c, 1.10, 0.70, 4);
+      ink(ctx, blobPts(x - hr * 0.10, hy - hr * 0.78, hr * 0.92, hr * 0.36, 3, 0.10, 0.7, 22, s * 0.005, sd + 40), '#c9302c', { lw: lw, line: '#7a1a16', seed: sd + 40 });
+      ink(ctx, ellPts(x + hr * 0.60, hy - hr * 1.00, hr * 0.09, hr * 0.09, 8, s * 0.003, sd + 41), '#c9302c', { lw: lw * 0.7, line: '#7a1a16', seed: sd + 41 });
+    } else if (st === 'flatcap') {
+      cap(c, 1.04, 0.50, 3);
+      ink(ctx, blobPts(x - hr * 0.06, hy - hr * 0.70, hr * 1.02, hr * 0.40, 3, 0.08, 0.6, 22, s * 0.005, sd + 42), '#7a6a5a', { lw: lw, seed: sd + 42 });
+      ink(ctx, rectPts(x - hr * 1.24, hy - hr * 0.52, hr * 0.90, hr * 0.18, hr * 0.08, s * 0.005, sd + 43), '#5f5245', { lw: lw * 0.9, seed: sd + 43 });
+    }
+  }
+
+  function drawGuestProp(ctx, x, cy, s, lw, G, sd) {
+    var p = G.prop, hx = x + s * 0.30, hy = cy - s * 0.30;
+    if (!p) return;
+    if (p === 'balloon') {
+      ctx.save();
+      ctx.strokeStyle = INK;
+      ctx.globalAlpha = 0.6;
+      ctx.lineWidth = lw * 0.6;
+      ctx.beginPath();
+      ctx.moveTo(hx, hy);
+      ctx.quadraticCurveTo(hx + s * 0.06, hy - s * 0.24, hx + s * 0.02, hy - s * 0.44);
+      ctx.stroke();
+      ctx.restore();
+      ink(ctx, blobPts(hx + s * 0.02, hy - s * 0.56, s * 0.12, s * 0.14, 3, 0.05, 0.6, 20, s * 0.005, sd + 50),
+          '#e63946', { lw: lw * 0.85, line: '#7a1a16', seed: sd + 50 });
+    } else if (p === 'satchel') {
+      ink(ctx, rectPts(x + s * 0.20, cy - s * 0.30, s * 0.20, s * 0.17, s * 0.04, s * 0.005, sd + 51),
+          '#8a5a30', { lw: lw * 0.9, line: '#4a2f18', seed: sd + 51 });
+    } else if (p === 'phone') {
+      ink(ctx, rectPts(hx - s * 0.02, hy - s * 0.06, s * 0.10, s * 0.15, s * 0.02, s * 0.004, sd + 52),
+          '#3a3a3a', { lw: lw * 0.8, line: '#1a1a1a', seed: sd + 52 });
+    } else if (p === 'coffee') {
+      ink(ctx, jitter([[hx, hy - s * 0.02], [hx + s * 0.11, hy - s * 0.02],
+                       [hx + s * 0.09, hy + s * 0.13], [hx + s * 0.02, hy + s * 0.13]], s * 0.005, sd + 53),
+          '#f6efdd', { lw: lw * 0.85, line: '#a89170', seed: sd + 53 });
+      ink(ctx, rectPts(hx - s * 0.005, hy - s * 0.045, s * 0.12, s * 0.035, s * 0.014, s * 0.004, sd + 54),
+          '#c0562f', { lw: lw * 0.8, seed: sd + 54 });
+    } else if (p === 'clipboard') {
+      ink(ctx, rectPts(hx - s * 0.01, hy - s * 0.02, s * 0.14, s * 0.18, s * 0.02, s * 0.004, sd + 55),
+          '#fdf6e6', { lw: lw * 0.85, line: '#8a7259', seed: sd + 55 });
+      ink(ctx, rectPts(hx + s * 0.03, hy - s * 0.045, s * 0.06, s * 0.035, s * 0.012, s * 0.003, sd + 56),
+          '#8fa3ae', { lw: lw * 0.7, seed: sd + 56 });
+    } else if (p === 'plank') {
+      ctx.save();
+      ctx.translate(hx, hy);
+      ctx.rotate(-0.5);
+      ink(ctx, rectPts(-s * 0.05, -s * 0.24, s * 0.10, s * 0.48, s * 0.02, s * 0.005, sd + 57),
+          '#c89a63', { lw: lw * 0.85, line: '#6f4526', seed: sd + 57 });
+      ctx.restore();
+    } else if (p === 'box') {
+      ink(ctx, rectPts(x + s * 0.18, cy - s * 0.36, s * 0.24, s * 0.22, s * 0.02, s * 0.005, sd + 58),
+          '#d9a86a', { lw: lw * 0.9, line: '#6f4526', seed: sd + 58 });
+      ctx.save();
+      ctx.strokeStyle = '#a8804a';
+      ctx.lineWidth = lw * 0.8;
+      ctx.beginPath();
+      ctx.moveTo(x + s * 0.30, cy - s * 0.36);
+      ctx.lineTo(x + s * 0.30, cy - s * 0.14);
+      ctx.stroke();
+      ctx.restore();
+    } else if (p === 'bottle') {
+      ink(ctx, rectPts(hx, hy - s * 0.04, s * 0.09, s * 0.20, s * 0.03, s * 0.004, sd + 59),
+          '#8fd0e8', { lw: lw * 0.85, line: '#3f7a92', seed: sd + 59 });
+    } else if (p === 'bag') {
+      ink(ctx, jitter([[x + s * 0.20, cy - s * 0.28], [x + s * 0.42, cy - s * 0.28],
+                       [x + s * 0.39, cy - s * 0.08], [x + s * 0.23, cy - s * 0.08]], s * 0.006, sd + 60),
+          '#d68aa0', { lw: lw * 0.9, line: '#8a4a5a', seed: sd + 60 });
+      ctx.save();
+      ctx.strokeStyle = '#8a4a5a';
+      ctx.lineWidth = lw * 0.8;
+      ctx.beginPath();
+      ctx.arc(x + s * 0.31, cy - s * 0.28, s * 0.07, Math.PI, 0);
+      ctx.stroke();
+      ctx.restore();
+    } else if (p === 'cane') {
+      ctx.save();
+      ctx.strokeStyle = '#8a5a30';
+      ctx.lineCap = 'round';
+      ctx.lineWidth = Math.max(1.2, s * 0.022);
+      ctx.beginPath();
+      ctx.moveTo(hx + s * 0.04, cy);
+      ctx.lineTo(hx + s * 0.02, cy - s * 0.30);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(hx - s * 0.03, cy - s * 0.30, s * 0.05, 0, Math.PI, true);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  /** Head-only portrait for an order ticket, at any tiny size. */
+  function drawGuestFace(ctx, id, w, h, opts) {
+    var s = Math.min(w / 0.62, h / 0.42);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, w, h);
+    ctx.clip();
+    drawGuest(ctx, w / 2, h + s * 0.30, s, {
+      type: id, mood: opts && opts.mood !== undefined ? opts.mood : 1
+    });
+    ctx.restore();
+  }
+
   root.Art = {
     rr: rr,
     hash: hash,
@@ -1202,6 +1936,10 @@
     ellPts: ellPts,
     blobPts: blobPts,
     crescentPts: crescentPts,
+    scene: SCENE,
+    GUESTS: GUEST_IDS,
+    drawGuest: drawGuest,
+    drawGuestFace: drawGuestFace,
     INK: INK
   };
 })(typeof self !== 'undefined' ? self : this);
