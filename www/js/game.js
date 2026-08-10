@@ -142,11 +142,12 @@
     Net.push(blob, S.bestDay, S.lifetime || 0);
   }
 
+  // A save is JSON from a device - it can be truncated, hand-edited, or synced
+  // down from another install - so it goes through the rules before it goes
+  // anywhere near the game. See Core.sanitiseSave for what that means.
   function load() {
     try {
-      var d = JSON.parse(localStorage.getItem(SAVE_KEY));
-      if (!d || typeof d.day !== 'number' || d.day < 1) return null;
-      return d;
+      return Core.sanitiseSave(JSON.parse(localStorage.getItem(SAVE_KEY)));
     } catch (e) { return null; }
   }
 
@@ -2586,14 +2587,18 @@
     Net.init().then(function () {
       setNetState();
       if (!Net.online) return;
-      return Net.pull().then(function (cloud) {
+      return Net.pull().then(function (raw) {
+        // The server treats the save blob as opaque - it size-caps it and never
+        // reads it - so what comes back down deserves exactly as much trust as
+        // what came off this device's disk. Same rules, same door.
+        var cloud = Core.sanitiseSave(raw);
         // Only offer the cloud save if it is genuinely further along.
-        if (!cloud || (cloud.day || 0) <= S.day) return;
+        if (!cloud || cloud.day <= S.day) return;
         S.day = cloud.day;
-        S.bestDay = Math.max(S.bestDay, cloud.bestDay || cloud.day);
-        S.money = cloud.money || 0;
-        S.levels = cloud.levels || {};
-        S.lifetime = Math.max(S.lifetime || 0, cloud.lifetime || 0);
+        S.bestDay = Math.max(S.bestDay, cloud.bestDay);
+        S.money = cloud.money;
+        S.levels = cloud.levels;
+        S.lifetime = Math.max(S.lifetime || 0, cloud.lifetime);
         S.fx = Core.effects(S.levels, S.day);
         save();
         el.continueBtn.hidden = false;

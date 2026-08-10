@@ -640,6 +640,54 @@ test('skill is rewarded - a pro out-earns a competent player by a clear margin',
  * fell behind and the game got *easier* the longer you played. Rent is now
  * sampled from real orders; this pins that it stays sampled.
  */
+/*
+ * Regression: a save is JSON off a device, so it can be truncated, hand-edited
+ * or synced down from another install. The check used to be "day is a number
+ * and at least 1" - which Infinity satisfies, and a day of Infinity walked
+ * dayGoal's forward fill off the end of the world and hung the tab.
+ */
+test('a save with an impossible day cannot hang the game', function () {
+  var t0 = Date.now();
+  assert.ok(Core.dayGoal(Infinity) > 0, 'an infinite day should still answer');
+  assert.ok(Core.dayGoal(1e12) > 0, 'an absurd day should still answer');
+  assert.ok(Core.dayGoal(-5) > 0, 'a negative day should still answer');
+  assert.ok(Core.dayGoal(NaN) > 0, 'a day that is not a number should still answer');
+  assert.ok(Date.now() - t0 < 3000, 'the rent took ' + (Date.now() - t0) + 'ms to work out');
+});
+
+test('a nonsense save is cleaned up rather than trusted', function () {
+  assert.strictEqual(Core.sanitiseSave(null), null);
+  assert.strictEqual(Core.sanitiseSave('hello'), null);
+  assert.strictEqual(Core.sanitiseSave([1, 2, 3]), null, 'an array is not a save');
+  assert.strictEqual(Core.sanitiseSave({}), null, 'no day means nothing to restore');
+  assert.strictEqual(Core.sanitiseSave({ day: 'nine' }), null);
+  assert.strictEqual(Core.sanitiseSave({ day: 0 }), null);
+
+  // rejected, not clamped: clamping a claimed day of Infinity to 999 would hand
+  // whoever wrote it the top of the leaderboard
+  assert.strictEqual(Core.sanitiseSave({ day: Infinity }), null, 'an infinite day is not a save');
+  assert.strictEqual(Core.sanitiseSave({ day: 1e12 }), null, 'an absurd day is not a save');
+  assert.ok(Core.sanitiseSave({ day: Core.MAX_DAY }), 'the cap itself should still be playable');
+
+  var wild = Core.sanitiseSave({
+    day: 12, bestDay: -5, money: -99999, lifetime: NaN,
+    levels: { grill: 999, nonsense: 4, plate: 'lots' }, muted: 'yes'
+  });
+  assert.strictEqual(wild.day, 12);
+  assert.ok(wild.bestDay >= 0, 'best day went negative');
+  assert.strictEqual(wild.money, 0, 'money went negative');
+  assert.strictEqual(wild.lifetime, 0);
+  assert.strictEqual(wild.levels.grill, 3, 'an upgrade above its maximum should be clipped');
+  assert.strictEqual(wild.levels.nonsense, undefined, 'an upgrade that does not exist should be dropped');
+  assert.strictEqual(wild.levels.plate, undefined, 'a level that is not a number should be dropped');
+  assert.strictEqual(wild.muted, true);
+
+  var good = Core.sanitiseSave({ day: 12, bestDay: 14, money: 5000, lifetime: 90000,
+    levels: { grill: 2, shoes: 1 }, muted: false });
+  assert.deepStrictEqual(good, { day: 12, bestDay: 14, money: 5000, lifetime: 90000,
+    levels: { grill: 2, shoes: 1 }, muted: false }, 'a good save should come through untouched');
+});
+
 test('the difficulty ramp does not drift across a full run', function () {
   [{ name: 'competent', skill: DECENT }, { name: 'sloppy', skill: SLOPPY }].forEach(function (c) {
     var ratios = ratioOverDays(c.skill, 25, 8080).map(function (r) { return r.ratio; });

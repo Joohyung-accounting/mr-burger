@@ -109,6 +109,13 @@
   var MENU_MAX = 8;
   var menuCache = {};
 
+  /*
+   * The highest day the game will reckon with. Everything above day 24 is
+   * identical anyway, and the server clamps a claimed best day to the same
+   * number - so this is a bound on nonsense, not on play.
+   */
+  var MAX_DAY = 999;
+
   function dayMenu(day) {
     if (menuCache[day]) return menuCache[day];
     var rng = seeded(day * 2654435761 + 7);
@@ -458,6 +465,17 @@
   }
 
   function dayGoal(day) {
+    /*
+     * This walks forward from day 1, so the argument decides how long it runs.
+     * A save holding day: 1e400 parses to Infinity, which is a number and is
+     * greater than 1, so it used to sail past the caller's checks and hang the
+     * tab in this loop. Nothing legitimate is above the cap, and no day should
+     * be able to cost more than a few tens of milliseconds here.
+     */
+    day = Math.floor(Number(day));
+    if (!isFinite(day) || day < 1) day = 1;
+    if (day > MAX_DAY) day = MAX_DAY;
+
     if (goalCache[day] !== undefined) return goalCache[day];
     // Filled forward from day 1 so the ratchet below has a previous value.
     var prev = 0;
@@ -491,6 +509,56 @@
   }
 
   var STATION_CAP = 5;
+  var MAX_MONEY = 1e12;      // a bound on a tampered save, not on a good run
+
+  /**
+   * Beat a stored save into something the rules can be run against.
+   *
+   * A save is JSON from a device: it can be truncated, hand-edited, or synced
+   * down from another install. The old check was "day is a number and at least
+   * 1", which Infinity satisfies - and a day of Infinity walked dayGoal's
+   * forward fill off the end of the world and hung the tab. Anything that
+   * cannot be made sense of goes back to its starting value; a save that has no
+   * usable day at all is no save.
+   *
+   * Returns null if there is nothing worth restoring.
+   */
+  function sanitiseSave(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+
+    function num(v, dflt, lo, hi) {
+      var n = Number(v);
+      if (!isFinite(n)) return dflt;
+      return Math.max(lo, Math.min(hi, n));
+    }
+
+    /*
+     * A day outside the playable range is rejected rather than pulled into it.
+     * Clamping would hand whoever wrote it exactly what they were after - a
+     * best day of 999 goes straight to the top of the board - and no genuine
+     * save degrades into Infinity. Better to lose one bad save than to trust it.
+     */
+    var day = Number(raw.day);
+    if (!isFinite(day) || day < 1 || day > MAX_DAY) return null;
+    day = Math.floor(day);
+
+    var levels = {};
+    if (raw.levels && typeof raw.levels === 'object' && !Array.isArray(raw.levels)) {
+      UPGRADES.forEach(function (u) {
+        var lv = Number(raw.levels[u.id]);
+        if (isFinite(lv) && lv >= 1) levels[u.id] = Math.min(Math.floor(lv), u.max);
+      });
+    }
+
+    return {
+      day: day,
+      bestDay: Math.floor(num(raw.bestDay, day, 0, MAX_DAY)),
+      money: Math.floor(num(raw.money, 0, 0, MAX_MONEY)),
+      lifetime: Math.floor(num(raw.lifetime, 0, 0, MAX_MONEY)),
+      levels: levels,
+      muted: !!raw.muted
+    };
+  }
 
   /**
    * How big the kitchen is on a given day.
@@ -544,6 +612,8 @@
     START_HEARTS: 5,
     stationsAt: stationsAt,
     byId: byId,
+    MAX_DAY: MAX_DAY,
+    sanitiseSave: sanitiseSave,
     unlockedAt: unlockedAt,
     unlockedOn: unlockedOn,
     dayConfig: dayConfig,
