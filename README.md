@@ -25,6 +25,26 @@ npm test             # 규칙·경제 53개 + 런타임 스모크 46개
 
 웹 배포는 [DEPLOY.md](DEPLOY.md) — Cloudflare Pages 설정이 저장소에 들어 있습니다.
 
+## 화면을 파일로 찍기
+
+```bash
+node tools/serve.js 5173 --shots
+```
+
+`--shots`를 켜면 개발 서버가 문 두 개를 엽니다. **앱에는 아무것도 들어가지 않습니다.**
+
+| | |
+|---|---|
+| `GET /__shot.html` | index.html 앞에 rAF 심을 하나 끼운 것. 아무도 안 보는 탭은 합성이 안 돼서 `requestAnimationFrame`이 영영 안 불립니다 — 주방 캔버스가 아무리 기다려도 빈 채로 남습니다. `setTimeout`은 숨은 탭에서 1초로 클램프돼 (루프가 `dt`를 자르니) 영업이 20배 느려지므로, **MessageChannel** 홉으로 돌립니다 |
+| `POST /__shot` | data URL을 받아 `www/__shot.png`로 씁니다 (gitignore 대상) |
+
+심이 페이지에 `__shot()`도 하나 쥐여줍니다. 껍데기는 DOM이라 SVG `<foreignObject>`를
+지나가야 하는데 — 이 저장소가 주석에 쓰는 `----` 자를 걷어내고(XML은 이중 하이픈을
+허용하지 않습니다), 스타일시트를 인라인하고, 애니메이션을 고정해야 합니다
+(스냅샷은 모든 애니메이션을 t=0에서 뜨는데 `.sheet`와 `.ticket`은 opacity 0에서 시작).
+캔버스는 그 여행에서 살아남지 못하므로 **앱의 실제 z순서대로 다시 붙입니다** —
+주방은 DOM 아래, 티켓·상점 미리보기는 자기 카드 위, 열린 시트가 가린 것은 빼고.
+
 - `test/core.test.js` — 재료 구획, 주문 생성, 채점, 그릴 곡선, 하치 매칭, 난이도 곡선,
   **20~25일치 영업 시뮬레이션**
 - `test/smoke.test.js` — DOM을 스텁해 게임을 부팅하고, 캔버스를 실제로 탭해서
@@ -361,7 +381,7 @@ mr-burger/
 │       └── game.js          ← 주방 레이아웃 / 요리사 이동 / 스테이션 상호작용
 ├── test/
 ├── tools/
-│   ├── serve.js             ← 의존성 없는 개발 서버
+│   ├── serve.js             ← 의존성 없는 개발 서버 (+ `--shots` 스크린샷 하네스)
 │   └── make-icons.js        ← 아이콘/스플래시를 코드로 생성 (PNG 인코더 포함)
 ├── resources/
 ├── capacitor.config.json
