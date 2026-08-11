@@ -44,13 +44,90 @@
     if (!S.muted && navigator.vibrate) { try { navigator.vibrate(ms); } catch (e) {} }
   }
 
-  var VERDICT = {
-    perfect: { text: 'PERFECT!', color: '#6bbf59' },
-    great: { text: 'GREAT', color: '#a8e063' },
-    good: { text: 'GOOD', color: '#f4b41a' },
-    meh: { text: 'THEY\'LL TAKE IT', color: '#ff9f1c' },
-    bad: { text: 'SENT IT BACK!', color: '#e63946' }
+  /* ------------------------------------------------------- shell feedback */
+  /*
+   * Two things the canvas cannot say, because they are about the whole app and
+   * not about one station.
+   *
+   * flash() tints the entire shell for half a second on a verdict. The banner
+   * already names what happened, but a player watching the grill has not
+   * looked up yet - the tint reaches them anyway, sage for a plate that landed
+   * and tomato for one that came back.
+   *
+   * setRush() turns the room tense when the board is close to boiling over. It
+   * reads the same pressure number the backing track arranges to, so what you
+   * hear and what you see are one fact rather than two. Hysteresis either side
+   * of the line, or a board sitting exactly on it strobes.
+   *
+   * Both are decoration on a DOM the game does not otherwise need: if the node
+   * is missing or the stub has no classList, the shift carries on regardless.
+   */
+  var flashNode = null;
+  function flash(kind) {
+    if (!flashNode) flashNode = document.getElementById('flash');
+    if (!flashNode) return;
+    try {
+      flashNode.className = '';
+      void flashNode.offsetWidth;        // restart it when the same verdict repeats
+      flashNode.className = kind;
+    } catch (e) { /* the banner already said it */ }
+  }
+
+  var rushOn = false;
+  function setRush(heat) {
+    var next = rushOn ? heat > 0.55 : heat > 0.72;
+    if (next === rushOn) return;
+    rushOn = next;
+    try {
+      document.body.classList.toggle('rush', rushOn);
+    } catch (e) { /* no shell to warm up */ }
+  }
+
+  /* -------------------------------------------------------------- palette */
+  /*
+   * The ramps the shell is built from ("Organic": cream ground, terracotta
+   * accent, sage second voice, plus the alarm role the game adds for things
+   * going wrong). Canvas cannot read CSS variables without a getComputedStyle
+   * per frame, so the steps this file actually paints with are copied here -
+   * same values, same names, one place to retune. See css/style.css.
+   */
+  var C = {
+    paper: '#f9f4ed',      // neutral-100
+    ink: '#2e2b25',        // neutral-900
+    quiet: '#82796a',      // neutral-600
+    sageInk: '#56633f',    // accent-2-700
+    sage: '#aebf92',       // accent-2-400
+    sageLift: '#ccdbb2',   // accent-2-300
+    warm: '#f6a06b',       // accent-400
+    warmDeep: '#d67f48',   // accent-500
+    burnt: '#402310',      // accent-900
+    alarm: '#d2543c'       // alarm-500
   };
+
+  /* A ladder from sage to tomato: how well it went, said in the palette's own
+     two voices rather than in traffic lights borrowed from somewhere else. */
+  var VERDICT = {
+    perfect: { text: 'PERFECT!', color: C.sageLift },
+    great: { text: 'GREAT', color: C.sage },
+    good: { text: 'GOOD', color: C.warm },
+    meh: { text: 'THEY\'LL TAKE IT', color: C.warmDeep },
+    bad: { text: 'SENT IT BACK!', color: C.alarm }
+  };
+
+  /* ----------------------------------------------------------------- type */
+  /*
+   * The same two faces the shell sets: Caprasimo for the things that shout,
+   * Figtree for the things that label. Figtree stops at 700, so nothing here
+   * asks for 900 and gets a synthesised bold that does not match the HUD an
+   * inch above it. Fallbacks match the CSS, for a first launch with no network.
+   */
+  var FONT_FALLBACK = '"Trebuchet MS", "Segoe UI", system-ui, sans-serif';
+  function fontBody(size, weight) {
+    return (weight || 700) + ' ' + size + 'px "Figtree", ' + FONT_FALLBACK;
+  }
+  function fontDisplay(size) {
+    return '400 ' + size + 'px "Caprasimo", ' + FONT_FALLBACK;
+  }
 
   /* ----------------------------------------------------------------- state */
   var cv, ctx, L = {}, el = {};
@@ -168,11 +245,11 @@
   var K = {
     grillTop: '#57403a', grillTop2: '#3d2b26', grillSide: '#241713',
     plateTop: '#fffaf1', plateTop2: '#f0e5d6', plateSide: '#c9b499',
-    ink: '#6f4a33',
-    inkSoft: 'rgba(111,74,51,0.55)',
-    hot: '#e2704f',
-    go: '#4fa860',
-    pick: '#f0a81e'
+    ink: '#643312',                       // accent-800
+    inkSoft: 'rgba(100,51,18,0.55)',
+    hot: C.alarm,
+    go: C.sage,
+    pick: C.warm
   };
 
   var DEPTH = { counter: 10, crate: 7, grill: 11, plate: 10, hatch: 11 };
@@ -482,7 +559,7 @@
 
   /* ------------------------------------------------------------------- fx */
   function float(text, x, y, color, size) {
-    S.floats.push({ text: text, x: x, y: y, color: color || '#fff4e0', size: size || 14, t: 0, max: 1.05 });
+    S.floats.push({ text: text, x: x, y: y, color: color || C.paper, size: size || 14, t: 0, max: 1.05 });
   }
 
   /*
@@ -494,7 +571,7 @@
   function banner(title, sub, color) {
     S.bannerId++;
     S.banner = {
-      title: title, sub: sub || '', color: color || '#fff4e0',
+      title: title, sub: sub || '', color: color || C.paper,
       t: 0, max: 1.3, id: S.bannerId
     };
   }
@@ -541,7 +618,7 @@
 
   function nope(msg, ci) {
     var c = chefAt(ci || 0);
-    if (msg) float(msg, c.x, c.y - CHEF_S - 14, '#d1493a', 12);
+    if (msg) float(msg, c.x, c.y - CHEF_S - 14, C.alarm, 12);
     Sfx.reject();
   }
 
@@ -598,7 +675,7 @@
     S.walked++;
     S.hearts--;
     dropTicket(t);
-    banner('WALKED OUT', t.arch.name + ' gave up waiting', '#e63946');
+    banner('WALKED OUT', t.arch.name + ' gave up waiting', C.alarm);
     S.shake = 14;
     Sfx.walkout();
     buzz([30, 40, 60]);
@@ -651,7 +728,7 @@
     resize();
     renderBoard();
     syncHud();
-    banner('DAY ' + day, 'RENT ' + Core.money(S.rent), '#f4b41a');
+    banner('DAY ' + day, 'RENT ' + Core.money(S.rent), C.warm);
   }
 
   function endDay() {
@@ -768,11 +845,11 @@
           Sfx.perfect();
           buzz(20);
         } else if (stage === 'burnt') {
-          float('BURNT', r.x + r.w / 2 + 30, r.y, '#d1493a', 12);
+          float('BURNT', r.x + r.w / 2 + 30, r.y, C.alarm, 12);
           Sfx.burnt();
         } else {
           float(stage === 'raw' ? 'UNDERDONE' : 'OVERDONE', r.x + r.w / 2 + 34, r.y,
-            stage === 'raw' ? '#3d7fbf' : '#e08c10', 11);
+            stage === 'raw' ? '#3d7fbf' : C.warmDeep, 11);
           Sfx.thud();
         }
         return;
@@ -870,13 +947,15 @@
     var h = hatchRect();
     if (res.total > 0) {
       float('+' + Core.money(res.total), h.x + h.w / 2, h.y - 22, K.go, 18);
-      spark(h.x + h.w / 2, h.y - 8, 18, 'rgba(240,168,30,0.95)');
+      spark(h.x + h.w / 2, h.y - 8, 18, 'rgba(246,160,107,0.95)');
       Sfx.register();
       buzz(res.verdict === 'perfect' ? [15, 25, 35] : 15);
+      flash('good');
     } else {
       S.shake = 16;
       Sfx.buzzer();
       buzz([50, 40, 50]);
+      flash('bad');
     }
 
     dropTicket(t, 'served');
@@ -1044,7 +1123,7 @@
     S.timeLeft = Math.max(0, S.timeLeft - dt);
     if (wasOpen && S.timeLeft <= 0) {
       Sfx.warn();
-      banner('LAST ORDERS', 'clear the board', '#e2704f');
+      banner('LAST ORDERS', 'clear the board', C.warm);
     }
 
     if (S.timeLeft > 0 && S.spawned < S.cfg.customers && S.tickets.length < S.cfg.concurrent) {
@@ -1093,7 +1172,9 @@
       for (i = 0; i < S.tickets.length; i++) {
         worst = Math.max(worst, 1 - S.tickets[i].patience / S.tickets[i].max);
       }
-      Bgm.setIntensity(full * 0.45 + worst * 0.55);
+      var heat = full * 0.45 + worst * 0.55;
+      Bgm.setIntensity(heat);
+      setRush(heat);
     }
 
     updateBoardBars();
@@ -1105,7 +1186,7 @@
     ctx.save();
     ctx.textAlign = align || 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '900 ' + (size || 8) + 'px "Trebuchet MS", system-ui, sans-serif';
+    ctx.font = fontBody(size || 8, 700);
     ctx.letterSpacing = '1.2px';
     ctx.fillStyle = color || K.inkSoft;
     ctx.fillText(text, cx, y);
@@ -1309,7 +1390,7 @@
         ctx.fill();
       }
 
-      label(ing.short || ing.name || id, r.x + r.w / 2, lab.y + lab.h * 0.35, '#5b3a17',
+      label(ing.short || ing.name || id, r.x + r.w / 2, lab.y + lab.h * 0.35, C.burnt,
         Math.min(8, r.w * 0.145));
       ctx.restore();
     }
@@ -1347,7 +1428,7 @@
     // the chassis, in the same ink as the counters but in cast-iron colours
     Art.scene.counter(ctx, body.x, body.y, body.w, body.h, DEPTH.grill * (L.k || 1),
       { top: K.grillTop, top2: K.grillTop2, side: K.grillSide });
-    label('GRILL', body.x + body.w / 2, L.grillTop - 8, '#ffb59c', 8);
+    label('GRILL', body.x + body.w / 2, L.grillTop - 8, '#ffc6a5', 8);
 
     var win = S.fx.perfectWindow;
     var tMax = Core.COOK_TIME + win / 2 + Core.BURN_TIME;
@@ -1422,7 +1503,7 @@
       ctx.fill();
       Art.rr(ctx, bx, by, Math.max(2, bw * clamp(g.t / tMax, 0, 1)), bh, 2.5);
       ctx.fillStyle = stage === 'perfect' ? K.go
-        : (stage === 'raw' ? '#7fb6e8' : (stage === 'over' ? '#f0a81e' : K.hot));
+        : (stage === 'raw' ? '#7fb6e8' : (stage === 'over' ? C.warm : K.hot));
       ctx.fill();
     }
   }
@@ -1462,7 +1543,7 @@
     };
     Art.scene.counter(ctx, body.x, body.y, body.w, body.h, DEPTH.plate * (L.k || 1),
       { top: K.plateTop, top2: K.plateTop2, side: K.plateSide });
-    label('PLATES', body.x + body.w / 2, L.plateTop - 8, '#5a86b8', 8);
+    label('PLATES', body.x + body.w / 2, L.plateTop - 8, C.sageInk, 8);
 
     for (var i = 0; i < n; i++) {
       var r = plateRect(i);
@@ -1516,7 +1597,7 @@
 
     // the prompt moves down to the sill so it does not sit across their face
     label(ready ? '▲  S E R V E  ▲' : S.tickets.length + ' waiting',
-      h.x + h.w / 2, h.y + h.h * 0.87, ready ? '#2c7038' : K.inkSoft, ready ? 9 : 7.5);
+      h.x + h.w / 2, h.y + h.h * 0.87, ready ? C.sageInk : K.inkSoft, ready ? 9 : 7.5);
     if (live) pickRing(h, 14);
 
     var b = binRect();
@@ -1608,9 +1689,9 @@
       var f = S.floats[i];
       var t = f.t / f.max;
       ctx.globalAlpha = 1 - t * t;
-      ctx.font = '900 ' + f.size + 'px "Trebuchet MS", system-ui, sans-serif';
+      ctx.font = fontDisplay(f.size);
       ctx.lineWidth = 4;
-      ctx.strokeStyle = 'rgba(12,7,5,0.9)';
+      ctx.strokeStyle = 'rgba(46,43,37,0.9)';
       ctx.strokeText(f.text, f.x, f.y);
       ctx.fillStyle = f.color;
       ctx.fillText(f.text, f.x, f.y);
@@ -1664,10 +1745,10 @@
     ctx.globalAlpha = alpha;
 
     var band = ctx.createLinearGradient(0, 0, L.W, 0);
-    band.addColorStop(0, 'rgba(12,7,5,0)');
-    band.addColorStop(0.18, 'rgba(12,7,5,0.92)');
-    band.addColorStop(0.82, 'rgba(12,7,5,0.92)');
-    band.addColorStop(1, 'rgba(12,7,5,0)');
+    band.addColorStop(0, 'rgba(46,43,37,0)');
+    band.addColorStop(0.18, 'rgba(46,43,37,0.92)');
+    band.addColorStop(0.82, 'rgba(46,43,37,0.92)');
+    band.addColorStop(1, 'rgba(46,43,37,0)');
     ctx.fillStyle = band;
     ctx.fillRect(0, cy - bh * 0.42 * open, L.W, bh * open);
 
@@ -1681,18 +1762,18 @@
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    ctx.font = '900 ' + size + 'px "Trebuchet MS", system-ui, sans-serif';
+    ctx.font = fontDisplay(size);
     ctx.lineWidth = 5;
-    ctx.strokeStyle = 'rgba(12,7,5,0.92)';
+    ctx.strokeStyle = 'rgba(46,43,37,0.92)';
     ctx.strokeText(b.title, 0, 0);
     ctx.fillStyle = b.color;
     ctx.fillText(b.title, 0, 0);
     if (b.sub) {
-      ctx.font = '800 ' + (size * 0.46) + 'px "Trebuchet MS", system-ui, sans-serif';
+      ctx.font = fontBody(size * 0.46, 700);
       ctx.lineWidth = 4;
-      ctx.strokeStyle = 'rgba(12,7,5,0.92)';
+      ctx.strokeStyle = 'rgba(46,43,37,0.92)';
       ctx.strokeText(b.sub, 0, size * 0.88);
-      ctx.fillStyle = '#fff4e0';
+      ctx.fillStyle = C.paper;
       ctx.fillText(b.sub, 0, size * 0.88);
     }
     ctx.restore();
@@ -1744,7 +1825,7 @@
     }
 
     ctx.save();
-    ctx.fillStyle = 'rgba(12,7,5,0.62)';
+    ctx.fillStyle = 'rgba(46,43,37,0.62)';
     ctx.fillRect(0, 0, L.W, L.H);
 
     var cy = (L.floor.y0 + L.floor.y1) / 2;
@@ -1752,12 +1833,12 @@
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    ctx.font = '900 ' + size + 'px "Trebuchet MS", system-ui, sans-serif';
-    ctx.fillStyle = '#f4b41a';
+    ctx.font = fontDisplay(size);
+    ctx.fillStyle = C.warm;
     ctx.fillText(title, L.W / 2, cy - size * 0.6);
 
-    ctx.font = '700 ' + (size * 0.6) + 'px "Trebuchet MS", system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(255,244,224,0.78)';
+    ctx.font = fontBody(size * 0.6, 600);
+    ctx.fillStyle = 'rgba(249,244,237,0.78)';
     ctx.fillText(sub, L.W / 2, cy + size * 0.5);
 
     // three dots ticking over, so it is visibly alive rather than frozen
@@ -1767,7 +1848,7 @@
       ctx.globalAlpha = i < n ? 0.9 : 0.25;
       ctx.beginPath();
       ctx.arc(L.W / 2 + (i - 1) * dot * 3, cy + size * 1.5, dot, 0, Math.PI * 2);
-      ctx.fillStyle = '#fff4e0';
+      ctx.fillStyle = C.paper;
       ctx.fill();
     }
     ctx.restore();
@@ -1818,7 +1899,7 @@
     if (document.body && document.body.classList) {
       document.body.classList.toggle('no-clock', !running);
     }
-    if (!running) { hudLast.clock = null; return; }
+    if (!running) { hudLast.clock = null; setRush(0); return; }
 
     var secs = Math.max(0, Math.ceil(S.timeLeft));
     var band = secs <= 15 ? 'urgent' : (secs <= 60 ? 'warm' : '');
@@ -2195,7 +2276,7 @@
           if (S.chefs.length < 2) S.chefs = [makeChef(), makeChef()];
           S.lastBannerId = -1;
           resize();
-          banner('JOINED', 'waiting for the host', '#4fa860');
+          banner('JOINED', 'waiting for the host', C.sage);
         }
       },
 
@@ -2212,7 +2293,7 @@
             Sfx.init(); Bgm.start();
             startDay(S.day);
           } else {
-            banner('FRIEND IS BACK', '', '#4fa860');
+            banner('FRIEND IS BACK', '', C.sage);
           }
           return;
         }
@@ -2220,7 +2301,7 @@
         // The guest dropped. Keep the room open and park their chef.
         var c = S.chefs[1];
         if (c) { c.target = null; c.tx = c.x; c.ty = c.y; }
-        banner('FRIEND DROPPED', 'room ' + S.roomCode + ' is still open', '#f0a81e');
+        banner('FRIEND DROPPED', 'room ' + S.roomCode + ' is still open', C.warm);
       },
 
       onMessage: onCoopMessage,
@@ -2230,7 +2311,7 @@
         // Our own socket died. Try to get back into the same room.
         if (S.roomCode && S.reconnectTries < MAX_RECONNECT) {
           S.reconnectTries++;
-          banner('RECONNECTING', 'try ' + S.reconnectTries + ' of ' + MAX_RECONNECT, '#f0a81e');
+          banner('RECONNECTING', 'try ' + S.reconnectTries + ' of ' + MAX_RECONNECT, C.warm);
           setTimeout(connectRoom, Math.min(500 * S.reconnectTries, 3000));
           return;
         }
@@ -2252,7 +2333,7 @@
     resetSync();
     S.chefs.length = 1;
     if (was === 'host' || was === 'guest') {
-      banner('CO-OP ENDED', why || '', '#d1493a');
+      banner('CO-OP ENDED', why || '', C.alarm);
       if (was === 'guest') {
         S.screen = 'title';
         showModal(el.start);
@@ -2442,7 +2523,7 @@
     if (changed) renderBoard();
     syncHud();
     if (wasService && m.screen !== 'service') {
-      banner('DAY OVER', 'waiting for the host', '#f4b41a');
+      banner('DAY OVER', 'waiting for the host', C.warm);
     }
   }
 

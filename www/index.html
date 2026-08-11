@@ -3,14 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#1b1210">
+<meta name="theme-color" content="#f5ead8">
 <meta name="description" content="Mr. Burger - drag, stack and serve every ticket on the board before the clock runs out.">
 <title>Mr. Burger</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/icon-192.png" sizes="192x192">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<!--
+  The two faces the Organic system names. Loaded with display=swap and a real
+  fallback stack in the CSS, so a first launch with no network gets the same
+  layout in Trebuchet rather than a blank shell. See DEPLOY.md for vendoring
+  them into www/fonts/ before the store build.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Caprasimo&family=Figtree:wght@400;600;700&display=swap">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -53,6 +63,10 @@
   <canvas id="stage"></canvas>
 
 </div>
+
+<!-- One-shot verdict tint over the whole shell: sage for a plate that landed,
+     tomato for one that came back. Read before the banner is. -->
+<div id="flash" aria-hidden="true"></div>
 
 <!-- ----------------------------------------------------------- title --->
 <div id="start" class="modal show">

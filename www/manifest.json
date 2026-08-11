@@ -5,8 +5,8 @@
   "start_url": "./index.html",
   "display": "fullscreen",
   "orientation": "portrait",
-  "background_color": "#150e0c",
-  "theme_color": "#1b1210",
+  "background_color": "#f5ead8",
+  "theme_color": "#f5ead8",
   "categories": ["games", "casual"],
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },

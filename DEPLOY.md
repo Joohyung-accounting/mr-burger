@@ -16,6 +16,25 @@
 
 로컬 저장소는 이미 초기화되어 첫 커밋까지 되어 있습니다 (`main` 브랜치).
 
+### 서체 — 웹은 그대로, 스토어 빌드는 내재화 권장
+
+Organic 스킨은 **Caprasimo**(디스플레이)와 **Figtree**(본문)를 씁니다.
+`index.html`이 Google Fonts에서 `display=swap`으로 받아오고, CSS에는 실제
+폴백 스택(`Trebuchet MS` → `Segoe UI` → `system-ui`)이 들어 있어서
+**네트워크가 없어도 레이아웃은 동일**하고 글자만 폴백으로 나옵니다.
+
+웹 배포는 이대로 두면 됩니다. **Capacitor 빌드는 내재화를 권합니다** —
+설치형 앱의 첫 실행이 비행기 모드일 수 있고, 그때 타이틀이 폴백으로 뜹니다.
+
+1. 두 서체의 `woff2`를 받아 `www/fonts/`에 넣습니다
+   (Caprasimo 400, Figtree 400/600/700 — 둘 다 OFL).
+2. `index.html`의 `<link rel="preconnect">` 2줄과 Google Fonts `<link>`를 지우고,
+   `css/style.css` 맨 위에 `@font-face` 5개를 `font-display: swap`으로 선언합니다.
+3. `--font-heading` / `--font-body` 값은 건드리지 않습니다 — 이름이 같습니다.
+
+`www/_headers`에 `/fonts/*`를 `public, max-age=2592000`으로 추가하면
+웹 쪽 캐시도 아이콘과 같아집니다.
+
 ---
 
 ## 1) GitHub — 완료됨 ✅
