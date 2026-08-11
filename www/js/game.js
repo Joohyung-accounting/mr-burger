@@ -1395,87 +1395,28 @@
    * top of them. Without that last step the food reads as sitting on a tile
    * rather than being in a box.
    */
+  /*
+   * The line of crates.
+   *
+   * This used to draw the box, then the stock inside it, then the label,
+   * then the swatch band, then the flame - all of it a second copy of what
+   * Art.scene.crate already knew how to do, kept in sync by hand. The crate
+   * takes what it needs and draws its own picture now.
+   */
   function drawCrates() {
     for (var i = 0; i < S.menu.length; i++) {
       var r = crateRect(i);
       if (!r.w) continue;
       var id = S.menu[i];
       var ing = Core.byId(id) || {};
-      var live = targeted('crate', i);
-      var pop = S.cratePop[i] || 0;
-
-      // the box recoils a little when something is pulled out of it
-      ctx.save();
-      if (pop > 0) {
-        var cx0 = r.x + r.w / 2, cy0 = r.y + r.h;
-        ctx.translate(cx0, cy0);
-        ctx.scale(1 + pop * 0.06, 1 - pop * 0.08);
-        ctx.translate(-cx0, -cy0);
-      }
-
-      // a slatted wooden crate with a shadowed inside, drawn in ink
-      Art.scene.crate(ctx, r.x, r.y, r.w, r.h, decor());
-
-      /* The crate holds the INGREDIENT, not a pile of burger layers: half an
-         avocado with the stone in, a whole tomato with its calyx, a bottle of
-         ketchup. Art.drawPortrait draws that; it falls back to the layer art
-         for anything without a portrait of its own.
-
-         It sits over the front slats rather than down behind them: a crate is
-         44px wide and the box only leaves a third of that clear above its
-         front, which is not enough of an avocado to recognise. */
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(r.x + 1, r.y + 1, r.w - 2, r.h * 0.86);
-      ctx.clip();
-      ctx.translate(r.x, r.y + r.h * 0.05);
-      Art.drawPortrait(ctx, id, r.w, r.h * 0.80);
-      ctx.translate(-r.x, -(r.y + r.h * 0.05));
-      var sg = ctx.createLinearGradient(0, r.y, 0, r.y + r.h * 0.35);
-      sg.addColorStop(0, 'rgba(40,22,6,0.35)');
-      sg.addColorStop(1, 'rgba(40,22,6,0)');
-      ctx.fillStyle = sg;
-      ctx.fillRect(r.x, r.y, r.w, r.h * 0.35);
-      ctx.restore();
-
-      if (live) pickRing(r, 6);
-
-      /*
-       * A paper label nailed to the slats. It needs its own pale ground now
-       * that the front is grained wood - ink on walnut is not readable at 44px.
-       */
-      var labH = Math.max(13, r.h * 0.30);
-      var lab = { x: r.x + 2.5, y: r.y + r.h - labH - 1.5, w: r.w - 5, h: labH };
-      Art.rr(ctx, lab.x, lab.y, lab.w, lab.h, 3);
-      ctx.fillStyle = 'rgba(253,246,230,0.94)';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(111,69,38,0.55)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-
-      /*
-       * A band of the ingredient's own colour along the bottom of the crate,
-       * the same colour as the square beside its name on a ticket. The board
-       * says CHEESE next to an orange square; the crate to fetch it from wears
-       * the same orange. One glance links them, without having to read either.
-       */
-      if (ing.swatch) {
-        var bandH = Math.max(2.5, lab.h * 0.17);
-        Art.rr(ctx, lab.x + 1.5, lab.y + lab.h - bandH - 1.5, lab.w - 3, bandH, bandH * 0.45);
-        ctx.fillStyle = ing.swatch;
-        ctx.fill();
-      }
-
-      // a warm tag on anything that has to be cooked first
-      if (ing.grill) {
-        Art.rr(ctx, lab.x + 1.5, lab.y + 2, 3.5, lab.h - 4, 1.8);
-        ctx.fillStyle = K.hot;
-        ctx.fill();
-      }
-
-      label(ing.short || ing.name || id, r.x + r.w / 2, lab.y + lab.h * 0.35, C.burnt,
-        Math.min(8, r.w * 0.145));
-      ctx.restore();
+      Art.scene.crate(ctx, r.x, r.y, r.w, r.h, {
+        id: id,
+        name: ing.short || ing.name || id,
+        tint: ing.swatch,
+        hot: !!ing.grill,
+        live: targeted('crate', i),
+        pop: S.cratePop[i] || 0
+      });
     }
   }
 
@@ -1637,9 +1578,22 @@
       var live = targeted('plate', i);
       var cx = r.x + r.w / 2, py = r.y + r.h - 10;
 
-      // A plate that would be taken as it stands wears a halo, so a finished
-      // order is visible from across the room instead of needing to be read.
-      Art.scene.plate(ctx, cx, py - 2, r.w * 0.80, { glow: plateGlow(p) });
+      /*
+       * Work out what is on the plate before drawing the plate: it lays deli
+       * paper and a contact shadow under whatever it is carrying, and it needs
+       * that thing's width to size them.
+       *
+       * A plate that would be taken as it stands also wears a halo, so a
+       * finished order is visible from across the room without being read.
+       */
+      var pw = r.w * 0.80;
+      var built = inbound('plate', i) ? p.stack.slice(0, -1) : p.stack;
+      var shown = built.length ? Core.displayStack(built) : null;
+      var bw = shown ? Art.fitWidth(shown, pw * 0.74, r.h - 16) : 0;
+
+      Art.scene.plate(ctx, cx, py - 2, pw, {
+        glow: plateGlow(p), food: shown ? 1 : 0, foodW: bw
+      });
 
       if (live) {
         Art.rr(ctx, r.x, r.y, r.w, r.h, 11);
@@ -1648,14 +1602,14 @@
         ctx.stroke();
       }
 
-      var built = inbound('plate', i) ? p.stack.slice(0, -1) : p.stack;
-      if (!built.length) {
+      if (!shown) {
         label('EMPTY', cx, r.y + r.h * 0.42, 'rgba(111,74,51,0.35)', 7.5);
         continue;
       }
-      var shown = Core.displayStack(built);
-      var bw = Art.fitWidth(shown, r.w * 0.74, r.h - 16);
-      Art.drawStack(ctx, shown, cx, py - 3, bw);
+      // plateSeat is where the burger rests, rather than the hand-picked
+      // offset that used to leave it hovering a pixel or two over the rim.
+      var seat = Art.scene.plateSeat(cx, py - 2, pw);
+      Art.drawStack(ctx, shown, seat.x, seat.y, bw);
     }
   }
 

@@ -442,11 +442,15 @@
       hFrac: 0.095, wFrac: 0.90,
       draw: function (ctx, x, y, w, h) {
         var lw = pen(w, h), s = 97;
-        for (var i = 0; i < 3; i++) {
-          var cx = x + w * (0.22 + i * 0.28);
-          var p = ellPts(cx, y + h * 0.5, w * 0.15, h * 0.44, 16, w * 0.007, s + i);
+        // a bed under the rings: three rings on a band this wide leave gaps you
+        // can see straight through, and the bun above them then reads as floating
+        ink(ctx, bandPts(x + w * 0.04, y + h * 0.30, w * 0.92, h * 0.64, h * 0.08, 2.2, 0.5, w * 0.006, s + 60),
+            '#c8aade', { lw: lw * 0.7, off: w * 0.004, line: '#9b74c0', lineAlpha: 0.8, seed: s + 60 });
+        for (var i = 0; i < 4; i++) {
+          var cx = x + w * (0.19 + i * 0.21);
+          var p = ellPts(cx, y + h * 0.5, w * 0.145, h * 0.46, 16, w * 0.007, s + i);
           ink(ctx, p, '#d9c0ea', { lw: lw * 0.9, off: w * 0.006, seed: s + i });
-          ink(ctx, ellPts(cx, y + h * 0.5, w * 0.075, h * 0.22, 14, w * 0.005, s + i + 40),
+          ink(ctx, ellPts(cx, y + h * 0.5, w * 0.072, h * 0.23, 14, w * 0.005, s + i + 40),
               null, { lw: lw * 0.7, line: '#9b74c0', lineAlpha: 0.7, seed: s + i });
         }
       }
@@ -459,10 +463,12 @@
       hFrac: 0.085, wFrac: 0.84,
       draw: function (ctx, x, y, w, h) {
         var lw = pen(w, h), s = 113, i, k;
-        for (i = 0; i < 3; i++) {
-          var cx = x + w * (0.19 + i * 0.31);
+        ink(ctx, bandPts(x + w * 0.03, y + h * 0.28, w * 0.94, h * 0.66, h * 0.08, 2.4, 0.3, w * 0.006, s + 60),
+            '#b3bd45', { lw: lw * 0.7, off: w * 0.004, line: '#5f7a1e', lineAlpha: 0.8, seed: s + 60 });
+        for (i = 0; i < 4; i++) {
+          var cx = x + w * (0.17 + i * 0.22);
           // crinkle cut: many small lobes on the rim
-          var p = blobPts(cx, y + h * 0.5, w * 0.155, h * 0.50, 11, 0.11, 0.3 + i, 26, w * 0.005, s + i);
+          var p = blobPts(cx, y + h * 0.5, w * 0.150, h * 0.50, 11, 0.11, 0.3 + i, 26, w * 0.005, s + i);
           ink(ctx, p, '#c2cc4e', { lw: lw * 0.9, off: w * 0.005, line: '#5f7a1e', seed: s + i });
           ink(ctx, ellPts(cx, y + h * 0.5, w * 0.085, h * 0.28, 12, w * 0.004, s + i + 30),
               '#e6ee9e', { lw: 0 });
@@ -510,11 +516,17 @@
     jalapeno: {
       hFrac: 0.08, wFrac: 0.82,
       draw: function (ctx, x, y, w, h) {
-        var lw = pen(w, h), s = 149, i, n = 3;
+        var lw = pen(w, h), s = 149, i, n = 5;
         var R = h * 0.56;
         var tiny = R < 3.2;
+        /* A bed under the rings. Five rings spaced across a band ten times as
+         * wide as they are tall still leave gaps you can see the patty through,
+         * and a layer you can see through does not look like it is resting on
+         * anything. */
+        ink(ctx, bandPts(x + w * 0.04, y + h * 0.34, w * 0.92, h * 0.62, h * 0.08, 2.4, 0.7, w * 0.006, s + 60),
+            '#3f8f34', { lw: lw * 0.7, off: w * 0.004, line: '#17470f', lineAlpha: 0.85, seed: s + 60 });
         for (i = 0; i < n; i++) {
-          var cx = x + w * (0.22 + i * 0.28), cy = y + h * 0.5;
+          var cx = x + w * (0.14 + i * 0.18), cy = y + h * 0.5;
           // slightly oval, wall thicker than the hole: reads as a chilli tube
           ink(ctx, ellPts(cx, cy, R * 1.05, R, 16, w * 0.004, s + i), '#2f7d2b',
               { lw: lw * 0.9, off: w * 0.004, line: '#17470f', seed: s + i });
@@ -564,16 +576,23 @@
       }
     },
 
-    /* Avocado: overlapping CRESCENT fans with a dark skin edge along the outer
-     * curve - the one green in the kitchen that is not a circle, and the only
-     * one carrying a near-black rim. */
+    /* Avocado: a fanned row of crescent slices with a dark skin edge along the
+     * outer curve - the one green in the kitchen that is not a circle, and the
+     * only one carrying a near-black rim.
+     *
+     * The slices overlap and their tips reach the BOTTOM of the band, over a
+     * bed of flesh. Three separate thin arcs floating in the middle of the band
+     * left daylight under every one of them, and the whole layer read as three
+     * green marks hovering above the patty. */
     avocado: {
       hFrac: 0.10, wFrac: 0.92,
       draw: function (ctx, x, y, w, h) {
         var lw = pen(w, h), s = 181, i;
-        for (i = 0; i < 3; i++) {
-          var cx = x + w * (0.22 + i * 0.28), cy = y + h * 0.62;
-          var rx = w * 0.17, ry = h * 0.94, th = 0.52;
+        var bed = bandPts(x + w * 0.03, y + h * 0.40, w * 0.94, h * 0.58, h * 0.09, 2.2, 0.4, w * 0.006, s + 40);
+        ink(ctx, bed, '#b9cf7a', { lw: lw * 0.75, off: w * 0.004, line: '#3f5d28', lineAlpha: 0.85, seed: s + 40 });
+        for (i = 0; i < 4; i++) {
+          var cx = x + w * (0.17 + i * 0.22), cy = y + h * 0.99;
+          var rx = w * 0.20, ry = h * 0.97, th = 0.46;
           var p = crescentPts(cx, cy, rx, ry, th, w * 0.005, s + i);
           ink(ctx, p, '#cfe08f', { lw: lw * 0.85, off: w * 0.005, line: '#3f5d28', seed: s + i });
           // dark skin hugging the outer arc only
@@ -582,7 +601,7 @@
           ctx.clip();
           ctx.strokeStyle = '#3f5d28';
           ctx.globalAlpha = 0.95;
-          ctx.lineWidth = Math.max(1.3, ry * 0.30);
+          ctx.lineWidth = Math.max(1.3, ry * 0.20);
           ctx.beginPath();
           ctx.ellipse(cx, cy, rx, ry, 0, Math.PI * 1.02, Math.PI * 1.98);
           ctx.stroke();
@@ -598,29 +617,34 @@
   LAYERS.bun = {
     hFrac: 0.20, wFrac: 1.00,
     draw: function (ctx, x, y, w, h) {
-      var lw = pen(w, h), s = 29, i;
-      var d = [], n = 14;
-      // rounded underside
-      for (i = 0; i <= n; i++) {
-        var t = i / n * Math.PI;
-        d.push([x + w * 0.5 - Math.cos(t) * w * 0.5, y + h * 0.42 + Math.sin(t) * h * 0.60]);
+      var lw = pen(w, h), s = 29, i, f;
+      /* The drawn body must FILL its band: anything drawn below y + h leaves a
+       * gap under the layer above and the burger reads as disassembled. */
+      var top = y + h * 0.10, bot = y + h * 0.96;
+      var d = [];
+      for (i = 0; i <= 14; i++) {
+        var t = i / 14 * Math.PI;
+        d.push([x + w * 0.5 - Math.cos(t) * w * 0.5, top + Math.sin(t) * (bot - top)]);
       }
-      d.push([x + w * 0.5, y + h * 0.30], [x, y + h * 0.42]);
+      for (i = 12; i >= 0; i--) {
+        f = i / 12;
+        d.push([x + f * w, top + h * 0.04 * Math.sin(f * 5)]);
+      }
       jitter(d, w * 0.010, s);
       ink(ctx, d, '#e0a75f', { lw: lw, off: w * 0.010, line: '#8f5a24', seed: s });
       hatch(ctx, d, '#a4692c', s, { n: 4, alpha: 0.22, gap: h * 0.30 });
       // pale cut face along the top, the giveaway that this is a sliced heel
       var cut = [];
       for (i = 0; i <= 12; i++) {
-        var f = i / 12;
-        cut.push([x + f * w, y + h * (0.30 + 0.05 * Math.sin(f * 5))]);
+        f = i / 12;
+        cut.push([x + f * w * 0.995 + w * 0.002, top + h * 0.04 * Math.sin(f * 5)]);
       }
       for (i = 12; i >= 0; i--) {
         var g2 = i / 12;
-        cut.push([x + g2 * w, y + h * (0.62 + 0.05 * Math.sin(g2 * 5 + 1.4))]);
+        cut.push([x + g2 * w * 0.98 + w * 0.01, top + h * (0.30 + 0.05 * Math.sin(g2 * 5 + 1.4))]);
       }
-      jitter(cut, w * 0.008, s + 3);
-      ink(ctx, cut, '#f6dcae', { lw: lw * 0.8, off: w * 0.006, line: '#a8763f', lineAlpha: 0.7, seed: s + 3 });
+      jitter(cut, w * 0.007, s + 3);
+      ink(ctx, cut, '#f6dcae', { lw: lw * 0.8, off: w * 0.005, line: '#a8763f', lineAlpha: 0.7, seed: s + 3 });
     }
   };
 
@@ -1612,33 +1636,165 @@
     ctx.restore();
   }
 
-  /** A wooden crate: slatted front, dark inside, name板 in the middle. */
-  function drawCrate(ctx, x, y, w, h, T) {
-    var s = 653, lw = Math.max(1, w * 0.02), i;
-    // shadowed interior
-    ink(ctx, rectPts(x + w * 0.05, y, w * 0.90, h * 0.52, w * 0.04, w * 0.006, s + 1),
-        '#5b3d24', { lw: lw * 0.8, seed: s + 1 });
-    // front panel with three slats
-    var f = rectPts(x, y + h * 0.34, w, h * 0.66, w * 0.05, w * 0.006, s);
-    ink(ctx, f, '#c89a63', { lw: lw, off: w * 0.006, line: '#6f4526', seed: s });
+  /**
+   * A produce crate on the line - the item slot the player actually taps.
+   *
+   * Open at the top with the stock sitting down inside it, a slatted front
+   * panel drawn OVER the stock so the food is in the box rather than on it,
+   * two corner posts, and a paper label clipped to the front. Same pen, same
+   * wobble and same hatching as the food, so the shelf stops looking like a
+   * row of glossy plastic buttons borrowed from another game.
+   *
+   * Art.scene.crate(ctx, x, y, w, h, {
+   *   id,    ingredient id - drawn inside with Art.drawPortrait
+   *   name,  short label ('Cheese'); omit for no label plate
+   *   tint,  the ingredient's swatch colour, a dot beside the name
+   *   hot,   true for anything that has to be grilled - a little flame
+   *   live,  true while a cook is walking to it - hand-drawn ring, no glow
+   *   pop    0..1 recoil after something is lifted out
+   * })
+   * The 5th argument may still be a scene theme; it is ignored, as before.
+   */
+  function drawCrate(ctx, x, y, w, h, opts) {
+    if (!opts || (opts.id === undefined && opts.name === undefined &&
+                  opts.live === undefined && opts.pop === undefined)) opts = {};
+    var s = 653, lw = Math.max(1.1, w * 0.024), i, c;
+    var pop = opts.pop || 0;
+    var frontH = Math.min(Math.max(h * 0.34, w * 0.24), h * 0.42);
+    var lip = h * 0.05;
+
     ctx.save();
-    trace(ctx, f); ctx.clip();
-    ctx.strokeStyle = '#8f6437';
-    ctx.globalAlpha = 0.6;
-    ctx.lineWidth = Math.max(0.8, w * 0.016);
-    for (i = 1; i < 3; i++) {
-      var ly = y + h * 0.34 + h * 0.66 * i / 3;
+    if (pop > 0) {
+      ctx.translate(x + w / 2, y + h);
+      ctx.scale(1 + pop * 0.05, 1 - pop * 0.07);
+      ctx.translate(-(x + w / 2), -(y + h));
+    }
+
+    // scribbled contact shadow, the same three strokes the cook stands on
+    ctx.save();
+    ctx.strokeStyle = INK;
+    ctx.lineCap = 'round';
+    for (i = 0; i < 2; i++) {
+      ctx.globalAlpha = 0.13;
+      ctx.lineWidth = h * 0.035;
+      var sw = w * 0.46 * (1 - i * 0.22);
       ctx.beginPath();
-      for (var c = 0; c <= 8; c++) ctx.lineTo(x + c * w / 8, ly + wob(s + i, c) * h * 0.012);
+      ctx.moveTo(x + w * 0.5 - sw, y + h + i * h * 0.03);
+      ctx.quadraticCurveTo(x + w * 0.5, y + h + i * h * 0.03 + h * 0.02, x + w * 0.5 + sw, y + h + i * h * 0.03);
       ctx.stroke();
     }
     ctx.restore();
-    hatch(ctx, f, '#6f4526', s, { n: 5, alpha: 0.14, gap: h * 0.14 });
-    // corner bands
-    [x + w * 0.02, x + w * 0.88].forEach(function (bx, k) {
-      ink(ctx, rectPts(bx, y + h * 0.34, w * 0.10, h * 0.66, w * 0.03, w * 0.005, s + 10 + k),
-          '#a87c48', { lw: lw * 0.9, line: '#6f4526', seed: s + 10 + k });
+
+    // the dark inside of the box, seen over the top edge
+    var back = rectPts(x + w * 0.04, y + lip, w * 0.92, h - lip - frontH * 0.30, w * 0.05, w * 0.008, s + 1);
+    ink(ctx, back, '#8a5f2e', { lw: lw * 0.9, off: w * 0.006, line: '#4a2f18', seed: s + 1 });
+    hatch(ctx, back, '#4a2f18', s + 1, { n: 5, alpha: 0.22, gap: h * 0.12 });
+
+    // the stock, sitting down in the box
+    if (opts.id) {
+      var inW = w * 0.84, inH = h - lip - frontH * 0.62;
+      ctx.save();
+      trace(ctx, rectPts(x + w * 0.08, y + lip * 1.2, inW, inH, w * 0.04, 0, s + 2));
+      ctx.clip();
+      ctx.translate(x + w * 0.08, y + lip * 1.2);
+      drawPortrait(ctx, opts.id, inW, inH * 1.02);
+      ctx.restore();
+      // the box's own shade falling across the top of what is in it
+      ctx.save();
+      ctx.globalAlpha = 0.30;
+      ctx.fillStyle = '#3a2110';
+      trace(ctx, rectPts(x + w * 0.06, y + lip, w * 0.88, h * 0.16, w * 0.04, w * 0.005, s + 3));
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // front panel over the stock, with the grain running along it
+    var f = rectPts(x + w * 0.005, y + h - frontH, w * 0.99, frontH, w * 0.055, w * 0.007, s + 4);
+    ink(ctx, f, '#d9a35f', { lw: lw, off: w * 0.007, line: '#6f4526', seed: s + 4 });
+    ctx.save();
+    trace(ctx, f); ctx.clip();
+    ctx.strokeStyle = '#a8763f';
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = Math.max(0.8, w * 0.012);
+    for (i = 0; i < 2; i++) {
+      var gy = y + h - frontH * (0.72 - i * 0.44);
+      ctx.beginPath();
+      for (c = 0; c <= 8; c++) ctx.lineTo(x + c * w / 8, gy + wob(s + i, c) * frontH * 0.05);
+      ctx.stroke();
+    }
+    ctx.restore();
+    hatch(ctx, f, '#6f4526', s + 4, { n: 4, alpha: 0.13, gap: frontH * 0.34 });
+
+    // corner posts, running the full height of the box
+    [x + w * 0.01, x + w * 0.885].forEach(function (bx, k) {
+      ink(ctx, rectPts(bx, y + h * 0.16, w * 0.105, h * 0.84, w * 0.035, w * 0.006, s + 10 + k),
+          '#c08a4c', { lw: lw * 0.85, line: '#6f4526', seed: s + 10 + k });
     });
+
+    // paper label clipped to the front panel
+    if (opts.name) {
+      var lx = x + w * 0.11, lw2 = w * 0.78, ly2 = y + h - frontH * 0.80, lh = frontH * 0.56;
+      ink(ctx, rectPts(lx, ly2, lw2, lh, w * 0.02, w * 0.005, s + 20),
+          '#fdf6e6', { lw: lw * 0.7, off: w * 0.004, line: '#8a7259', seed: s + 20 });
+      var lpad = 0.08, rpad = 0.08;
+      if (opts.tint && w >= 62) {
+        lpad = 0.28;
+        var dot = Math.min(lh * 0.34, w * 0.06);
+        ink(ctx, ellPts(lx + lw2 * 0.14, ly2 + lh * 0.52, dot, dot, 10, w * 0.003, s + 21),
+            opts.tint, { lw: lw * 0.55, line: '#5a4030', lineAlpha: 0.7, seed: s + 21 });
+      }
+      // anything that has to be grilled first wears a little flame
+      if (opts.hot && w >= 62) {
+        rpad = 0.24;
+        var fx = lx + lw2 * 0.88, fy = ly2 + lh * 0.52, fh = lh * 0.62, fw = lh * 0.40;
+        ink(ctx, jitter([[fx, fy - fh * 0.52], [fx + fw * 0.5, fy], [fx, fy + fh * 0.48],
+                         [fx - fw * 0.5, fy]], w * 0.004, s + 22),
+            '#e2704f', { lw: lw * 0.55, line: '#8a3a1c', seed: s + 22 });
+      }
+      var tx = lx + lw2 * (lpad + (1 - lpad - rpad) * 0.5);
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#5a4030';
+      var fs = Math.max(6.5, Math.min(lh * 0.62, w * 0.15));
+      var room = lw2 * (1 - lpad - rpad);
+      var txt = String(opts.name).toUpperCase();
+      for (i = 0; i < 6; i++) {
+        ctx.font = '900 ' + fs.toFixed(1) + 'px "Trebuchet MS", system-ui, sans-serif';
+        if (ctx.measureText(txt).width <= room || fs <= 6.5) break;
+        fs *= 0.9;
+      }
+      // a long name on a narrow crate is squeezed rather than allowed to run
+      // off the paper - JALAPENO on a 54px box has nowhere else to go
+      var tw = ctx.measureText(txt).width;
+      if (tw > room) {
+        ctx.translate(tx, 0);
+        ctx.scale(room / tw, 1);
+        ctx.translate(-tx, 0);
+      }
+      ctx.fillText(txt, tx, ly2 + lh * 0.56);
+      ctx.restore();
+    }
+
+    // targeted: a second pass of the pen round the box, not a neon glow
+    if (opts.live) {
+      ctx.save();
+      ctx.globalAlpha = 0.95;
+      ctx.strokeStyle = '#f0a81e';
+      ctx.lineWidth = lw * 1.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      trace(ctx, rectPts(x + w * 0.005 - w * 0.012, y - w * 0.012, w * 0.99 + w * 0.024,
+                         h + w * 0.024, w * 0.06, w * 0.008, s + 30));
+      ctx.stroke();
+      ctx.globalAlpha = 0.45;
+      ctx.lineWidth = lw * 0.9;
+      trace(ctx, rectPts(x + w * 0.02, y + w * 0.006, w * 0.96, h - w * 0.01, w * 0.05, w * 0.008, s + 31));
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    ctx.restore();
   }
 
   /** Cast-iron grill: body, bars, two knobs, optional heat shimmer. */
@@ -1697,9 +1853,31 @@
   }
 
   /** A plate seen from above, with the rim ring drawn as its own pass. */
+
+  /* A plate seen from above.
+   *
+   * The burger used to look pasted onto a flat white disc because nothing
+   * connected the two: no liner under it, no shadow where it touches, and the
+   * food sat on the plate's centre line rather than in the WELL, which on a
+   * plate seen at this angle is a little forward of centre.
+   *
+   * opts.food  0 = empty plate, 1 = something is sitting on it (draws the deli
+   *            paper and the contact shadow; pass the burger's own width as
+   *            opts.foodW so the shadow matches what it is under)
+   * Art.scene.plateSeat(cx, cy, w) returns the {x, y} a burger should be drawn
+   * at so it lands in the well instead of floating on the rim.
+   */
+  function plateSeat(cx, cy, w) {
+    return { x: cx, y: cy + w * 0.030 };
+  }
+
   function drawPlate(ctx, cx, cy, w, opts) {
-    var s = 673, r = w / 2, lw = Math.max(1, w * 0.018);
+    var s = 673, r = w / 2, lw = Math.max(1, w * 0.018), i;
     var glow = (opts && opts.glow) || 0;
+    var food = (opts && opts.food) || 0;
+    var fw = (opts && opts.foodW) || w * 0.52;
+    var seat = plateSeat(cx, cy, w);
+
     if (glow > 0.02) {
       ctx.save();
       ctx.globalAlpha = 0.35 * glow;
@@ -1708,10 +1886,64 @@
       ctx.fill();
       ctx.restore();
     }
+
+    // the plate's own shadow on the counter, so it is resting rather than floating
+    ctx.save();
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = '#3f2a1c';
+    trace(ctx, ellPts(cx + w * 0.03, cy + r * 0.20, r * 0.98, r * 0.34, 20, w * 0.006, s + 12));
+    ctx.fill();
+    ctx.restore();
+
     ink(ctx, ellPts(cx, cy, r, r * 0.40, 24, w * 0.008, s), '#f4f8fb',
         { lw: lw, off: w * 0.006, line: '#8fa3ae', seed: s });
     ink(ctx, ellPts(cx, cy, r * 0.70, r * 0.27, 20, w * 0.006, s + 1), '#e6eef5',
         { lw: lw * 0.7, line: '#8fa3ae', lineAlpha: 0.7, seed: s + 1 });
+
+    if (food > 0.02) {
+      // square of deli paper, laid in the well at a lazy angle and clipped to
+      // the well so it can never climb over the rim
+      ctx.save();
+      trace(ctx, ellPts(cx, cy, r * 0.72, r * 0.28, 20, w * 0.005, s + 1));
+      ctx.clip();
+      ctx.globalAlpha = food;
+      ctx.translate(seat.x, seat.y);
+      ctx.rotate(-0.16);
+      ctx.scale(1, 0.42);
+      var pw = fw * 0.42;
+      var paper = jitter([[-pw, -pw], [pw, -pw * 0.94], [pw * 0.96, pw], [-pw * 0.98, pw * 0.96]], pw * 0.05, s + 20);
+      ink(ctx, paper, '#fdf6e6', { lw: lw * 0.8, off: pw * 0.02, line: '#c9b98d', lineAlpha: 0.8, seed: s + 20 });
+      ctx.save();
+      trace(ctx, paper);
+      ctx.clip();
+      ctx.strokeStyle = '#e08e8a';
+      ctx.globalAlpha = 0.42;
+      ctx.lineWidth = Math.max(1, pw * 0.07);
+      for (i = -3; i <= 3; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * pw * 0.42, -pw * 1.1);
+        ctx.lineTo(i * pw * 0.42, pw * 1.1);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-pw * 1.1, i * pw * 0.42);
+        ctx.lineTo(pw * 1.1, i * pw * 0.42);
+        ctx.stroke();
+      }
+      ctx.restore();
+      ctx.restore();
+
+      // contact shadow: dark and tight where the food meets the paper
+      ctx.save();
+      ctx.globalAlpha = 0.30 * food;
+      ctx.fillStyle = '#5f4230';
+      trace(ctx, ellPts(seat.x + fw * 0.04, seat.y + fw * 0.02, fw * 0.44, fw * 0.11, 18, w * 0.004, s + 22));
+      ctx.fill();
+      ctx.globalAlpha = 0.14 * food;
+      trace(ctx, ellPts(seat.x + fw * 0.06, seat.y + fw * 0.03, fw * 0.58, fw * 0.17, 18, w * 0.004, s + 23));
+      ctx.fill();
+      ctx.restore();
+    }
+
     ctx.save();
     ctx.globalAlpha = 0.5;
     ctx.fillStyle = '#ffffff';
@@ -1862,6 +2094,7 @@
     crate: drawCrate,
     grill: drawGrill,
     plate: drawPlate,
+    plateSeat: plateSeat,
     hatch: drawHatch,
     bin: drawBin
   };
