@@ -616,6 +616,50 @@
     });
   }
 
+  /**
+   * The other half of pullFromBox, running the other way.
+   *
+   * The rules already fired the instant the cook arrived - the hands are empty
+   * and the plate has the layer on it - so this is only the thing itself
+   * finishing the journey: an arc down onto the burner or the plate over a
+   * fifth of a second, shrinking to the size it will sit at. Without it a patty
+   * teleported from a fist to a grill between two frames, which is what made
+   * the kitchen feel like a state machine rather than a place.
+   *
+   * `fixed` is what separates the two directions: an incoming flyer chases the
+   * cook, who is usually still walking, and an outgoing one must not - it is
+   * aimed at a station that does not move.
+   */
+  function dropOnto(kind, i, id, x1, y1, w1, ci, look) {
+    var c = chefAt(ci || 0);
+    var cs = L.chefS || CHEF_S;
+    S.flyers.push({
+      id: id, chef: ci || 0, fixed: true, to: { kind: kind, i: i },
+      done: look && look.done, char: look && look.char,
+      x0: c.x, y0: c.y - cs * 0.22,
+      x1: x1, y1: y1,
+      w0: cs * 0.76, w: w1,
+      lift: 14, spin: -0.5,
+      t: 0, max: 0.2
+    });
+  }
+
+  /*
+   * A station with something still on its way draws itself without that thing.
+   * The rules changed on arrival, so the plate already has the layer and the
+   * burner already has the patty - and without this the same slice of cheese is
+   * visibly in two places for a fifth of a second, which is worse than no
+   * animation at all. pullFromBox solves the same problem at the other end by
+   * leaving the hands empty until the item lands.
+   */
+  function inbound(kind, i) {
+    for (var f = 0; f < S.flyers.length; f++) {
+      var to = S.flyers[f].to;
+      if (to && to.kind === kind && to.i === i) return true;
+    }
+    return false;
+  }
+
   function nope(msg, ci) {
     var c = chefAt(ci || 0);
     if (msg) float(msg, c.x, c.y - CHEF_S - 14, C.alarm, 12);
@@ -824,6 +868,8 @@
         // the grill a second time.
         S.grill[t.i] = { id: hold.id, t: hold.grillT || 0 };
         me.holding = null;
+        var gr = slotRect(t.i);
+        dropOnto('grill', t.i, hold.id, gr.x + gr.w / 2, gr.y + gr.h * 0.58, gr.w * 0.62, ci, hold);
         Sfx.sizzle();
         buzz(12);
         return;
@@ -841,7 +887,7 @@
         var r = slotRect(t.i);
         if (stage === 'perfect') {
           float('PERFECT SEAR', r.x + r.w / 2 + 34, r.y, K.go, 12);
-          spark(r.x + r.w / 2, r.y + r.h / 2, 12, 'rgba(120,220,120,0.95)');
+          spark(r.x + r.w / 2, r.y + r.h / 2, 12, 'rgba(174,191,146,0.95)');
           Sfx.perfect();
           buzz(20);
         } else if (stage === 'burnt') {
@@ -871,6 +917,8 @@
           done: hold.done, char: hold.char      // how it should look, not what it scores
         });
         me.holding = null;
+        var pr = plateRect(t.i);
+        dropOnto('plate', t.i, hold.id, pr.x + pr.w / 2, pr.y + pr.h * 0.58, pr.w * 0.58, ci, hold);
         var ing = Core.byId(hold.id);
         if (ing && ing.kind === 'sauce') Sfx.squirt(); else Sfx.stack(p.stack.length);
         buzz(8);
@@ -993,9 +1041,11 @@
       var fl = S.flyers[i];
       fl.t += dt;
       // chase the cook, who is usually still walking
-      var fc = chefAt(fl.chef || 0);
-      fl.x1 = fc.x;
-      fl.y1 = fc.y - (L.chefS || CHEF_S) * 0.22;
+      if (!fl.fixed) {
+        var fc = chefAt(fl.chef || 0);
+        fl.x1 = fc.x;
+        fl.y1 = fc.y - (L.chefS || CHEF_S) * 0.22;
+      }
       if (fl.t >= fl.max) S.flyers.splice(i, 1);
     }
     for (i = 0; i < S.cratePop.length; i++) {
@@ -1404,7 +1454,8 @@
       var e = 1 - Math.pow(1 - p, 2.2);
       var x = fl.x0 + (fl.x1 - fl.x0) * e;
       var y = fl.y0 + (fl.y1 - fl.y0) * e - Math.sin(p * Math.PI) * fl.lift;
-      var w = fl.w * (0.55 + 0.45 * e);
+      var w0 = fl.w0 === undefined ? fl.w * 0.55 : fl.w0;
+      var w = w0 + (fl.w - w0) * e;
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate((1 - e) * -0.5 * fl.spin);
@@ -1478,13 +1529,15 @@
       var look = Core.cookLook(g.t, win);
       var pw = r.w * 0.72;
       var barTop = r.y + r.h - 13;
-      var ph = Art.heightOf(g.id, pw);
-      Art.drawLayer(ctx, g.id, r.x + r.w / 2, (r.y + barTop) / 2 - ph / 2, pw,
-        { done: look.done, char: look.char });
+      if (!inbound('grill', i)) {
+        var ph = Art.heightOf(g.id, pw);
+        Art.drawLayer(ctx, g.id, r.x + r.w / 2, (r.y + barTop) / 2 - ph / 2, pw,
+          { done: look.done, char: look.char });
+      }
 
       if (stage === 'perfect') {
         ctx.save();
-        ctx.shadowColor = 'rgba(79,168,96,0.95)';
+        ctx.shadowColor = 'rgba(174,191,146,0.95)';
         ctx.shadowBlur = 14;
         Art.rr(ctx, r.x + 1.5, r.y + 1.5, r.w - 3, r.h - 3, 11);
         ctx.strokeStyle = K.go;
@@ -1499,7 +1552,7 @@
       ctx.fill();
       var ps = (Core.COOK_TIME - win / 2) / tMax, pe = (Core.COOK_TIME + win / 2) / tMax;
       Art.rr(ctx, bx + bw * ps, by, bw * (pe - ps), bh, 2.5);
-      ctx.fillStyle = 'rgba(79,168,96,0.6)';
+      ctx.fillStyle = 'rgba(174,191,146,0.6)';
       ctx.fill();
       Art.rr(ctx, bx, by, Math.max(2, bw * clamp(g.t / tMax, 0, 1)), bh, 2.5);
       ctx.fillStyle = stage === 'perfect' ? K.go
@@ -1562,11 +1615,12 @@
         ctx.stroke();
       }
 
-      if (!p.stack.length) {
+      var built = inbound('plate', i) ? p.stack.slice(0, -1) : p.stack;
+      if (!built.length) {
         label('EMPTY', cx, r.y + r.h * 0.42, 'rgba(111,74,51,0.35)', 7.5);
         continue;
       }
-      var shown = Core.displayStack(p.stack);
+      var shown = Core.displayStack(built);
       var bw = Art.fitWidth(shown, r.w * 0.74, r.h - 16);
       Art.drawStack(ctx, shown, cx, py - 3, bw);
     }
@@ -1658,13 +1712,13 @@
 
     order.forEach(function (i) {
       var c = S.chefs[i];
-      var flying = S.flyers.some(function (f) { return (f.chef || 0) === i; });
+      var flying = S.flyers.some(function (f) { return (f.chef || 0) === i && !f.fixed; });
       // a marker so you can tell which cook is yours
       if (S.chefs.length > 1) {
         ctx.save();
         ctx.beginPath();
         ctx.ellipse(c.x, c.y + 2, cs * 0.30, cs * 0.10, 0, 0, Math.PI * 2);
-        ctx.strokeStyle = i === S.me ? 'rgba(79,168,96,0.95)' : 'rgba(90,134,184,0.9)';
+        ctx.strokeStyle = i === S.me ? 'rgba(174,191,146,0.95)' : 'rgba(90,134,184,0.9)';
         ctx.lineWidth = 2.4;
         ctx.stroke();
         ctx.restore();
