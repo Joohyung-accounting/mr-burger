@@ -1010,7 +1010,221 @@
   }
 
   /* --------------------------------------------------------------- API */
+  /* ------------------------------------------------------------- seating
+   * Where a layer's INK actually lives inside its own band, as a fraction of
+   * the band height: [top, bottom]. MEASURED, not guessed - each layer was
+   * rendered alone and its painted rows scanned across the middle 60% of its
+   * width (the part that meets the layer below). Guessed numbers are how the
+   * avocado ended up floating: its fan is drawn from -0.37h to 0.50h and never
+   * reaches the bottom of its own band at all.
+   *
+   * Re-measure after changing any layer's drawing. Anything missing here is
+   * assumed to fill its band.
+   */
+  var SEAT = {
+    bunBottom: [-0.04, 1.03],
+    bun:       [0.07, 0.98],
+    bunTop:    [0.13, 1.05],
+    patty:     [0.04, 1.02],
+    cheese:    [-0.17, 1.08],   // measures 1.57: that is the melt draping DOWN
+    lettuce:   [0.02, 1.02],    // the sides of what is under it, not its underside
+    tomato:    [-0.15, 1.36],
+    onion:     [0.04, 1.05],
+    pickle:    [-0.04, 1.06],
+    bacon:     [-0.03, 1.06],
+    jalapeno:  [0.21, 1.08],
+    egg:       [0.10, 1.05],
+    avocado:   [0.00, 1.10],
+    ketchup:   [0.17, 1.00],
+    mustard:   [0.28, 0.89],
+    mayo:      [0.06, 1.11],
+    bbq:       [0.00, 0.94],
+    special:   [0.17, 1.00]
+  };
+  /* The full painted extent of each layer, [top, bottom], in the same units as
+   * SEAT. SEAT is where a layer is SOLID (what the next one lands on); this is
+   * where its last pixel is. Two different questions - using SEAT for both
+   * under-reports the stack by a few percent, which is enough for a burger
+   * fitted to a box with fitWidth() to have its crown clipped flat. */
+  var PAINT = {
+    bunBottom: [-0.04, 1.03],
+    bun:       [0.00, 1.00],
+    bunTop:    [0.06, 1.05],
+    patty:     [-0.02, 1.02],
+    cheese:    [-0.20, 1.63],
+    lettuce:   [-0.07, 1.10],
+    tomato:    [-0.21, 1.39],
+    onion:     [-0.07, 1.09],
+    pickle:    [-0.12, 1.14],
+    bacon:     [-0.18, 1.12],
+    jalapeno:  [-0.17, 1.17],
+    egg:       [0.07, 1.10],
+    avocado:   [-0.07, 1.13],
+    ketchup:   [-0.17, 1.22],
+    mustard:   [0.00, 1.00],
+    mayo:      [-0.28, 1.39],
+    bbq:       [-0.17, 1.17],
+    special:   [-0.17, 1.22]
+  };
+
+  /*
+   * How deep a layer sits into the one below it.
+   *
+   * Scaled off BOTH neighbours, not just the thinner one: a bun crown landing
+   * on a 6px sauce rope has to come down far enough to touch it, and a bite
+   * measured off the sauce alone left the whole lid hanging in the air. Capped
+   * against the thinner one so the sauce is still visible under the lid.
+   */
+  function biteBetween(a, b) {
+    return Math.min((a + b) * 0.13, Math.min(a, b) * 0.65);
+  }
+
+  /* ------------------------------------------------------------ upgrades
+   * The five things the shop sells, drawn with the same pen as the food. They
+   * were emoji, which meant the shop was the one screen where the game's own
+   * hand disappeared and the platform's font took over - and 🍳 next to 🔥 does
+   * not say "one more burner" next to "a wider perfect window" to anyone.
+   *
+   * Art.drawUpgrade(ctx, id, w, h) - fills the box, centred.
+   * ids: shoes / plate / grill / burner / sign  (Core.UPGRADES)
+   */
+  var UPGRADE_IDS = ['shoes', 'plate', 'grill', 'burner', 'sign'];
+
+  function drawUpgrade(ctx, id, w, h) {
+    var P = Math.min(w, h) * 0.96, cx = w / 2, cy = h / 2;
+    var lw = Math.max(1, P * 0.052), s = 977, i;
+    /** points given in box units (-0.5 .. 0.5), wobbled */
+    function up(list, jit, seed) {
+      return jitter(list.map(function (p) { return [cx + p[0] * P, cy + p[1] * P]; }),
+                    (jit === undefined ? 0.012 : jit) * P, seed);
+    }
+    function stroke(list, color, width, alpha) {
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = alpha === undefined ? 1 : alpha;
+      ctx.lineWidth = width;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      list.forEach(function (p, k) {
+        var X = cx + p[0] * P, Y = cy + p[1] * P;
+        if (k) ctx.lineTo(X, Y); else ctx.moveTo(X, Y);
+      });
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    if (id === 'shoes') {
+      // Everything here stays inside +/-0.44 box units: the jitter and half the
+      // pen width live in what is left, and anything past it clips flat.
+      stroke([[-0.44, -0.14], [-0.28, -0.14]], '#c0562f', lw * 0.9, 0.6);
+      stroke([[-0.42, 0.00], [-0.26, 0.00]], '#c0562f', lw * 0.9, 0.4);
+      var shoe = up([[-0.24, 0.10], [-0.26, -0.14], [-0.17, -0.28], [-0.05, -0.20],
+                     [0.06, -0.08], [0.20, 0.00], [0.34, 0.04], [0.40, 0.10],
+                     [0.40, 0.14], [-0.24, 0.14]], 0.010, s);
+      ink(ctx, shoe, '#fffaf0', { lw: lw, off: P * 0.008, seed: s });
+      hatch(ctx, shoe, '#c3ac91', s, { n: 2, alpha: 0.14, gap: P * 0.12 });
+      // sole, with the toe kicked up
+      ink(ctx, up([[-0.30, 0.08], [0.36, 0.01], [0.44, 0.06], [0.44, 0.20], [-0.30, 0.24]], 0.008, s + 1),
+          '#c0562f', { lw: lw * 0.9, line: '#7a2f14', seed: s + 1 });
+      // stripe and laces - what makes it a running shoe and not a slipper
+      ctx.save();
+      trace(ctx, shoe);
+      ctx.clip();
+      ctx.strokeStyle = '#c0562f';
+      ctx.lineWidth = Math.max(1.2, P * 0.075);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(cx - P * 0.22, cy - P * 0.02);
+      ctx.quadraticCurveTo(cx + P * 0.02, cy + P * 0.08, cx + P * 0.28, cy + P * 0.02);
+      ctx.stroke();
+      ctx.restore();
+      for (i = 0; i < 3; i++) {
+        stroke([[-0.12 + i * 0.09, -0.19 + i * 0.055], [-0.03 + i * 0.09, -0.07 + i * 0.055]],
+               '#8a7259', lw * 0.7, 0.9);
+      }
+    } else if (id === 'plate') {
+      ink(ctx, ellPts(cx, cy + P * 0.20, P * 0.42, P * 0.12, 20, P * 0.008, s + 10),
+          '#f0e5d6', { lw: lw * 0.9, line: '#a4906f', seed: s + 10 });
+      ink(ctx, ellPts(cx, cy + P * 0.04, P * 0.47, P * 0.14, 22, P * 0.008, s + 11),
+          '#fffaf1', { lw: lw, off: P * 0.006, line: '#a4906f', seed: s + 11 });
+      ink(ctx, ellPts(cx, cy + P * 0.03, P * 0.28, P * 0.075, 18, P * 0.005, s + 12),
+          null, { lw: lw * 0.6, line: '#c9b499', lineAlpha: 0.8, seed: s + 12 });
+      // something to build on it
+      var dome = [], n = 14;
+      for (i = 0; i <= n; i++) {
+        var t = Math.PI + i / n * Math.PI;
+        dome.push([cx + Math.cos(t) * P * 0.20, cy - P * 0.05 + Math.sin(t) * P * 0.20]);
+      }
+      dome.push([cx + P * 0.20, cy - P * 0.03], [cx - P * 0.20, cy - P * 0.03]);
+      ink(ctx, jitter(dome, P * 0.008, s + 13), '#eab470', { lw: lw * 0.85, line: '#a4692c', seed: s + 13 });
+    } else if (id === 'grill') {
+      var f1 = up([[0.00, -0.46], [0.17, -0.18], [0.29, 0.06], [0.19, 0.29], [-0.03, 0.37],
+                   [-0.25, 0.26], [-0.30, 0.02], [-0.13, -0.15], [-0.05, -0.33]], 0.014, s + 20);
+      ink(ctx, f1, '#e2704f', { lw: lw, off: P * 0.008, line: '#8a3a1c', seed: s + 20 });
+      var f2 = up([[0.01, -0.16], [0.14, 0.04], [0.10, 0.24], [-0.05, 0.30],
+                   [-0.16, 0.20], [-0.13, 0.00]], 0.010, s + 21);
+      ink(ctx, f2, '#f4b41a', { lw: lw * 0.7, line: '#a8721a', lineAlpha: 0.8, seed: s + 21 });
+    } else if (id === 'burner') {
+      var body = rectPts(cx - P * 0.44, cy - P * 0.26, P * 0.88, P * 0.56, P * 0.10, P * 0.008, s + 30);
+      ink(ctx, body, '#5a5350', { lw: lw, off: P * 0.006, line: '#2b2523', seed: s + 30 });
+      ctx.save();
+      trace(ctx, body);
+      ctx.clip();
+      for (i = 0; i < 3; i++) {
+        stroke([[-0.36, -0.14 + i * 0.17], [0.36, -0.14 + i * 0.17]], '#e2704f', Math.max(1.2, P * 0.075), 0.95);
+      }
+      ctx.restore();
+      hatch(ctx, body, '#2b2523', s + 30, { n: 3, alpha: 0.20, gap: P * 0.14 });
+      ink(ctx, ellPts(cx + P * 0.30, cy + P * 0.38, P * 0.075, P * 0.075, 12, P * 0.005, s + 31),
+          '#d9cfc6', { lw: lw * 0.8, line: '#2b2523', seed: s + 31 });
+    } else if (id === 'sign') {
+      for (i = 0; i < 4; i++) {
+        var a = -Math.PI * 0.86 + i * Math.PI * 0.24;
+        stroke([[Math.cos(a) * 0.30, Math.sin(a) * 0.30 - 0.04],
+                [Math.cos(a) * 0.41, Math.sin(a) * 0.41 - 0.04]], '#e8a021', lw * 0.9, 0.85);
+      }
+      ink(ctx, blobPts(cx, cy - P * 0.08, P * 0.23, P * 0.26, 4, 0.03, 0.5, 22, P * 0.008, s + 40),
+          '#f7d774', { lw: lw, off: P * 0.007, line: '#a8763f', seed: s + 40 });
+      ink(ctx, rectPts(cx - P * 0.12, cy + P * 0.15, P * 0.24, P * 0.20, P * 0.04, P * 0.006, s + 41),
+          '#c4ab8a', { lw: lw * 0.9, line: '#7d6249', seed: s + 41 });
+      stroke([[-0.06, -0.02], [-0.02, -0.12], [0.02, -0.02], [0.06, -0.12]], '#c0562f', lw * 0.8, 0.9);
+      stroke([[-0.09, 0.19], [0.09, 0.19]], '#7d6249', lw * 0.6, 0.7);
+      stroke([[-0.09, 0.26], [0.09, 0.26]], '#7d6249', lw * 0.6, 0.7);
+    } else {
+      drawIcon(ctx, id, w, h);
+    }
+  }
+
+
+  /* --------------------------------------------------------------- API */
   function layerOf(id) { return LAYERS[id] || LAYERS.cheese; }
+  function seatOf(id) { return SEAT[id] || [0.02, 0.98]; }
+  function paintOf(id) { return PAINT[id] || seatOf(id); }
+
+  /**
+   * Work out where every layer's band goes, bottom up, in offsets from the
+   * baseline (negative = above it). One place decides it so stackHeight() and
+   * drawStack() can never disagree - the plate used to be sized by one and
+   * painted by the other.
+   */
+  function seatStack(items, bunWidth) {
+    var rows = [], topY = 0, botY = 0, prevTop = 0, prevH = 0, prevW = 0, i;
+    for (i = 0; i < items.length; i++) {
+      var it = typeof items[i] === 'string' ? { id: items[i] } : items[i];
+      var h = heightOf(it.id, bunWidth), st = seatOf(it.id), pt = paintOf(it.id), y;
+      if (i === 0) y = -st[1] * h;                       // its underside on the baseline
+      else y = prevTop + biteBetween(h, prevH) - st[1] * h;
+      rows.push({ it: it, y: y, h: h, seat: st, w: layerWidth(it.id, bunWidth), prevW: prevW });
+      prevTop = y + st[0] * h;
+      prevH = h;
+      prevW = layerWidth(it.id, bunWidth);
+      // the reported height covers the PAINT, not the seating surface
+      if (y + pt[0] * h < topY) topY = y + pt[0] * h;
+      if (y + pt[1] * h > botY) botY = y + pt[1] * h;
+    }
+    return { rows: rows, height: botY - topY, top: topY, bottom: botY };
+  }
 
   function heightOf(id, bunWidth) {
     return layerOf(id).hFrac * bunWidth;
@@ -1021,13 +1235,10 @@
     return layerOf(id).wFrac * bunWidth;
   }
 
-  /** Total height of a stack drawn at this bun width. */
+  /** Total painted height of a stack drawn at this bun width. */
   function stackHeight(items, bunWidth) {
-    var t = 0;
-    for (var i = 0; i < items.length; i++) {
-      t += heightOf(items[i].id || items[i], bunWidth);
-    }
-    return t;
+    if (!items || !items.length) return 0;
+    return seatStack(items, bunWidth).height;
   }
 
   /** Draw one layer with its box centred on `cx`, top edge at `y`. */
@@ -1049,19 +1260,33 @@
    */
   function drawStack(ctx, items, cx, baseY, bunWidth, opts) {
     opts = opts || {};
-    var y = baseY;
-    for (var i = 0; i < items.length; i++) {
-      var it = typeof items[i] === 'string' ? { id: items[i] } : items[i];
-      var h = heightOf(it.id, bunWidth);
-      y -= h;
+    if (!items || !items.length) return 0;
+    var plan = seatStack(items, bunWidth);
+    for (var i = 0; i < plan.rows.length; i++) {
+      var r = plan.rows[i], it = r.it;
       var lift = it.pop !== undefined && it.pop < 1 ? (1 - it.pop) * bunWidth * 0.55 : 0;
-      drawLayer(ctx, it.id, cx, y - lift, bunWidth, {
+      var a = opts.alpha !== undefined ? opts.alpha : (it.pop !== undefined ? Math.min(1, it.pop * 1.6) : 1);
+      /* A soft shadow in the seam. Geometry alone gets the layers touching, but
+       * two flat drawings that touch still read as two stickers side by side -
+       * the shadow is what says one is RESTING ON the other. Drawn before the
+       * layer, so the layer covers all but a crescent of it. */
+      if (i > 0 && !lift && opts.seam !== false) {
+        var sw = Math.min(r.w, r.prevW) * 0.46;
+        var sy = baseY + r.y + r.seat[1] * r.h - r.h * 0.16;
+        ctx.save();
+        ctx.globalAlpha = 0.17 * a;
+        ctx.fillStyle = '#4a3226';
+        trace(ctx, ellPts(cx, sy, sw, Math.max(1, r.h * 0.30), 16, bunWidth * 0.004, 900 + i));
+        ctx.fill();
+        ctx.restore();
+      }
+      drawLayer(ctx, it.id, cx, baseY + r.y - lift, bunWidth, {
         done: it.done,
         char: it.char,
-        alpha: opts.alpha !== undefined ? opts.alpha : (it.pop !== undefined ? Math.min(1, it.pop * 1.6) : 1)
+        alpha: a
       });
     }
-    return baseY - y;
+    return plan.height;
   }
 
   /** Fit a whole stack inside `maxH` by shrinking the bun width. */
@@ -1654,6 +1879,8 @@
     fitWidth: fitWidth,
     drawIcon: drawIcon,
     drawPortrait: drawPortrait,
+    drawUpgrade: drawUpgrade,
+    UPGRADES: UPGRADE_IDS,
     drawChef: drawChef,
     CHEF_SKINS: CHEF_SKINS,
     SAUCES: SAUCES,

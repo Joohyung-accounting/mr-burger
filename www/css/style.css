@@ -1023,7 +1023,9 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
   padding: var(--space-2);
   background: var(--color-bg);
 }
-.upg .uicon { font-size: 18px; text-align: center; }
+/* Drawn, not typed: Art.drawUpgrade puts a canvas in here. */
+.upg .uicon { display: grid; place-items: center; }
+.upg .uicon canvas { display: block; }
 .upg b { display: block; font-size: 12px; font-weight: 700; }
 .upg small { display: block; font-size: 9.5px; color: var(--color-neutral-600); margin-top: 1px; }
 .pips { display: flex; gap: 3px; margin-top: 5px; }
@@ -1144,6 +1146,7 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
   font-size: 22px;
   background: var(--color-accent-100);
 }
+.sku-badge canvas { display: block; }
 .sku b { display: block; font-size: 12.5px; font-weight: 700; }
 .sku small { display: block; font-size: 10px; line-height: 1.35; color: var(--color-neutral-600); margin-top: 1px; }
 

@@ -2154,6 +2154,30 @@
     showModal(el.dayEnd);
   }
 
+  /*
+   * The five things the shop sells, drawn with the same pen as the food.
+   *
+   * They were emoji, which made the shop the one screen where the game's own
+   * hand disappeared and the platform's font took over - and a frying pan next
+   * to a flame does not say "one more burner" next to "a wider perfect
+   * window" to anybody. Art.drawUpgrade splits those two into a flame and a
+   * single burner plate, so the icon alone carries the difference.
+   */
+  function upgradeIcon(host, id, size) {
+    if (!host || !Art.drawUpgrade) return;
+    var dpr = Math.min(window.devicePixelRatio || 1, 3);
+    var cv = document.createElement('canvas');
+    cv.width = Math.round(size * dpr);
+    cv.height = Math.round(size * dpr);
+    cv.style.width = size + 'px';
+    cv.style.height = size + 'px';
+    host.appendChild(cv);
+    var g = cv.getContext('2d');
+    if (!g) return;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    Art.drawUpgrade(g, id, size, size);
+  }
+
   function renderShop() {
     el.walletText.textContent = Core.money(S.money);
     el.nextDayNum.textContent = S.day + 1;
@@ -2222,7 +2246,7 @@
       for (var i = 0; i < u.max; i++) pips += '<i class="' + (i < lvl ? 'on' : '') + '"></i>';
       var note = (cost !== null && !gains) ? '<small>The kitchen is already full</small>' : '';
       row.innerHTML =
-        '<span class="uicon">' + u.icon + '</span>' +
+        '<span class="uicon"></span>' +
         '<div><b>' + u.name + '</b><small>' + u.desc + '</small>' + note +
         '<div class="pips">' + pips + '</div></div>';
       var btn = document.createElement('button');
@@ -2240,6 +2264,7 @@
       }
       row.appendChild(btn);
       el.upgradeList.appendChild(row);
+      upgradeIcon(row.querySelector('.uicon'), u.id, 28);
     });
   }
 
@@ -2503,9 +2528,11 @@
     } else {
       var badge = document.createElement('span');
       badge.className = 'sku-badge';
-      var u = p.kind === 'gear' ? Core.UPGRADES.filter(function (x) { return x.id === p.track; })[0] : null;
-      badge.textContent = u ? u.icon : '💵';
       row.appendChild(badge);
+      // Gear is an upgrade, so it wears that upgrade's own icon. A till top-up
+      // is not one and has no drawing, so it keeps a glyph.
+      if (p.kind === 'gear') upgradeIcon(badge, p.track, 34);
+      else badge.textContent = '💵';
     }
 
     var text = document.createElement('div');
