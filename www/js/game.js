@@ -136,6 +136,9 @@
   var S = {
     screen: 'title',
     day: 1, bestDay: 1, money: 0, levels: {}, muted: false,
+    // What real money bought, and which of it the cook is wearing. Deliberately
+    // outside everything a new shop resets: a purchase is not progress.
+    owned: [], skin: 'classic',
     fx: Core.effects({}),
 
     hearts: 5, sales: 0, tips: 0, served: 0, walked: 0, perfect: 0,
@@ -212,7 +215,9 @@
   /* ----------------------------------------------------------- persistence */
   function save() {
     var blob = {
-      day: S.day, bestDay: S.bestDay, money: S.money, levels: S.levels, muted: S.muted, lifetime: S.lifetime || 0
+      day: S.day, bestDay: S.bestDay, money: S.money, levels: S.levels,
+      owned: S.owned || [], skin: S.skin || 'classic',
+      muted: S.muted, lifetime: S.lifetime || 0
     };
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(blob));
@@ -231,7 +236,15 @@
     } catch (e) { return null; }
   }
 
-  function wipe() { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} }
+  /*
+   * Clears the run. Purchases are not part of the run - a player who starts a
+   * brand new shop has not asked for a refund - so the receipts go straight
+   * back to disk rather than waiting for the next autosave to notice.
+   */
+  function wipe() {
+    try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+    if ((S.owned && S.owned.length) || (S.skin && S.skin !== 'classic')) save();
+  }
 
   /* --------------------------------------------------------------- palette */
   /* The app chrome is dark; the kitchen itself is a bright little room lit
@@ -762,7 +775,7 @@
     S.day = day;
     S.cfg = Core.dayConfig(day);
     S.rent = Core.dayGoal(day);
-    S.fx = Core.effects(S.levels, day);
+    S.fx = Core.effects(activeLevels(), day);
     S.menu = Core.dayMenu(day);
     S.sections = Core.menuSections(day);
     reserveBoard(day);
@@ -1750,6 +1763,9 @@
       }
       Art.drawChef(ctx, c.x, c.y, cs, {
         face: c.face, bob: c.phase, blink: c.blink, hop: c.hop,
+        // The second cook in co-op keeps the house whites, so two players are
+        // still telling each other apart at 44px.
+        skin: i === S.me ? S.skin : 'classic',
         // hands stay empty while the item is still in the air
         carry: (c.holding && !flying)
           ? function (g, cx, baseY, maxW, maxH) {
@@ -2189,8 +2205,8 @@
 
     // What tomorrow's kitchen and rush will actually look like, so the shop
     // is a decision and not a guess.
-    var today = Core.effects(S.levels, S.day);
-    var next = Core.effects(S.levels, S.day + 1);
+    var today = Core.effects(activeLevels(), S.day);
+    var next = Core.effects(activeLevels(), S.day + 1);
     var cfg = Core.dayConfig(S.day + 1);
     function grew(a, b) { return b > a ? ' <em>+1</em>' : ''; }
     el.nextKitchen.innerHTML =
@@ -2232,8 +2248,9 @@
     }
 
     el.upgradeList.innerHTML = '';
+    var active = activeLevels();
     Core.UPGRADES.forEach(function (u) {
-      var lvl = S.levels[u.id] || 0;
+      var lvl = active[u.id] || 0;
       var cost = Core.upgradeCost(u.id, lvl);
       var row = document.createElement('div');
       row.className = 'upg';
@@ -2430,17 +2447,240 @@
   }
   var leaveCoop = endCoop;   // older name, still used by the pause menu
 
+  /*
+   * Every level the cook actually has, earned and paid folded together and
+   * capped by the track. Nothing outside this function should read S.levels to
+   * decide what the kitchen can do - S.levels is only the part that was bought
+   * with takings, which is what the shop spends into.
+   */
+  function activeLevels() { return Core.levelsWithGear(S.levels, S.owned); }
+
   function buyUpgrade(id) {
-    var lvl = S.levels[id] || 0;
+    var lvl = activeLevels()[id] || 0;
     var cost = Core.upgradeCost(id, lvl);
     if (cost === null || S.money < cost) return;
     S.money -= cost;
-    S.levels[id] = lvl + 1;
-    S.fx = Core.effects(S.levels, S.day);
+    S.levels[id] = (S.levels[id] || 0) + 1;
+    S.fx = Core.effects(activeLevels(), S.day);
     save();
     Sfx.upgrade();
     buzz(20);
     renderShop();
+  }
+
+  /* ------------------------------------------------------- the outfitters */
+  /*
+   * The paid shop. Three product shapes and no fourth, because the fourth one
+   * is always the one that quietly moves a number the difficulty simulation
+   * reads - see the note over Core.STORE.
+   *
+   *   skin  swaps the cook's eleven colours. Bought once, worn whenever.
+   *   gear  hands over a level in an upgrade track that already exists, and
+   *         stops at that track's existing max. Sooner, never bigger.
+   *   till  in-game cash. Repeatable, so it is spent rather than owned.
+   *
+   * Prices are not written down anywhere in this project. The platform store
+   * owns them per territory, per tax rule, per promotion, so the card shows
+   * whatever Billing hands back and falls through to a tier indicator when
+   * nothing has arrived - which is also what a build with no billing wired up
+   * shows, honestly labelled.
+   */
+  var storeTab = 'style';
+  var storeBusy = null;
+
+  function owns(id) { return (S.owned || []).indexOf(id) >= 0; }
+
+  function openStore() {
+    storeTab = 'style';
+    var radios = el.storeTabs ? el.storeTabs.querySelectorAll('input') : [];
+    for (var i = 0; i < radios.length; i++) radios[i].checked = radios[i].value === 'style';
+    showModal(el.store);
+    renderStore();
+    Billing.ready().then(renderStore);
+  }
+
+  /** A cook standing in the given outfit, for a card. */
+  /*
+   * Framed as a bust, feet below the card. A whole cook at 52px is four pixels
+   * of trouser and a white blob - and the whole product is the colour of the
+   * jacket and the scarf, which is the part that has to be big.
+   */
+  function skinPreview(cv, skinId) {
+    var dpr = Math.min(window.devicePixelRatio || 1, 3);
+    var W = 56, H = 56;
+    cv.width = Math.round(W * dpr);
+    cv.height = Math.round(H * dpr);
+    var g = cv.getContext('2d');
+    if (!g) return;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.save();
+    g.beginPath(); g.rect(0, 0, W, H); g.clip();
+    Art.drawChef(g, W / 2, H * 1.22, H * 1.30, { face: 1, skin: skinId });
+    g.restore();
+  }
+
+  function storeCard(p) {
+    var row = document.createElement('div');
+    row.className = 'sku';
+
+    if (p.kind === 'skin') {
+      var art = document.createElement('canvas');
+      art.className = 'sku-art';
+      row.appendChild(art);
+      skinPreview(art, p.skin);
+      if (S.skin === p.skin) row.classList.add('worn');
+    } else {
+      var badge = document.createElement('span');
+      badge.className = 'sku-badge';
+      var u = p.kind === 'gear' ? Core.UPGRADES.filter(function (x) { return x.id === p.track; })[0] : null;
+      badge.textContent = u ? u.icon : '💵';
+      row.appendChild(badge);
+    }
+
+    var text = document.createElement('div');
+    var name = document.createElement('b');
+    name.textContent = p.name;
+    var desc = document.createElement('small');
+    desc.textContent = p.desc;
+    text.appendChild(name);
+    text.appendChild(desc);
+
+    // Three coins, filled to the product's tier. Stands in for a price until
+    // the platform hands one over, and says "this one costs more" either way.
+    var tier = document.createElement('div');
+    tier.className = 'tier';
+    for (var t = 0; t < 3; t++) {
+      var pip = document.createElement('i');
+      if (t < p.tier) pip.className = 'on';
+      tier.appendChild(pip);
+    }
+    text.appendChild(tier);
+    row.appendChild(text);
+
+    var btn = document.createElement('button');
+    btn.className = 'sku-buy';
+    var price = Billing.priceOf(p.sku);
+    if (storeBusy === p.id) {
+      btn.textContent = '···';
+      btn.disabled = true;
+      btn.classList.add('busy');
+    } else if (p.kind === 'skin' && owns(p.id)) {
+      if (S.skin === p.skin) {
+        btn.textContent = 'WORN';
+        btn.disabled = true;
+        btn.classList.add('own');
+      } else {
+        btn.textContent = 'WEAR';
+        btn.classList.add('own');
+        btn.addEventListener('click', function () { wearSkin(p.skin); });
+      }
+    } else if (p.kind === 'gear' && owns(p.id)) {
+      btn.textContent = 'OWNED';
+      btn.disabled = true;
+      btn.classList.add('own');
+    } else {
+      btn.textContent = price || 'GET';
+      btn.addEventListener('click', function () { buyProduct(p.id); });
+    }
+    row.appendChild(btn);
+    return row;
+  }
+
+  function renderStore() {
+    if (!el.storeList) return;
+    el.storeList.innerHTML = '';
+    Core.STORE.forEach(function (p) {
+      var mine = p.kind === 'skin' ? 'style' : 'kitchen';
+      if (mine !== storeTab) return;
+      el.storeList.appendChild(storeCard(p));
+    });
+
+    if (el.storeNote) {
+      el.storeNote.textContent = Billing.sandbox
+        ? 'No billing is wired up in this build, so nothing here charges anything ' +
+          'and nothing here is a real price. Prices come from the store itself.'
+        : 'Prices are set by the store and shown in your currency. Gear and skins ' +
+          'are bought once; till top-ups can be bought again.';
+    }
+    if (el.storeRestore) el.storeRestore.disabled = Billing.sandbox;
+  }
+
+  function wearSkin(skinId) {
+    if (Core.skinsOwned(S.owned).indexOf(skinId) < 0) return;
+    S.skin = skinId;
+    save();
+    Sfx.tap();
+    buzz(10);
+    renderStore();
+  }
+
+  /*
+   * Hand the sale to the billing layer and only change anything if it says the
+   * sale happened. A cancelled purchase is a normal outcome and says nothing -
+   * a player who backed out does not need to be told they backed out.
+   */
+  function buyProduct(id) {
+    var p = Core.storeItem(id);
+    if (!p || storeBusy) return;
+    storeBusy = id;
+    renderStore();
+    Billing.buy(p.sku).then(function (res) {
+      storeBusy = null;
+      if (!res.ok) {
+        if (el.storeNote && res.reason !== 'cancelled') {
+          el.storeNote.textContent = res.reason === 'unavailable'
+            ? 'The store is not reachable right now. Nothing was charged.'
+            : 'That did not go through. Nothing was charged.';
+        }
+        renderStore();
+        return;
+      }
+      return Billing.verify(res.receipt).then(function (good) {
+        if (good) grant(p);
+        renderStore();
+      });
+    }).catch(function () {
+      storeBusy = null;
+      renderStore();
+    });
+  }
+
+  /** Apply a product the billing layer says is paid for. */
+  function grant(p) {
+    if (p.kind === 'till') {
+      S.money += p.cents;                     // repeatable, so never "owned"
+    } else if (!owns(p.id)) {
+      S.owned.push(p.id);
+      // A skin you just bought is a skin you want to be wearing.
+      if (p.kind === 'skin') S.skin = p.skin;
+      if (p.kind === 'gear') S.fx = Core.effects(activeLevels(), S.day);
+    }
+    save();
+    Sfx.upgrade();
+    buzz(20);
+    if (S.screen === 'shop') renderShop();     // the till and the pips just moved
+  }
+
+  /** "I bought this on my old phone." Asks the platform, merges what it says. */
+  function restorePurchases() {
+    if (el.storeNote) el.storeNote.textContent = 'Checking with the store…';
+    Billing.restore().then(function (skus) {
+      var added = 0;
+      skus.forEach(function (sku) {
+        Core.STORE.forEach(function (p) {
+          if (p.sku !== sku || p.kind === 'till' || owns(p.id)) return;
+          S.owned.push(p.id);
+          added++;
+        });
+      });
+      if (added) { S.fx = Core.effects(activeLevels(), S.day); save(); }
+      renderStore();
+      if (el.storeNote) {
+        el.storeNote.textContent = added
+          ? 'Put back ' + added + (added === 1 ? ' purchase.' : ' purchases.')
+          : 'Nothing to put back on this account.';
+      }
+    });
   }
 
   /* ------------------------------------------------------------- co-op sync
@@ -2759,7 +2999,7 @@
       Bgm.start();
       hideModal(el.start);
       S.day = 1; S.money = 0; S.levels = {}; S.bestDay = 1;
-      wipe();
+      wipe();          // S.owned and S.skin survive on purpose - they were paid for
       startDay(1);
     });
     el.continueBtn.addEventListener('click', function () {
@@ -2784,10 +3024,19 @@
     });
     el.wipeBtn.addEventListener('click', function () {
       wipe();
-      S.day = 1; S.money = 0; S.levels = {}; S.bestDay = 1;
+      S.day = 1; S.money = 0; S.levels = {}; S.bestDay = 1;   // not S.owned
       hideModal(el.over);
       startDay(1);
     });
+    el.storeBtn.addEventListener('click', openStore);
+    el.shopStoreBtn.addEventListener('click', openStore);
+    el.storeClose.addEventListener('click', function () { hideModal(el.store); });
+    el.storeRestore.addEventListener('click', restorePurchases);
+    el.storeTabs.addEventListener('change', function (e) {
+      storeTab = (e.target && e.target.value) || 'style';
+      renderStore();
+    });
+
     el.pauseBtn.addEventListener('click', function () { setPaused(true); });
     el.resumeBtn.addEventListener('click', function () { setPaused(false); });
     el.restartBtn.addEventListener('click', function () {
@@ -2834,12 +3083,19 @@
       el.accountNote.textContent = 'Loading…';
       Net.claim(code).then(function (res) {
         if (res.error) { el.accountNote.textContent = res.error; return; }
-        if (res.save) {
-          S.day = res.save.day || 1;
-          S.bestDay = res.save.bestDay || S.day;
-          S.money = res.save.money || 0;
-          S.levels = res.save.levels || {};
-          S.fx = Core.effects(S.levels, S.day);
+        // Through the same door as every other save. This one arrives over the
+        // network rather than off disk, which is more reason to run it through
+        // the rules, not less - and it now carries entitlements.
+        var claimed = res.save && Core.sanitiseSave(res.save);
+        if (claimed) {
+          S.day = claimed.day;
+          S.bestDay = claimed.bestDay || S.day;
+          S.money = claimed.money || 0;
+          S.levels = claimed.levels || {};
+          S.owned = claimed.owned || [];
+          S.skin = claimed.skin || 'classic';
+          S.lifetime = Math.max(S.lifetime || 0, claimed.lifetime || 0);
+          S.fx = Core.effects(activeLevels(), S.day);
           save();
           el.continueBtn.hidden = false;
           el.continueDay.textContent = S.day;
@@ -2980,6 +3236,8 @@
       'account', 'nameInput', 'nameSave', 'makeCodeBtn', 'codeOut',
       'claimInput', 'claimBtn', 'accountNote', 'accountClose',
       'coop', 'hostBtn', 'roomOut', 'joinInput', 'joinBtn', 'coopNote', 'coopClose',
+      'store', 'storeTabs', 'storeList', 'storeNote', 'storeRestore', 'storeClose', 'storeBtn',
+      'shopStoreBtn',
       'shop', 'walletText', 'unlockBox', 'unlockList', 'upgradeList', 'nextRent', 'nextKitchen',
       'nextDayBtn', 'nextDayNum', 'over', 'overTitle', 'overReason', 'overDay',
       'overBest', 'retryBtn', 'retryDay', 'wipeBtn'
@@ -2991,9 +3249,11 @@
       S.bestDay = saved.bestDay || saved.day;
       S.money = saved.money || 0;
       S.levels = saved.levels || {};
+      S.owned = saved.owned || [];
+      S.skin = saved.skin || 'classic';
       S.muted = !!saved.muted;
       S.lifetime = saved.lifetime || 0;
-      S.fx = Core.effects(S.levels, S.day);
+      S.fx = Core.effects(activeLevels(), S.day);
       el.continueBtn.hidden = false;
       el.continueDay.textContent = saved.day;
     }
@@ -3030,8 +3290,13 @@
         S.bestDay = Math.max(S.bestDay, cloud.bestDay);
         S.money = cloud.money;
         S.levels = cloud.levels;
+        // Purchases merge rather than replace: a device that bought a skin
+        // offline must not lose it to a cloud save that predates the sale.
+        (cloud.owned || []).forEach(function (id) {
+          if (S.owned.indexOf(id) < 0) S.owned.push(id);
+        });
         S.lifetime = Math.max(S.lifetime || 0, cloud.lifetime);
-        S.fx = Core.effects(S.levels, S.day);
+        S.fx = Core.effects(activeLevels(), S.day);
         save();
         el.continueBtn.hidden = false;
         el.continueDay.textContent = S.day;

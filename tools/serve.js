@@ -81,7 +81,7 @@ var RAF_SHIM = '<script>(function(){' +
   'g.fillStyle=getComputedStyle(document.body).backgroundColor;g.fillRect(0,0,W,H);' +
   'var stage=document.getElementById("stage");if(stage)paste(stage);' +
   'g.drawImage(img,0,0);' +
-  'var top=document.querySelector(".modal.show");' +
+  'var ms=document.querySelectorAll(".modal.show"),top=ms.length?ms[ms.length-1]:null;' +
   // A ticket canvas behind an open sheet is not on top of anything - only the
   // canvases inside the sheet are.
   'document.querySelectorAll("canvas").forEach(function(cn){' +

@@ -579,6 +579,94 @@
   var STATION_CAP = 5;
   var MAX_MONEY = 1e12;      // a bound on a tampered save, not on a good run
 
+  /* --------------------------------------------------------------- store */
+  /*
+   * What real money can buy, and - more importantly - what it deliberately
+   * cannot.
+   *
+   * The 25-day curve in this file was not guessed; it was simulated, and there
+   * are tests that fail if it drifts. So nothing sold here invents a new
+   * ability or raises a ceiling. There are exactly three shapes:
+   *
+   *   skin   pure cosmetic. The cook is drawn from an eleven-colour palette,
+   *          so an outfit costs a palette rather than a sprite sheet. No
+   *          effect on anything the simulation measures.
+   *
+   *   gear   grants a level in an upgrade track that already exists, and stops
+   *          at that track's existing `max`. Buying Non-slip Clogs is buying
+   *          the Running Shoes level you would have earned - sooner, not
+   *          bigger. `effects()` is unchanged, so the ceiling the tests assert
+   *          is the same ceiling. A player who bought everything reaches the
+   *          top of a track a few days early and then the game is the game.
+   *
+   *   till   in-game cash. Same argument: the shop's total is fixed and the
+   *          station cap is five, so money buys pace and nothing else.
+   *
+   * That is the line. If something ever needs to be sold that moves a number
+   * the simulation reads, it has to be simulated first - see the fryer note in
+   * the README for what that costs.
+   *
+   * `sku` is what the platform store knows the product as. Nothing in here is
+   * a price: prices come from the billing layer, because the store owns them
+   * per territory and a hard-coded "$2.99" is wrong somewhere on day one.
+   */
+  var STORE = [
+    { id: 'skin_garden', kind: 'skin', skin: 'garden', name: 'Garden Line',
+      desc: 'Sage whites and an olive apron', sku: 'mrb.skin.garden', tier: 1 },
+    { id: 'skin_berry', kind: 'skin', skin: 'berry', name: 'Milkshake',
+      desc: 'For the counter, not the grill', sku: 'mrb.skin.berry', tier: 1 },
+    { id: 'skin_head', kind: 'skin', skin: 'head', name: 'Head Chef',
+      desc: 'Cocoa and brass. You run this line', sku: 'mrb.skin.head', tier: 2 },
+    { id: 'skin_night', kind: 'skin', skin: 'night', name: 'Night Shift',
+      desc: 'Charcoal blacks, one warm scarf', sku: 'mrb.skin.night', tier: 2 },
+    { id: 'skin_gold', kind: 'skin', skin: 'gold', name: 'Golden Toque',
+      desc: 'The top of the menu', sku: 'mrb.skin.gold', tier: 3 },
+
+    { id: 'gear_clogs', kind: 'gear', track: 'shoes', name: 'Non-slip Clogs',
+      desc: 'Skips you a Running Shoes level', sku: 'mrb.gear.clogs', tier: 2 },
+    { id: 'gear_thermo', kind: 'gear', track: 'grill', name: 'Probe Thermometer',
+      desc: 'Skips you a Pro Grill level', sku: 'mrb.gear.thermo', tier: 2 },
+    { id: 'gear_awning', kind: 'gear', track: 'sign', name: 'Striped Awning',
+      desc: 'Skips you a Neon Sign level', sku: 'mrb.gear.awning', tier: 2 },
+
+    { id: 'till_small', kind: 'till', cents: 15000, name: 'Float',
+      desc: 'Puts $150.00 in the till', sku: 'mrb.till.small', tier: 1, repeat: true },
+    { id: 'till_big', kind: 'till', cents: 60000, name: "Week's Takings",
+      desc: 'Puts $600.00 in the till', sku: 'mrb.till.big', tier: 3, repeat: true }
+  ];
+
+  var STORE_BY_ID = {};
+  STORE.forEach(function (p) { STORE_BY_ID[p.id] = p; });
+
+  /**
+   * The upgrade levels a set of purchases is worth, folded into whatever the
+   * player has earned. Capped by the track's own max, which is the whole point:
+   * paid levels and earned levels land in the same bucket and that bucket does
+   * not get bigger.
+   */
+  function levelsWithGear(levels, owned) {
+    var out = {};
+    Object.keys(levels || {}).forEach(function (k) { out[k] = levels[k]; });
+    (owned || []).forEach(function (id) {
+      var p = STORE_BY_ID[id];
+      if (!p || p.kind !== 'gear') return;
+      var u = UPGRADE_BY_ID[p.track];
+      if (!u) return;
+      out[p.track] = Math.min((out[p.track] || 0) + 1, u.max);
+    });
+    return out;
+  }
+
+  /** Every skin the player may wear, free one first. */
+  function skinsOwned(owned) {
+    var list = ['classic'];
+    (owned || []).forEach(function (id) {
+      var p = STORE_BY_ID[id];
+      if (p && p.kind === 'skin') list.push(p.skin);
+    });
+    return list;
+  }
+
   /**
    * How long the shift runs, in seconds.
    *
@@ -691,12 +779,30 @@
       });
     }
 
+    /*
+     * Entitlements go through the same door as everything else: only ids this
+     * build actually sells, deduplicated, and a chosen skin only if it is one
+     * the player owns. This is tidiness, not security - a local save is the
+     * player's file. What stops a forged purchase mattering is the receipt
+     * check on the server; see billing.js.
+     */
+    var owned = [];
+    if (Array.isArray(raw.owned)) {
+      raw.owned.forEach(function (id) {
+        if (STORE_BY_ID[id] && owned.indexOf(id) < 0) owned.push(id);
+      });
+    }
+    var skins = skinsOwned(owned);
+    var skin = skins.indexOf(raw.skin) >= 0 ? raw.skin : 'classic';
+
     return {
       day: day,
       bestDay: Math.floor(num(raw.bestDay, day, 0, MAX_DAY)),
       money: Math.floor(num(raw.money, 0, 0, MAX_MONEY)),
       lifetime: Math.floor(num(raw.lifetime, 0, 0, MAX_MONEY)),
       levels: levels,
+      owned: owned,
+      skin: skin,
       muted: !!raw.muted
     };
   }
@@ -745,6 +851,10 @@
     GROUPS: GROUPS,
     CUSTOMERS: CUSTOMERS,
     UPGRADES: UPGRADES,
+    STORE: STORE,
+    storeItem: function (id) { return STORE_BY_ID[id] || null; },
+    levelsWithGear: levelsWithGear,
+    skinsOwned: skinsOwned,
     COOK_TIME: COOK_TIME,
     BURN_TIME: BURN_TIME,
     BASE_WINDOW: BASE_WINDOW,

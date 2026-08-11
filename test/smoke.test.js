@@ -111,12 +111,14 @@ var elements = { stage: stage };
   'shop', 'walletText', 'unlockBox', 'unlockList', 'upgradeList', 'nextRent', 'nextKitchen',
   'nextDayBtn', 'nextDayNum', 'over', 'overTitle', 'overReason', 'overDay',
   'overBest', 'retryBtn', 'retryDay', 'wipeBtn',
-  'clockText', 'clockFill', 'clockBox'
+  'clockText', 'clockFill', 'clockBox',
+  'store', 'storeTabs', 'storeList', 'storeNote', 'storeRestore', 'storeClose',
+  'storeBtn', 'shopStoreBtn'
 ].forEach(function (id) { elements[id] = makeEl('div'); });
 
 // Mirror index.html: the flow sheets carry the `hidden` attribute.
 ['dayEnd', 'shop', 'over', 'pause', 'continueBtn', 'unlockBox',
-  'leaderboard', 'account', 'coop', 'codeOut', 'roomOut', 'how'].forEach(function (id) {
+  'leaderboard', 'account', 'coop', 'codeOut', 'roomOut', 'how', 'store'].forEach(function (id) {
   elements[id].hidden = true;
 });
 
@@ -193,6 +195,9 @@ var Core = require('../www/js/core.js');
 global.Core = Core;
 require('../www/js/art.js');
 require('../www/js/audio.js');
+// The real billing seam, sandbox adapter and all - so the store screen is
+// exercised against what actually ships rather than a stub of it.
+global.Billing = require('../www/js/billing.js');
 require('../www/js/game.js');
 
 var MB = global.MrBurger;

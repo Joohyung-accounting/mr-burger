@@ -1080,10 +1080,63 @@
    * bigger than the head. Now drawn with the same wobbling pen as the food, so
    * the cook and the burger look like they came out of one sketchbook.
    *
-   * opts: { face, bob, blink, hop, carry }
+   * opts: { face, bob, blink, hop, carry, skin }
    */
+  /*
+   * What a skin actually is: eleven colours. The cook is drawn, not blitted, so
+   * a new outfit costs a palette rather than a sprite sheet - which is the only
+   * reason a zero-asset project can sell them at all.
+   *
+   * `classic` is what the cook has always worn and stays the free one; the rest
+   * are sold. They are deliberately built from the same warm family the kitchen
+   * is (terracotta, sage, cream) with one deep outlier, so a paid cook still
+   * looks like they work here rather than like they wandered in from a
+   * different game.
+   */
+  var CHEF_SKINS = {
+    classic: {
+      trousers: '#7a5a8a', whites: '#fffaf0', whitesHatch: '#c3ac91',
+      scarf: '#ef7d6b', buttons: '#a98d70',
+      skin: '#f7cfa4', skinHatch: '#c99a6d', cheek: '#f4948a',
+      toqueBand: '#fffdf7', toquePuff: '#ffffff', toqueHatch: '#c9b9a4'
+    },
+    garden: {                                   // sage, the kitchen's own second voice
+      trousers: '#56633f', whites: '#e6efd2', whitesHatch: '#aebf92',
+      scarf: '#8fa073', buttons: '#728157',
+      skin: '#f2c79a', skinHatch: '#c08f61', cheek: '#e8907f',
+      toqueBand: '#f7faf0', toquePuff: '#ffffff', toqueHatch: '#ccdbb2'
+    },
+    head: {                                     // the one in charge: cocoa and brass
+      trousers: '#402310', whites: '#f6e3c2', whitesHatch: '#b28f63',
+      scarf: '#c67139', buttons: '#8c491a',
+      skin: '#e0ad7c', skinHatch: '#a9754a', cheek: '#d97b62',
+      toqueBand: '#fff6e6', toquePuff: '#fffaf0', toqueHatch: '#c9a97e'
+    },
+    night: {                                    // the deep outlier - a late shift
+      trousers: '#232028', whites: '#4a4753', whitesHatch: '#2e2b35',
+      scarf: '#f6a06b', buttons: '#8f8a99',
+      skin: '#d9a97e', skinHatch: '#9d7048', cheek: '#c9705c',
+      toqueBand: '#5d5a68', toquePuff: '#6d6a78', toqueHatch: '#3c3945'
+    },
+    berry: {                                    // the milkshake counter
+      trousers: '#a85f74', whites: '#ffe4ea', whitesHatch: '#e4b5be',
+      scarf: '#d2543c', buttons: '#c98a97',
+      skin: '#f7cfa4', skinHatch: '#c99a6d', cheek: '#ee8f92',
+      toqueBand: '#fff7f8', toquePuff: '#ffffff', toqueHatch: '#eec4cc'
+    },
+    gold: {                                     // the top of the menu
+      trousers: '#5c4415', whites: '#fff0c8', whitesHatch: '#cbab63',
+      scarf: '#b8860b', buttons: '#9c7c2a',
+      skin: '#f2c79a', skinHatch: '#bd8b57', cheek: '#e69076',
+      toqueBand: '#fff5d6', toquePuff: '#fffdf2', toqueHatch: '#d9bd7a'
+    }
+  };
+
+  function skinOf(id) { return CHEF_SKINS[id] || CHEF_SKINS.classic; }
+
   function drawChef(ctx, x, y, s, opts) {
     opts = opts || {};
+    var K = skinOf(opts.skin);
     var face = opts.face >= 0 ? 1 : -1;
     var swing = Math.sin((opts.bob || 0) * TAU);
     var hop = opts.hop || 0;
@@ -1116,36 +1169,36 @@
 
     // legs
     ink(ctx, rectPts(x - s * 0.15 + swing * s * 0.085, cy - s * 0.16, s * 0.12, s * 0.16, s * 0.05, s * 0.006, sd),
-        '#7a5a8a', { lw: lw * 0.9, off: s * 0.006, seed: sd });
+        K.trousers, { lw: lw * 0.9, off: s * 0.006, seed: sd });
     ink(ctx, rectPts(x + s * 0.03 - swing * s * 0.085, cy - s * 0.16, s * 0.12, s * 0.16, s * 0.05, s * 0.006, sd + 2),
-        '#7a5a8a', { lw: lw * 0.9, off: s * 0.006, seed: sd + 2 });
+        K.trousers, { lw: lw * 0.9, off: s * 0.006, seed: sd + 2 });
 
     // chef whites
     var bw = s * 0.44, bh = s * 0.32;
     var body = rectPts(x - bw / 2, cy - s * 0.46, bw, bh, s * 0.14, s * 0.008, sd + 4);
-    ink(ctx, body, '#fffaf0', { lw: lw, off: s * 0.007, seed: sd + 4 });
-    hatch(ctx, body, '#c3ac91', sd + 4, { n: 4, alpha: 0.28, gap: s * 0.035 });
+    ink(ctx, body, K.whites, { lw: lw, off: s * 0.007, seed: sd + 4 });
+    hatch(ctx, body, K.whitesHatch, sd + 4, { n: 4, alpha: 0.28, gap: s * 0.035 });
 
     // neckerchief
     ink(ctx, rectPts(x - s * 0.13, cy - s * 0.475, s * 0.26, s * 0.075, s * 0.032, s * 0.005, sd + 6),
-        '#ef7d6b', { lw: lw * 0.85, off: s * 0.005, seed: sd + 6 });
+        K.scarf, { lw: lw * 0.85, off: s * 0.005, seed: sd + 6 });
 
     // buttons
-    ink(ctx, ellPts(x, cy - s * 0.33, s * 0.020, s * 0.020, 8, s * 0.003, sd + 8), null, { lw: lw * 0.7, line: '#a98d70', lineAlpha: 0.7 });
-    ink(ctx, ellPts(x, cy - s * 0.24, s * 0.020, s * 0.020, 8, s * 0.003, sd + 9), null, { lw: lw * 0.7, line: '#a98d70', lineAlpha: 0.7 });
+    ink(ctx, ellPts(x, cy - s * 0.33, s * 0.020, s * 0.020, 8, s * 0.003, sd + 8), null, { lw: lw * 0.7, line: K.buttons, lineAlpha: 0.7 });
+    ink(ctx, ellPts(x, cy - s * 0.24, s * 0.020, s * 0.020, 8, s * 0.003, sd + 9), null, { lw: lw * 0.7, line: K.buttons, lineAlpha: 0.7 });
 
     var handSpread = bw / 2 + s * 0.01, handY = cy - s * 0.30;
 
     // head
     var hy = cy - s * 0.62, hr = s * 0.215;
     var head = blobPts(x, hy, hr, hr, 5, 0.02, 0.9, 20, s * 0.006, sd + 11);
-    ink(ctx, head, '#f7cfa4', { lw: lw, off: s * 0.006, seed: sd + 11 });
-    hatch(ctx, head, '#c99a6d', sd + 11, { n: 3, alpha: 0.22, gap: s * 0.030 });
+    ink(ctx, head, K.skin, { lw: lw, off: s * 0.006, seed: sd + 11 });
+    hatch(ctx, head, K.skinHatch, sd + 11, { n: 3, alpha: 0.22, gap: s * 0.030 });
 
     // rosy cheeks
     ctx.save();
     ctx.globalAlpha = 0.5;
-    ctx.fillStyle = '#f4948a';
+    ctx.fillStyle = K.cheek;
     trace(ctx, ellPts(x - hr * 0.55, hy + hr * 0.28, hr * 0.24, hr * 0.16, 9, s * 0.003, sd + 13)); ctx.fill();
     trace(ctx, ellPts(x + hr * 0.55, hy + hr * 0.28, hr * 0.24, hr * 0.16, 9, s * 0.003, sd + 14)); ctx.fill();
     ctx.restore();
@@ -1176,10 +1229,10 @@
 
     // toque
     ink(ctx, rectPts(x - hr * 0.98, hy - hr * 1.08, hr * 1.96, hr * 0.44, hr * 0.16, s * 0.006, sd + 18),
-        '#fffdf7', { lw: lw, off: s * 0.005, seed: sd + 18 });
+        K.toqueBand, { lw: lw, off: s * 0.005, seed: sd + 18 });
     var puff = blobPts(x, hy - hr * 1.42, hr * 1.10, hr * 0.62, 3, 0.16, 0.6, 22, s * 0.008, sd + 20);
-    ink(ctx, puff, '#ffffff', { lw: lw, off: s * 0.006, seed: sd + 20 });
-    hatch(ctx, puff, '#c9b9a4', sd + 20, { n: 3, alpha: 0.25, gap: s * 0.030 });
+    ink(ctx, puff, K.toquePuff, { lw: lw, off: s * 0.006, seed: sd + 20 });
+    hatch(ctx, puff, K.toqueHatch, sd + 20, { n: 3, alpha: 0.25, gap: s * 0.030 });
 
     if (opts.carry) {
       var carryY = cy - s * 0.05;
@@ -1188,8 +1241,8 @@
       handY = carryY - s * 0.04;
     }
 
-    ink(ctx, ellPts(x - handSpread, handY, s * 0.062, s * 0.062, 12, s * 0.004, sd + 22), '#f7cfa4', { lw: lw * 0.9, seed: sd + 22 });
-    ink(ctx, ellPts(x + handSpread, handY, s * 0.062, s * 0.062, 12, s * 0.004, sd + 23), '#f7cfa4', { lw: lw * 0.9, seed: sd + 23 });
+    ink(ctx, ellPts(x - handSpread, handY, s * 0.062, s * 0.062, 12, s * 0.004, sd + 22), K.skin, { lw: lw * 0.9, seed: sd + 22 });
+    ink(ctx, ellPts(x + handSpread, handY, s * 0.062, s * 0.062, 12, s * 0.004, sd + 23), K.skin, { lw: lw * 0.9, seed: sd + 23 });
 
     ctx.restore();
   }
@@ -1928,6 +1981,7 @@
     drawIcon: drawIcon,
     drawPortrait: drawPortrait,
     drawChef: drawChef,
+    CHEF_SKINS: CHEF_SKINS,
     SAUCES: SAUCES,
     has: function (id) { return !!LAYERS[id]; },
     // hand-drawn toolkit, exported so game.js can draw counters, crates and the

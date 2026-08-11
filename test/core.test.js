@@ -860,9 +860,73 @@ test('a nonsense save is cleaned up rather than trusted', function () {
   assert.strictEqual(wild.muted, true);
 
   var good = Core.sanitiseSave({ day: 12, bestDay: 14, money: 5000, lifetime: 90000,
-    levels: { grill: 2, shoes: 1 }, muted: false });
+    levels: { grill: 2, shoes: 1 }, owned: ['skin_night'], skin: 'night', muted: false });
   assert.deepStrictEqual(good, { day: 12, bestDay: 14, money: 5000, lifetime: 90000,
-    levels: { grill: 2, shoes: 1 }, muted: false }, 'a good save should come through untouched');
+    levels: { grill: 2, shoes: 1 }, owned: ['skin_night'], skin: 'night', muted: false },
+    'a good save should come through untouched');
+});
+
+test('a save cannot invent a purchase or wear what it does not own', function () {
+  var s = Core.sanitiseSave({
+    day: 5,
+    owned: ['skin_night', 'skin_night', 'mrb.free.everything', 42, null],
+    skin: 'gold'
+  });
+  assert.deepStrictEqual(s.owned, ['skin_night'],
+    'only ids this build actually sells, and each of them once');
+  assert.strictEqual(s.skin, 'classic',
+    'a skin nobody bought falls back to the free one rather than being worn');
+
+  var bare = Core.sanitiseSave({ day: 1 });
+  assert.deepStrictEqual(bare.owned, [], 'a save from before the store still loads');
+  assert.strictEqual(bare.skin, 'classic');
+});
+
+test('paid gear reaches a track sooner, never further', function () {
+  Core.UPGRADES.forEach(function (u) {
+    var gear = Core.STORE.filter(function (p) { return p.kind === 'gear' && p.track === u.id; });
+    if (!gear.length) return;
+    var ids = gear.map(function (p) { return p.id; });
+
+    // bought on top of a maxed track: still maxed, not one past it
+    var maxed = {};
+    maxed[u.id] = u.max;
+    assert.strictEqual(Core.levelsWithGear(maxed, ids)[u.id], u.max,
+      u.id + ' went past its ceiling once it was paid for');
+
+    // and from nothing, it is worth exactly the levels it sells
+    assert.strictEqual(Core.levelsWithGear({}, ids)[u.id], Math.min(ids.length, u.max));
+  });
+
+  // the effects the simulation reads are the same effects, whichever way the
+  // levels were come by - there is no separate paid multiplier to drift
+  var earned = Core.effects({ shoes: 1 }, 10);
+  var bought = Core.effects(Core.levelsWithGear({}, ['gear_clogs']), 10);
+  assert.deepStrictEqual(bought, earned,
+    'a paid level must be indistinguishable from an earned one');
+});
+
+test('the store only sells cosmetics, existing upgrade levels, and cash', function () {
+  var kinds = {};
+  Core.STORE.forEach(function (p) {
+    kinds[p.kind] = true;
+    assert.ok(p.sku && p.name && p.desc, p.id + ' is missing store copy');
+    if (p.kind === 'gear') {
+      assert.ok(Core.UPGRADES.some(function (u) { return u.id === p.track; }),
+        p.id + ' grants a track that does not exist');
+    }
+    if (p.kind === 'skin') {
+      assert.ok(p.skin && p.skin !== 'classic', p.id + ' must sell a skin, and not the free one');
+    }
+    if (p.kind === 'till') assert.ok(p.cents > 0, p.id + ' has to be worth something');
+  });
+  assert.deepStrictEqual(Object.keys(kinds).sort(), ['gear', 'skin', 'till'],
+    'a fourth kind of product is a balance decision, not a catalogue entry');
+
+  var skus = Core.STORE.map(function (p) { return p.sku; });
+  assert.strictEqual(new Set(skus).size, skus.length, 'two products share a store SKU');
+  var ids = Core.STORE.map(function (p) { return p.id; });
+  assert.strictEqual(new Set(ids).size, ids.length, 'two products share an id');
 });
 
 test('the difficulty ramp does not drift across a full run', function () {

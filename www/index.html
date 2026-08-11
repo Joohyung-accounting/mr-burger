@@ -83,7 +83,12 @@
     </button>
     <button id="playBtn" class="cta">NEW SHIFT</button>
 
+    <!-- Two by two rather than three across: four tiles at 375px leaves 66px
+         each, which is not enough for an icon and a word that fits. -->
     <div class="title-menu">
+      <button id="storeBtn" class="tile">
+        <span class="tile-ico">👕</span><span>Outfit</span>
+      </button>
       <button id="coopBtn" class="tile">
         <span class="tile-ico">👥</span><span>Co-op</span>
       </button>
@@ -225,6 +230,38 @@
   </div>
 </div>
 
+<!-- ----------------------------------------------------- the outfitters --->
+<!--
+  What real money buys. Three shapes only, and the sheet says which is which
+  in as many words: a skin changes nothing but the cook, a piece of gear hands
+  over an upgrade level that already exists and stops at the same ceiling, and
+  a till top-up is in-game cash. Nothing here invents an ability, because the
+  25-day curve underneath is simulated and there are tests that fail if it moves.
+-->
+<div id="store" class="modal" hidden>
+  <div class="sheet wide">
+    <h2 class="sheet-title">THE OUTFITTERS</h2>
+    <p class="lede">Skins are for looking the part. Gear hands you an upgrade
+      level you would have earned anyway — <b>it never goes past the same
+      ceiling.</b></p>
+
+    <div id="storeTabs" class="seg">
+      <label class="seg-opt">
+        <input type="radio" name="storeTab" value="style" checked><span>STYLE</span>
+      </label>
+      <label class="seg-opt">
+        <input type="radio" name="storeTab" value="kitchen"><span>KITCHEN</span>
+      </label>
+    </div>
+
+    <div id="storeList" class="store-list"></div>
+
+    <p id="storeNote" class="note"></p>
+    <button id="storeRestore" class="cta alt">RESTORE PURCHASES</button>
+    <button id="storeClose" class="linkbtn">Back</button>
+  </div>
+</div>
+
 <!-- ------------------------------------------------------------ shop --->
 <div id="shop" class="modal" hidden>
   <div class="sheet wide">
@@ -237,6 +274,7 @@
     <div id="upgradeList" class="upgrade-list"></div>
     <div id="nextKitchen" class="next-kitchen"></div>
     <div class="next-line">Tomorrow's rent <b id="nextRent">$0.00</b></div>
+    <button id="shopStoreBtn" class="linkbtn">Change the cook's outfit</button>
     <button id="nextDayBtn" class="cta">START DAY <span id="nextDayNum">2</span></button>
   </div>
 </div>
@@ -259,6 +297,7 @@
 <script src="js/art.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/net.js"></script>
+<script src="js/billing.js"></script>
 <script src="js/game.js"></script>
 </body>
 </html>
