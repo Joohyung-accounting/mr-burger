@@ -297,11 +297,22 @@
    * the whole counter made each one half a screen wide. Height follows width so
    * a box stays box-shaped whether there are two of them or eight.
    */
-  function crateSize(W) {
+  /*
+   * Crates are width-driven: eight of them have to fit across the line, so how
+   * wide they are is arithmetic and not a choice. Their HEIGHT gets to follow
+   * the room a little, though - at k = 1.85 a 54px box under a 100px cook read
+   * as a doll's shelf. Capped well below k so the boxes deepen without the row
+   * eating the wall behind it.
+   *
+   * compactHeight() calls this without a k on purpose: it is measuring the room
+   * at its most compact in order to work k out in the first place.
+   */
+  function crateSize(W, k) {
     var n = menuLen();
     var gap = Math.min(GAP, (W - 16) * 0.02);
     var w = Math.min((W - 16 - gap * (n - 1)) / n, CRATE_MAX_W);
-    return { w: w, h: clamp(w * 1.02, 54, 92), gap: gap, n: n };
+    var floor = 54 * clamp(k || 1, 1, 1.34);
+    return { w: w, h: clamp(w * 1.02, floor, 92), gap: gap, n: n };
   }
 
   /** The height the room needs at its most compact, before any growing. */
@@ -361,7 +372,17 @@
      * forth on the first day. Steps of 24px absorb that; the canvas itself
      * still tracks the exact size so nothing stretches.
      */
-    var k = clamp(Math.round(H / 24) * 24 / compactHeight(), 0.72, 1.5);
+    /*
+     * The ceiling was 1.5, and a modern phone wants more than that. Once the
+     * shift's slack stopped going to the storefront sign the kitchen got 531px
+     * on a 375x812 handset, which asks for k = 1.76 - so the room stopped
+     * growing at 1.5 and the other 26% became bare checkerboard with a small
+     * cook standing in the middle of it. 1.85 closes that on the phones people
+     * actually hold; a tablet still hits the cap, which is the point of having
+     * one. Slot and plate heights are separately bounded by the band they sit
+     * in, so nothing can grow past its own wall.
+     */
+    var k = clamp(Math.round(H / 24) * 24 / compactHeight(), 0.72, 1.85);
     var gap = GAP * k;
     L.gap = gap;
     L.k = k;
@@ -377,7 +398,7 @@
        stays organised left to right without needing labelled sections. */
     // Crates size themselves off the screen width, not off k - they are already
     // width-constrained, and scaling them again just made them enormous.
-    var box = crateSize(W);
+    var box = crateSize(W, k);
     L.crateW = box.w;
     L.crateH = box.h;
     L.crates = [];
@@ -421,8 +442,22 @@
     L.binW = 52 * k;
     var binRight = !room.plain && room.bin === 'right';
     L.binX = binRight ? W - L.pad - L.binW : L.pad;
-    L.hatchX = binRight ? L.pad : L.pad + L.binW + gap;
-    L.hatchW = W - L.pad * 2 - L.binW - gap;
+
+    /*
+     * A window, not a serving bar.
+     *
+     * The hatch used to take every pixel the bin did not, which on a phone is
+     * about 283 x 46 - a six-to-one letterbox with a little scalloped awning
+     * on top of it, which reads as a comedy prop rather than a window onto a
+     * dining room. Capped at a bit over three times its own height and centred
+     * on the back wall, with the bin in whichever corner the room put it.
+     *
+     * Still an enormous tap target at ~150 x 46; MIN_TAPPABLE is 22.
+     */
+    var freeX = binRight ? L.pad : L.pad + L.binW + gap;
+    var freeW = W - L.pad * 2 - L.binW - gap;
+    L.hatchW = Math.min(freeW, Math.max(L.hatchH * 2.6, W * 0.42));
+    L.hatchX = clamp((W - L.hatchW) / 2, freeX, freeX + freeW - L.hatchW);
 
     // --- the two working walls. Which one is the grill changes every shift.
     L.midTop = L.cratesBottom + 10 * k;

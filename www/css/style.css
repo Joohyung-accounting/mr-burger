@@ -379,15 +379,23 @@ body.no-clock .clock-bar { visibility: hidden; }
   padding: var(--space-1) 0;
 }
 
-/* Full strength between shifts, wallpaper during one. It is the same two words
-   as the title screen, and mid-service it was competing with the board for the
-   one glance a cook has to spare. */
+/*
+ * Between shifts the sign is the storefront and takes the room. During one it
+ * is gone entirely, and the slack it was holding goes to the kitchen instead.
+ *
+ * Faded to 42% it was still ~80px of dead band between the HUD and the board on
+ * an 812px phone - decor nobody looks at while a ticket is running down. The
+ * stage takes almost all of that now (grow 40 against the spacer's 1), and the
+ * spacer keeps just enough grow to absorb whatever is left over once the stage
+ * hits its own max-height - otherwise a tall screen ends up with a hole at the
+ * bottom instead.
+ */
 .shopsign {
   text-align: center;
   line-height: 1;
-  transition: opacity 0.4s ease;
 }
-body:not(.no-clock) .shopsign { opacity: 0.42; }
+body:not(.no-clock) .shopsign { display: none; }
+body:not(.no-clock) #stage { flex-grow: 40; }
 .sign-mr {
   display: block;
   font-family: var(--font-heading);
