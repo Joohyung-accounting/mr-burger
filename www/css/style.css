@@ -98,6 +98,17 @@
   --shadow-md: 0 3px 10px rgba(46, 43, 37, 0.16);
   --shadow-lg: 0 12px 32px rgba(46, 43, 37, 0.22);
 
+  /*
+   * The parts a ticket is made of, named so the board can reserve its height
+   * before a single ticket exists. --order-rows is set per day by game.js.
+   */
+  --tk-face: 24px;
+  --tk-mini: 42px;
+  --tk-row: 11px;
+  --tk-gap: 3px;
+  --tk-bar: 4px;
+  --order-rows: 1;
+
   --safe-t: env(safe-area-inset-top, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
 }
@@ -438,8 +449,30 @@ body:not(.no-clock) .shopsign { opacity: 0.42; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: var(--tk-gap);
   padding: var(--space-1) 2px 5px;
+  /*
+   * Fixed height, empty or full.
+   *
+   * A ticket used to be as tall as its order was long, so the board jumped
+   * from 42px to 165px the instant the first customer arrived - and the
+   * kitchen, which lives on whatever is left, lost a quarter of its height in
+   * one frame. A change that big reads to the size watchdog as a rotation, so
+   * it relaid the whole room immediately and the kitchen visibly snapped
+   * smaller three seconds into every shift.
+   *
+   * The longest order a day can produce is knowable from the day alone, so
+   * game.js reserves it up front and the board never moves again until
+   * tomorrow. The slack inside a short ticket collects above the patience bar,
+   * which is pinned to the bottom either way.
+   */
+  min-height: calc(
+    var(--space-1) + 5px
+    + var(--tk-face) + var(--tk-gap)
+    + var(--tk-mini) + var(--tk-gap)
+    + var(--order-rows) * (var(--tk-row) + 1px) - 1px
+    + var(--tk-gap) + var(--tk-bar)
+  );
   border-radius: var(--radius-md);
   background: var(--color-neutral-100);
   box-shadow: var(--shadow-sm);
@@ -458,8 +491,8 @@ body:not(.no-clock) .shopsign { opacity: 0.42; }
 @keyframes jitter { 0%,100% { transform: translateX(0); } 50% { transform: translateX(1.5px); } }
 
 /* the customer, drawn on a canvas by guestBust in game.js - not an emoji */
-.ticket .who { width: 34px; height: 24px; display: block; }
-.ticket .mini { width: 38px; height: 42px; display: block; }
+.ticket .who { width: 34px; height: var(--tk-face); display: block; }
+.ticket .mini { width: 38px; height: var(--tk-mini); display: block; }
 
 /* ---------------------------------------------------------- what it wants */
 /*
@@ -482,6 +515,12 @@ body:not(.no-clock) .shopsign { opacity: 0.42; }
   align-items: center;
   gap: 3px;
   min-width: 0;
+  /* Deterministic, so the reservation above can be arithmetic rather than a
+     guess at what the line box rounds to on this device. The PLAIN row was
+     inheriting the body's 1.55 and coming out 1.4px taller than a named one,
+     which was enough to move the whole board. */
+  min-height: var(--tk-row);
+  line-height: 1.35;
 }
 
 /* Square, and it stays square. Deliberately not called .chip - the receipt
@@ -1182,8 +1221,10 @@ body.cramped #rotate {
 @media (max-height: 800px) { .shopsign { display: none; } }
 
 @media (max-height: 700px) {
-  .ticket .mini { width: 38px; height: 42px; }
-  .ticket .who { width: 30px; height: 21px; }
+  /* The face crops smaller on a short screen; the mini burger does not - its
+     canvas is 38x42 and squashing the box just distorts the drawing. */
+  :root { --tk-face: 21px; }
+  .ticket .who { width: 30px; }
   #stage { min-height: 220px; }
   #hud { padding: 6px var(--space-3); }
   .title-sheet { padding: var(--space-6) var(--space-4) var(--space-4); }

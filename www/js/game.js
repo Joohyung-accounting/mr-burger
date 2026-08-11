@@ -728,6 +728,30 @@
   }
 
   /* -------------------------------------------------------------- day loop */
+  /**
+   * Tell the board how tall a ticket can get today, before any ticket exists.
+   *
+   * A ticket was as tall as its order was long, so the board went from 42px to
+   * 165px the moment the first customer arrived - and the kitchen, which lives
+   * on whatever is left over, lost a quarter of its height in a single frame.
+   * A jump that size reads to the size watchdog as a rotation, so it relaid the
+   * whole room immediately: three seconds into every shift the kitchen visibly
+   * snapped smaller. It then twitched again each time a longer order landed.
+   *
+   * The longest order a day can produce is knowable from the day alone.
+   * makeOrder() takes at most `maxExtras` distinct extras, and from day 8 it may
+   * add a second patty - which is one more row, because orderList() only counts
+   * patties when there is more than one. Reserve that and the board holds still
+   * until tomorrow, when the shop screen is covering the change anyway.
+   */
+  function reserveBoard(day) {
+    var cfg = Core.dayConfig(day);
+    var rows = cfg.maxExtras + ((day >= 8 && cfg.maxExtras >= 2) ? 1 : 0);
+    try {
+      document.documentElement.style.setProperty('--order-rows', Math.max(1, rows));
+    } catch (e) { /* a stubbed DOM has no style object; the board just flows */ }
+  }
+
   function startDay(day) {
     hideModal(el.dayEnd);
     hideModal(el.shop);
@@ -741,6 +765,7 @@
     S.fx = Core.effects(S.levels, day);
     S.menu = Core.dayMenu(day);
     S.sections = Core.menuSections(day);
+    reserveBoard(day);
 
     S.hearts = Core.START_HEARTS;
     S.sales = 0; S.tips = 0; S.served = 0; S.walked = 0; S.perfect = 0;
@@ -2972,6 +2997,9 @@
       el.continueBtn.hidden = false;
       el.continueDay.textContent = saved.day;
     }
+    // Size the board for the shift the player is about to resume, not for day
+    // one - otherwise it resizes behind the title sheet as that sheet fades.
+    reserveBoard(S.day || 1);
     Sfx.setMuted(S.muted);
     el.pauseSoundBtn.textContent = 'SOUND: ' + (S.muted ? 'OFF' : 'ON');
 
