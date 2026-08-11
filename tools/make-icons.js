@@ -238,10 +238,10 @@ function write(rel, img) {
 }
 
 console.log('\nGenerating assets...');
-write('resources/icon.png', makeIcon(1024));
-write('resources/splash.png', makeSplash(2732));
+write('resources/icon.png', makeIcon(1024, true));
+write('resources/splash.png', makeSplash(2732, true));
 write('resources/splash-dark.png', makeSplash(2732, true));
-write('www/icons/icon-512.png', makeIcon(512));
-write('www/icons/icon-192.png', makeIcon(192));
-write('www/icons/icon-180.png', makeIcon(180));
+write('www/icons/icon-512.png', makeIcon(512, true));
+write('www/icons/icon-192.png', makeIcon(192, true));
+write('www/icons/icon-180.png', makeIcon(180, true));
 console.log('Done.\n');

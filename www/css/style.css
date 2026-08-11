@@ -1,86 +1,73 @@
 /*
  * Mr. Burger — the shell around the canvas.
  *
- * Skinned from the "Organic" design system (claude.ai/design): a cream-and-sand
- * ground, a terracotta accent with sage as a genuine second voice, Caprasimo
- * display over Figtree, 16px radii that grow into pills and soft circular
- * shapes. Every colour, size, radius and shadow below comes from a token —
- * nothing here hard-codes a hex the ramps already carry.
+ * "주문 전표 종이" (order-slip paper), from 주방과 UI 디자인.dc.html.
  *
- * Why light: the kitchen on the canvas was always a bright little room lit from
- * above. The old shell was dark, so the app read as a night arcade with a
- * daylight hole punched in the middle. Cream all the way out makes the whole
- * thing one sunlit corner diner, and the canvas stops looking like a window.
+ * The kitchen is drawn with an ink pen. The menus were not: they were smooth
+ * filled cards, and a smooth card next to a wobbled pen line reads as two
+ * different apps stapled together. So every menu in here is a slip of till
+ * paper — cream stock, torn along a perforation, ink lettering, dashed rules,
+ * hung off a wooden rail and pinned with a bit of tape. The diner behind it
+ * stays dark so the paper floats off it.
+ *
+ * TEETH. The handoff cuts the perforation with a 25-point clip-path. This
+ * draws it instead: a tiled triangle in the paper's own colour, sitting just
+ * under the bottom edge. It is resolution independent, it needs no
+ * regenerating when a sheet changes width, and because it is a real child of
+ * the sheet it picks up the sheet's tilt and its drop-shadow - so the shadow
+ * follows the teeth instead of running straight behind them.
+ *
+ * TYPE. Caprasimo over Figtree, as before: the handoff's mockups are set in Jua
+ * because the handoff is written in Korean, not because the game is. What the
+ * mockups actually specify is ink — heavy letterspaced caps stamped on paper —
+ * and these two do that with the webfonts already loaded.
  */
 
 :root {
-  /* ── Organic: roles ────────────────────────────────────────────────── */
-  --color-bg: #f5ead8;
-  --color-surface: #ebddc5;
-  --color-text: #201e1d;
-  --color-accent: #c67139;
-  --color-accent-2: #7a8a5e;
+  /* ── the diner: everything the paper is not ──────────────────────────── */
+  --bg-0: #150e0c;
+  --bg-1: #2a1a15;
+  --bg-glow: #4a2a1c;
 
-  /* Resolved rather than color-mix()'d: this ships inside an Android WebView
-     and a stale one should still get the right ink. Same values. */
-  --color-divider: rgba(32, 30, 29, 0.16);
-  --color-ink-70: rgba(32, 30, 29, 0.70);
-  --color-ink-55: rgba(32, 30, 29, 0.55);
-  --color-ink-08: rgba(32, 30, 29, 0.08);
-  --color-ink-14: rgba(32, 30, 29, 0.14);
+  /* ── the paper ───────────────────────────────────────────────────────── */
+  --paper: #fdf6e6;
+  --paper-2: #f4ead2;          /* a second slip, or a panel on the first */
+  --paper-3: #ece0c6;          /* pressed / inset */
 
-  /* ── Organic: tonal ramps (OKLCH, one shared lightness scale) ───────── */
-  --color-neutral-100: #f9f4ed;
-  --color-neutral-200: #eee7db;
-  --color-neutral-300: #dcd3c4;
-  --color-neutral-400: #c0b6a5;
-  --color-neutral-500: #a19786;
-  --color-neutral-600: #82796a;
-  --color-neutral-700: #645c50;
-  --color-neutral-800: #474238;
-  --color-neutral-900: #2e2b25;
+  /* ── the ink, four weights ───────────────────────────────────────────── */
+  --ink: #3f2a1c;              /* headings, stamped caps */
+  --ink-2: #5c4432;            /* body */
+  --ink-3: #8a7259;            /* secondary */
+  --ink-4: #a08a6e;            /* captions, disabled */
+  --rule: #c4ab8a;             /* the dashed perforation */
+  --rule-soft: #d8c6a6;
+  --rule-faint: #e4d8bd;
 
-  --color-accent-100: #fff2eb;
-  --color-accent-200: #ffe1d0;
-  --color-accent-300: #ffc6a5;
-  --color-accent-400: #f6a06b;
-  --color-accent-500: #d67f48;
-  --color-accent-600: #b2622d;
-  --color-accent-700: #8c491a;
-  --color-accent-800: #643312;
-  --color-accent-900: #402310;
+  /* ── the wooden rail the slips hang from ─────────────────────────────── */
+  --rail-top: #8a5a30;
+  --rail-bottom: #5f3a1c;
+  --rail-ink: #e8c9a0;
+  --rail-lip: rgba(255, 224, 186, 0.25);
 
-  --color-accent-2-100: #f0fae1;
-  --color-accent-2-200: #e1eecc;
-  --color-accent-2-300: #ccdbb2;
-  --color-accent-2-400: #aebf92;
-  --color-accent-2-500: #8fa073;
-  --color-accent-2-600: #728157;
-  --color-accent-2-700: #56633f;
-  --color-accent-2-800: #3d472b;
-  --color-accent-2-900: #272e1b;
+  /* ── the one warm accent: an amber ticket stub ───────────────────────── */
+  --amber: #e8a021;
+  --amber-lit: #f4b41a;
+  --amber-deep: #b87a12;
+  --amber-ink: #3f2a08;
 
-  /*
-   * Game-only extension. Organic ships two accents and no alarm role, but a
-   * kitchen game has to be able to say "this one is going wrong" in a way that
-   * does not read as "this one is the accent". Built on the same warm hue
-   * family and the same lightness steps as the ramps above, so it sits in the
-   * palette rather than next to it. Used for: a burnt patty, a lost heart, the
-   * rent line, the last fifteen seconds.
-   */
-  --color-alarm-100: #ffeeea;
-  --color-alarm-300: #ffb3a1;
-  --color-alarm-500: #d2543c;
-  --color-alarm-600: #b23e28;
-  --color-alarm-700: #8f2e1c;
+  /* ── stamps ──────────────────────────────────────────────────────────── */
+  --stamp-good: #3f7a2a;
+  --stamp-bad: #b23e28;
+  --alarm: #d2543c;
+  --alarm-deep: #8f2e1c;
 
-  /* ── Organic: type ─────────────────────────────────────────────────── */
-  /* Fallbacks matter here: offline first launch of the installed app gets no
-     webfont, and the shell has to still look like itself. */
+  /* ── type ────────────────────────────────────────────────────────────── */
+  /* Fallbacks matter: a first launch with no network gets no webfont, and the
+     shell has to still look like itself. */
   --font-heading: "Caprasimo", "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
   --font-body: "Figtree", "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
 
-  /* ── Organic: space (density 1.10) ─────────────────────────────────── */
+  /* ── space ───────────────────────────────────────────────────────────── */
   --space-1: 4.4px;
   --space-2: 8.8px;
   --space-3: 13.2px;
@@ -88,15 +75,14 @@
   --space-6: 26.4px;
   --space-8: 35.2px;
 
-  /* ── Organic: radius (16px base, over-rounded) ─────────────────────── */
-  --radius-sm: 8px;
-  --radius-md: 16px;
-  --radius-lg: 28px;
+  /* Paper is cut, not rounded. Only the amber stubs and the round buttons
+     carry a radius at all. */
+  --radius-sm: 3px;
+  --radius-md: 4px;
 
-  /* ── Organic: elevation, tuned to the cream ground ─────────────────── */
-  --shadow-sm: 0 1px 2px rgba(46, 43, 37, 0.14);
-  --shadow-md: 0 3px 10px rgba(46, 43, 37, 0.16);
-  --shadow-lg: 0 12px 32px rgba(46, 43, 37, 0.22);
+  /* ── the perforation ─────────────────────────────────────────────────── */
+  --tooth-w: 13px;
+  --tooth-h: 6px;
 
   /*
    * The parts a ticket is made of, named so the board can reserve its height
@@ -122,8 +108,12 @@
 html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
 
 body {
-  background: var(--color-bg);
-  color: var(--color-text);
+  background:
+    radial-gradient(110% 70% at 50% 0%, var(--bg-glow) 0%, transparent 60%),
+    radial-gradient(90% 60% at 50% 100%, #3a1f18 0%, transparent 65%),
+    linear-gradient(180deg, var(--bg-1) 0%, var(--bg-0) 100%);
+  background-attachment: fixed;
+  color: var(--ink-2);
   font-family: var(--font-body);
   font-size: 15px;
   line-height: 1.55;
@@ -135,34 +125,10 @@ body {
   touch-action: none;
 }
 
-/*
- * Two soft blobs behind everything - the system asks for circular shapes as
- * decoration, and on a flat cream field they are what stops the app reading as
- * a blank page. Terracotta up top where the sign is, sage down by the floor.
- */
-body::before,
-body::after {
-  content: '';
-  position: fixed;
-  z-index: -2;
-  border-radius: 50%;
-  pointer-events: none;
-}
-body::before {
-  width: 86vw; height: 86vw;
-  left: -38vw; top: -20vh;
-  background: radial-gradient(circle, rgba(198, 113, 57, 0.20), rgba(198, 113, 57, 0) 70%);
-}
-body::after {
-  width: 78vw; height: 78vw;
-  right: -34vw; bottom: -16vh;
-  background: radial-gradient(circle, rgba(122, 138, 94, 0.22), rgba(122, 138, 94, 0) 70%);
-}
-
 /* Themed, never the browser default. */
 :focus { outline: none; }
-:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
-::selection { background: rgba(198, 113, 57, 0.30); }
+:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+::selection { background: rgba(232, 160, 33, 0.35); }
 
 button {
   font-family: inherit;
@@ -184,30 +150,58 @@ button {
   gap: var(--space-2);
 }
 
+/* ═══════════════════════════════════════════════════════ the perforation
+ *
+ * A strip of teeth drawn UNDER the bottom edge, not a mask cut out of it.
+ *
+ * The mask version was invisible to every rasteriser I could point at it -
+ * SVG foreignObject drops CSS masks - which meant the one feature that makes
+ * this a receipt was the one feature I could not check before shipping it. A
+ * tiled triangle in the paper's own colour is a background, so it renders
+ * anywhere a background does, and sitting inside the sheet it still picks up
+ * the sheet's drop-shadow and its tilt.
+ *
+ * The triangle: full width along the top, apex at the bottom centre.
+ */
+:root {
+  --teeth: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13' height='6' viewBox='0 0 13 6'%3E%3Cpath d='M0 0h13L6.5 6z' fill='%23fdf6e6'/%3E%3C/svg%3E");
+  --teeth-sm: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='5' viewBox='0 0 10 5'%3E%3Cpath d='M0 0h10L5 5z' fill='%23fdf6e6'/%3E%3C/svg%3E");
+}
+
+/* A perforation drawn across the middle of a slip. */
+.perf {
+  height: 1px;
+  background: repeating-linear-gradient(90deg, var(--rule) 0 4px, transparent 4px 8px);
+}
+
 /* ------------------------------------------------------------------- HUD */
-/* One sand slab holding the three things a cook checks mid-shift: which
-   shift, how long, how it is going. */
+/*
+ * The order rail: a strip of wood with the shift's numbers stamped into it.
+ * Dark, because it is part of the diner rather than part of the paperwork -
+ * everything a cook reads mid-shift is here, and the slips below are what
+ * they are working from.
+ */
 #hud {
   display: grid;
-  grid-template-columns: 38px 1fr auto;
+  grid-template-columns: 34px 1fr auto;
   align-items: center;
   gap: var(--space-3);
   flex: 0 0 auto;
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-sm);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, rgba(255, 244, 224, 0.09), rgba(0, 0, 0, 0.18));
+  box-shadow: inset 0 1px 0 var(--rail-lip), 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 
 .icon-btn {
-  width: 38px; height: 38px;
-  border-radius: 999px;
-  background: var(--color-bg);
-  box-shadow: inset 0 0 0 1px var(--color-divider);
+  width: 34px; height: 34px;
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(255, 224, 186, 0.18);
   transition: transform 0.12s, background 0.15s;
 }
-.icon-btn:hover { background: var(--color-accent-100); }
-.icon-btn:active { transform: scale(0.92); background: var(--color-accent-200); }
+.icon-btn:hover { background: rgba(0, 0, 0, 0.42); }
+.icon-btn:active { transform: scale(0.92); }
 
 /* Two bars rather than ⏸ - the emoji is missing on plenty of Android builds. */
 .pause-icon {
@@ -219,8 +213,8 @@ button {
 .pause-icon i {
   width: 4px;
   height: 14px;
-  border-radius: 999px;
-  background: var(--color-accent-700);
+  border-radius: 1px;
+  background: var(--rail-ink);
 }
 
 .progress { min-width: 0; }
@@ -232,16 +226,17 @@ button {
   margin-bottom: 5px;
 }
 
+/* The one amber stub on the rail: which shift this is. */
 .day-tag {
   display: inline-flex;
   align-items: baseline;
   gap: 4px;
   flex: 0 0 auto;
-  padding: 2px 9px;
-  border-radius: 999px;
-  background: var(--color-accent-200);
-  color: var(--color-accent-800);
-  font-size: 9px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--amber);
+  color: var(--amber-ink);
+  font-size: 8.5px;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -258,10 +253,10 @@ button {
   font-size: 11px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--color-neutral-700);
+  color: var(--rail-ink);
   transition: color 0.3s;
 }
-.goal-text.met { color: var(--color-accent-2-700); }
+.goal-text.met { color: #a8d88a; }
 
 /* ------------------------------------------------------------- the clock */
 /*
@@ -274,7 +269,7 @@ button {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
-  color: var(--color-neutral-800);
+  color: #fff4e0;
   margin-left: auto;
   margin-right: auto;
   padding: 0 var(--space-2);
@@ -282,63 +277,57 @@ button {
 }
 
 /* Under a minute the clock warms up; under fifteen seconds it beats. */
-.clock.warm { color: var(--color-accent-600); }
-.clock.urgent { color: var(--color-alarm-600); animation: clock-beat 1s steps(1, end) infinite; }
+.clock.warm { color: var(--amber-lit); }
+.clock.urgent { color: #ff8a72; animation: clock-beat 1s steps(1, end) infinite; }
 
 @keyframes clock-beat {
   0%, 60%  { opacity: 1; }
   61%, 99% { opacity: 0.4; }
 }
 
-/*
- * Each empty track is a pale step of whatever fills it - sage under the clock,
- * terracotta under the till - so a bar at zero still says which bar it is. One
- * shared grey track read as "no bar", and grey is the one thing this palette
- * does not do.
- */
 .clock-bar {
   height: 3px;
   margin-top: 4px;
-  border-radius: 999px;
-  background: var(--color-accent-2-200);
+  border-radius: 1px;
+  background: rgba(0, 0, 0, 0.4);
   overflow: hidden;
 }
 
 #clockFill {
   height: 100%;
   width: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--color-accent-2-500), var(--color-accent-2-400));
+  background: linear-gradient(90deg, #7fc06a, #a8d88a);
   transition: width 0.25s linear, background 0.4s linear;
 }
-#clockFill.warm { background: linear-gradient(90deg, var(--color-accent-500), var(--color-accent-400)); }
-#clockFill.urgent { background: linear-gradient(90deg, var(--color-alarm-600), var(--color-alarm-500)); }
+#clockFill.warm { background: linear-gradient(90deg, var(--amber), var(--amber-lit)); }
+#clockFill.urgent { background: linear-gradient(90deg, var(--alarm-deep), var(--alarm)); }
 
 /* Off the clock entirely outside a shift, so the title screen is not lying. */
 body.no-clock .clock,
 body.no-clock .clock-bar { visibility: hidden; }
 
+/*
+ * The till bar is the striped amber stub from the handoff - a paper ticket
+ * filling up, not a progress meter.
+ */
 .goal-bar {
-  height: 9px;
-  border-radius: 999px;
-  background: var(--color-accent-200);
+  height: 8px;
+  border-radius: 1px;
+  background: rgba(0, 0, 0, 0.4);
   overflow: hidden;
 }
 #goalFill {
   height: 100%;
   width: 0%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--color-accent-500), var(--color-accent-400));
+  background: repeating-linear-gradient(115deg,
+    var(--amber-lit) 0 5px, #e08e12 5px 10px);
   transition: width 0.35s cubic-bezier(.2,.8,.3,1), background 0.4s;
 }
-#goalFill.met { background: linear-gradient(90deg, var(--color-accent-2-600), var(--color-accent-2-400)); }
+#goalFill.met {
+  background: repeating-linear-gradient(115deg, #8ec96f 0 5px, #6aa851 5px 10px);
+}
 
 /* ---------------------------------------------------------------- hearts */
-/*
- * Was a ❤ emoji, which arrives in whatever colour the device feels like and
- * could not be tinted. Now a Lucide-shaped mask filled from the alarm ramp, so
- * a spent life can actually drain to neutral instead of just going grey.
- */
 .hearts { display: flex; gap: 3px; align-items: center; }
 .hearts .h {
   width: 13px; height: 13px;
@@ -346,17 +335,17 @@ body.no-clock .clock-bar { visibility: hidden; }
   line-height: 13px;
   transition: transform 0.25s cubic-bezier(.2,.9,.3,1.3), background 0.25s, opacity 0.25s;
 }
-.hearts .h.lost { opacity: 0.4; transform: scale(0.72); filter: grayscale(1); }
+.hearts .h.lost { opacity: 0.35; transform: scale(0.72); filter: grayscale(1); }
 
 @supports (mask: url("")) or (-webkit-mask: url("")) {
   .hearts .h {
     font-size: 0;
     filter: none;
-    background: var(--color-alarm-500);
+    background: #e8604a;
     -webkit-mask: var(--icon-heart) center / contain no-repeat;
     mask: var(--icon-heart) center / contain no-repeat;
   }
-  .hearts .h.lost { background: var(--color-neutral-400); opacity: 0.5; filter: none; }
+  .hearts .h.lost { background: rgba(255, 224, 186, 0.28); opacity: 1; filter: none; }
 }
 
 :root {
@@ -381,75 +370,88 @@ body.no-clock .clock-bar { visibility: hidden; }
 
 /*
  * Between shifts the sign is the storefront and takes the room. During one it
- * is gone entirely, and the slack it was holding goes to the kitchen instead.
- *
- * Faded to 42% it was still ~80px of dead band between the HUD and the board on
- * an 812px phone - decor nobody looks at while a ticket is running down. The
- * stage takes almost all of that now (grow 40 against the spacer's 1), and the
- * spacer keeps just enough grow to absorb whatever is left over once the stage
- * hits its own max-height - otherwise a tall screen ends up with a hole at the
- * bottom instead.
+ * is gone entirely, and the slack it was holding goes to the kitchen instead -
+ * it was ~80px of dead band on an 812px phone. The spacer keeps just enough
+ * grow to absorb whatever is left once the stage hits its own max-height,
+ * otherwise a tall screen ends up with a hole at the bottom instead.
  */
-.shopsign {
-  text-align: center;
-  line-height: 1;
-}
+.shopsign { text-align: center; line-height: 1; }
 body:not(.no-clock) .shopsign { display: none; }
 body:not(.no-clock) #stage { flex-grow: 40; }
+
 .sign-mr {
   display: block;
   font-family: var(--font-heading);
   font-size: 11px;
   letter-spacing: 0.42em;
   text-indent: 0.42em;
-  color: var(--color-accent-2-700);
+  color: var(--amber);
 }
 .sign-burger {
   display: block;
   font-family: var(--font-heading);
   font-size: clamp(22px, 5.4vh, 40px);
   letter-spacing: -0.01em;
-  color: var(--color-accent);
+  color: #fff4e0;
+  text-shadow: 0 2px 0 #a83c22, 0 0 22px rgba(232, 96, 74, 0.4);
   margin: var(--space-1) 0 var(--space-2);
 }
 .sign-open {
   display: inline-block;
   padding: 3px 12px;
-  border-radius: 999px;
-  background: var(--color-accent-2-100);
-  color: var(--color-accent-2-800);
+  border-radius: 1px;
+  color: #8ec96f;
   font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.24em;
   text-indent: 0.24em;
+  text-shadow: 0 0 10px rgba(142, 201, 111, 0.55);
 }
 
-/* ------------------------------------------------------------ order board */
+/* ═══════════════════════════════════════════════════ the order board
+ *
+ * A wooden rail with the live slips clipped to it. The rail is the only piece
+ * of furniture in the interface; everything hanging off it is paper.
+ */
 .board-wrap {
   flex: 0 0 auto;
-  padding: var(--space-1) var(--space-2) var(--space-2);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-sm);
+  padding: 0 var(--space-1) var(--space-2);
+  background: linear-gradient(180deg, var(--rail-top), var(--rail-bottom));
+  border-radius: var(--radius-md) var(--radius-md) 2px 2px;
+  box-shadow: inset 0 1px 0 var(--rail-lip), 0 3px 10px rgba(0, 0, 0, 0.4);
   transition: background 0.5s, box-shadow 0.5s;
 }
 
 .board-rail {
   display: flex;
   justify-content: center;
-  padding: 3px 0 var(--space-1);
+  padding: 4px 0 6px;
 }
 .board-rail span {
-  font-size: 8px;
+  font-size: 7px;
   font-weight: 700;
-  letter-spacing: 0.3em;
-  text-indent: 0.3em;
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
   text-transform: uppercase;
-  color: var(--color-accent-700);
+  color: var(--rail-ink);
 }
 
 .board { display: flex; gap: var(--space-1); align-items: stretch; }
 
+/*
+ * One slip. Torn off along the bottom, and the same height whether it holds a
+ * one-line order or a five-line one.
+ *
+ * A ticket used to be as tall as its order was long, so the board jumped from
+ * 42px to 165px the instant the first customer arrived - and the kitchen, which
+ * lives on whatever is left, lost a quarter of its height in one frame. A
+ * change that big reads to the size watchdog as a rotation, so it relaid the
+ * whole room immediately and the kitchen visibly snapped smaller three seconds
+ * into every shift. The longest order a day can produce is knowable from the
+ * day alone, so game.js reserves it up front and the board never moves again
+ * until tomorrow. Slack inside a short slip collects above the patience bar,
+ * which is pinned to the bottom either way.
+ */
 .ticket {
   position: relative;
   flex: 1 1 0;
@@ -459,53 +461,47 @@ body:not(.no-clock) #stage { flex-grow: 40; }
   align-items: center;
   gap: var(--tk-gap);
   padding: var(--space-1) 2px 5px;
-  /*
-   * Fixed height, empty or full.
-   *
-   * A ticket used to be as tall as its order was long, so the board jumped
-   * from 42px to 165px the instant the first customer arrived - and the
-   * kitchen, which lives on whatever is left, lost a quarter of its height in
-   * one frame. A change that big reads to the size watchdog as a rotation, so
-   * it relaid the whole room immediately and the kitchen visibly snapped
-   * smaller three seconds into every shift.
-   *
-   * The longest order a day can produce is knowable from the day alone, so
-   * game.js reserves it up front and the board never moves again until
-   * tomorrow. The slack inside a short ticket collects above the patience bar,
-   * which is pinned to the bottom either way.
-   */
   min-height: calc(
     var(--space-1) + 5px
     + var(--tk-mini) + var(--tk-gap)
     + var(--order-rows) * (var(--tk-row) + 1px) - 1px
     + var(--tk-gap) + var(--tk-bar)
   );
-  border-radius: var(--radius-md);
-  background: var(--color-neutral-100);
-  box-shadow: var(--shadow-sm);
+  background: var(--paper);
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.45));
   animation: ticketIn 0.3s cubic-bezier(.2,.9,.3,1.2);
 }
 @keyframes ticketIn { from { transform: translateY(-12px) scale(0.85); opacity: 0; } }
 
-/* A recess, not a dashed outline: this system does not draw hairline geometry,
-   and a soft well reads as "room for one more" more plainly than a dotted box. */
+/* An empty clip on the rail: no paper on it, just the shadow of the peg. */
 .ticket.empty {
-  background: rgba(32, 30, 29, 0.045);
-  box-shadow: none;
+  background: rgba(0, 0, 0, 0.22);
+  filter: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 224, 186, 0.10);
   animation: none;
 }
 /* The impatient archetype used to twitch by their face. With the faces gone
-   the burger is the only thing on the ticket that can fidget. */
+   the burger is the only thing on the slip that can fidget. */
 .ticket.rush .mini { animation: jitter 0.5s infinite; }
 @keyframes jitter { 0%,100% { transform: translateX(0); } 50% { transform: translateX(1.5px); } }
+
+/* torn off the roll, a size down */
+.ticket::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 100%;
+  height: 5px;
+  background: var(--teeth-sm) top left / 10px 5px repeat-x;
+}
+.ticket.empty::after { display: none; }
 
 .ticket .mini { width: 38px; height: var(--tk-mini); display: block; }
 
 /* ---------------------------------------------------------- what it wants */
 /*
  * The picture above cannot carry the answer - a layer is two or three pixels
- * tall on a phone - so the ticket says it. Chip for scanning, word for
- * certainty. Sized to fit five tickets across the narrowest phone we support.
+ * tall on a phone - so the slip says it. Chip for scanning, word for certainty.
+ * Sized to fit five slips across the narrowest phone we support.
  */
 .order-list {
   display: flex;
@@ -539,8 +535,8 @@ body:not(.no-clock) #stage { flex-grow: 40; }
   width: 6px;
   height: 6px;
   padding: 0;
-  border-radius: 2px;
-  box-shadow: inset 0 0 0 1px rgba(32, 30, 29, 0.28);
+  border-radius: 1px;
+  box-shadow: inset 0 0 0 1px rgba(63, 42, 28, 0.35);
 }
 
 /* Sized so the longest short name - KETCHUP, MUSTARD, LETTUCE - fits a fifth
@@ -553,7 +549,7 @@ body:not(.no-clock) #stage { flex-grow: 40; }
   line-height: 1.35;
   letter-spacing: 0;
   text-transform: uppercase;
-  color: var(--color-neutral-800);
+  color: var(--ink-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -564,7 +560,7 @@ body:not(.no-clock) #stage { flex-grow: 40; }
   font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.08em;
-  color: var(--color-neutral-500);
+  color: var(--ink-4);
 }
 
 /* Pinned to the bottom, so a three-line order and a plain one still line their
@@ -573,20 +569,17 @@ body:not(.no-clock) #stage { flex-grow: 40; }
   margin-top: auto;
   width: calc(100% - 8px);
   height: 4px;
-  border-radius: 999px;
-  /* One step darker than the sand it sits on. At neutral-300 the empty track
-     vanished into the HUD and the goal bar read as "no bar" rather than
-     "nothing in the till yet". */
-  background: var(--color-neutral-400);
+  border-radius: 1px;
+  background: var(--rule-faint);
   overflow: hidden;
 }
 .ticket .bar i {
-  display: block; height: 100%; border-radius: 999px;
-  background: var(--color-accent-2-500);
+  display: block; height: 100%;
+  background: #6f9c52;
   transition: background 0.3s;
 }
-.ticket .bar i.warn { background: var(--color-accent-500); }
-.ticket .bar i.crit { background: var(--color-alarm-500); }
+.ticket .bar i.warn { background: var(--amber); }
+.ticket .bar i.crit { background: var(--alarm); }
 
 .ticket .pin { display: none; }   /* tickets are matched at the hatch now */
 
@@ -598,7 +591,9 @@ body:not(.no-clock) #stage { flex-grow: 40; }
 /* --------------------------------------------------------------- kitchen */
 /* The kitchen takes the room that is going spare; layout() scales the whole
    set of stations to fit rather than just stretching the floor, so a taller
-   phone gets a bigger kitchen and not a longer walk. */
+   phone gets a bigger kitchen and not a longer walk.
+   No ring on it any more: the room is a lit box on a dark counter, which is
+   all the separation it needs. */
 #stage {
   flex: 6 1 0;
   width: 100%;
@@ -606,35 +601,26 @@ body:not(.no-clock) #stage { flex-grow: 40; }
   max-height: 560px;
   display: block;
   touch-action: none;
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
-  /*
-   * A warm ring rather than a hairline. The kitchen's own back wall is cream
-   * tile - sampled at #f2e2c6 against the shell's #f5ead8 - so with nothing
-   * between them the top of the room dissolves into the page and the rounded
-   * corners read as a rendering bug. Four pixels of accent-300 spread outside
-   * the box: no layout cost, follows the radius, and separates by hue where
-   * value alone could not.
-   */
-  box-shadow: 0 0 0 4px var(--color-accent-300), var(--shadow-md);
+  border-radius: var(--radius-md);
+  background: #2a1a15;
+  box-shadow: inset 0 0 0 1px rgba(255, 224, 186, 0.14), 0 8px 26px rgba(0, 0, 0, 0.5);
 }
 
 /* ------------------------------------------------------------ rush hour */
 /*
- * When the board fills up and the oldest ticket starts sweating, the room
- * itself gets tense: the sand warms toward the accent and the sign turns on.
- * Same pressure number the BGM arranger uses, so what you hear and what you
- * see are the same fact. body.rush is set from game.js.
+ * When the board fills up and the oldest slip starts sweating, the rail heats:
+ * the wood reddens and the sign buzzes. Same pressure number the BGM arranger
+ * uses, so what you hear and what you see are the same fact. Set from game.js.
  */
 body.rush .board-wrap {
-  background: var(--color-accent-200);
-  box-shadow: var(--shadow-md);
+  background: linear-gradient(180deg, #a3512a, #6d3116);
+  box-shadow: inset 0 1px 0 var(--rail-lip), 0 3px 14px rgba(0, 0, 0, 0.5);
 }
-body.rush .board-rail span { color: var(--color-alarm-700); }
+body.rush .board-rail span { color: #ffd9a8; }
 body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
 @keyframes sign-buzz {
-  0%, 100% { color: var(--color-accent); }
-  50%      { color: var(--color-alarm-500); }
+  0%, 100% { color: #fff4e0; }
+  50%      { color: #ffb59c; }
 }
 
 /* --------------------------------------------------------- serve flash */
@@ -650,15 +636,15 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
 #flash.good { animation: flash-good 0.5s ease-out; }
 #flash.bad  { animation: flash-bad 0.5s ease-out; }
 @keyframes flash-good {
-  from { opacity: 0.5; background: var(--color-accent-2-300); }
-  to   { opacity: 0; background: var(--color-accent-2-300); }
+  from { opacity: 0.42; background: #8ec96f; }
+  to   { opacity: 0; background: #8ec96f; }
 }
 @keyframes flash-bad {
-  from { opacity: 0.55; background: var(--color-alarm-300); }
-  to   { opacity: 0; background: var(--color-alarm-300); }
+  from { opacity: 0.5; background: var(--alarm); }
+  to   { opacity: 0; background: var(--alarm); }
 }
 
-/* --------------------------------------------------------------- modals */
+/* ═══════════════════════════════════════════════════════ menus, on paper */
 .modal {
   position: fixed;
   inset: 0;
@@ -666,9 +652,9 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
   align-items: center;
   justify-content: center;
   padding: var(--space-4);
-  background: rgba(46, 43, 37, 0.5);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: rgba(12, 7, 5, 0.82);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.22s ease;
@@ -679,131 +665,175 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
 .modal.show { opacity: 1; pointer-events: auto; }
 
 /*
- * Flush left, whitespace on the right - the system's layout voice. The old
- * sheets were centred, which made every one of them read as a dialog box;
- * left-aligned they read as pages in the same little booklet.
+ * A slip torn off the roll and dropped on the counter - so it lands a degree
+ * or two off square, and the tear runs along the bottom. The rail above it is
+ * the ::before; the label on the rail is per-sheet, set with --rail-label.
  */
 .sheet {
+  position: relative;
   width: 100%;
-  max-width: 360px;
+  max-width: 350px;
   text-align: left;
-  border-radius: calc(var(--radius-lg) * 1.15);
   padding: var(--space-6) var(--space-4) var(--space-4);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-lg);
+  background: var(--paper);
+  color: var(--ink-2);
+  transform: rotate(var(--tilt, -0.9deg));
+  filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.55));
   animation: rise 0.28s cubic-bezier(.2,.9,.3,1.1);
   margin: auto;
 }
-.sheet.wide { max-width: 400px; }
-@keyframes rise { from { transform: translateY(18px) scale(0.96); opacity: 0; } }
+
+/* torn off the roll */
+.sheet::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 100%;
+  height: var(--tooth-h);
+  background: var(--teeth) top left / var(--tooth-w) var(--tooth-h) repeat-x;
+}
+.sheet.wide { max-width: 390px; }
+@keyframes rise {
+  from { transform: translateY(18px) scale(0.96) rotate(var(--tilt, -0.9deg)); opacity: 0; }
+}
+
+/* The rail the slip hangs from, with its own little stamped label. */
+.sheet::before {
+  content: var(--rail-label, "MR. BURGER");
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, var(--rail-top), var(--rail-bottom));
+  box-shadow: inset 0 1px 0 var(--rail-lip);
+  color: var(--rail-ink);
+  font-size: 6.5px;
+  font-weight: 700;
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
+}
+
+/* Slight, and different per sheet, so two of them stacked never look printed. */
+#start  .sheet { --tilt: -1.1deg; --rail-label: "MENU"; }
+#shop   .sheet { --tilt: 0.8deg;  --rail-label: "SUPPLIES"; }
+#store  .sheet { --tilt: -0.7deg; --rail-label: "OUTFITTERS"; }
+#dayEnd .sheet { --tilt: 0.7deg;  --rail-label: "RECEIPT"; }
+#over   .sheet { --tilt: -1.2deg; --rail-label: "NOTICE"; }
+#pause  .sheet { --tilt: 0.9deg;  --rail-label: "BACK SOON"; }
+#how    .sheet { --tilt: -0.6deg; --rail-label: "HOUSE RULES"; }
+#coop   .sheet { --tilt: 0.6deg;  --rail-label: "TWO COOKS"; }
+#account .sheet { --tilt: -0.8deg; --rail-label: "YOUR COOK"; }
+#leaderboard .sheet { --tilt: 0.5deg; --rail-label: "THE BOARD"; }
 
 .sheet-title {
   font-family: var(--font-heading);
   font-weight: 400;
-  font-size: 24px;
-  line-height: 1.12;
-  letter-spacing: -0.015em;
-  color: var(--color-accent-800);
+  font-size: 21px;
+  line-height: 1.15;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--ink);
   margin-bottom: var(--space-3);
 }
-.sheet-title.bad { color: var(--color-alarm-700); }
+.sheet-title.bad { color: var(--alarm-deep); }
 
-/* The title screen is a hero, one clear action, and three quiet doors. Rules
-   moved to their own sheet - five numbered steps under the logo made the first
-   thing a player saw look like a manual. */
+/* The title screen is a hero, one clear action, and four quiet doors. */
 .title-sheet { padding: var(--space-8) var(--space-4) var(--space-4); }
 
-.logo-wrap { line-height: 0.88; margin-bottom: var(--space-6); }
+.logo-wrap { line-height: 0.9; margin-bottom: var(--space-4); text-align: center; }
 .logo-mr {
   font-family: var(--font-heading);
-  font-size: 17px;
-  letter-spacing: 0.4em;
-  color: var(--color-accent-2-700);
+  font-size: 13px;
+  letter-spacing: 0.44em;
+  text-indent: 0.44em;
+  color: var(--ink-3);
 }
 .logo-burger {
   font-family: var(--font-heading);
-  font-size: clamp(44px, 16vw, 64px);
+  font-size: clamp(40px, 15vw, 58px);
   letter-spacing: -0.02em;
-  color: var(--color-accent);
+  color: var(--ink);
 }
-/* A soft sage bar rather than a hairline - the system asks for no thin geometry. */
+/* The perforation under the wordmark, not a bar. */
 .logo-rule {
-  width: 56px;
-  height: 6px;
-  border-radius: 999px;
+  height: 1px;
   margin: var(--space-3) 0 0;
-  background: var(--color-accent-2-500);
+  background: repeating-linear-gradient(90deg, var(--rule) 0 4px, transparent 4px 8px);
 }
 .tag {
   margin: var(--space-2) 0 0;
-  color: var(--color-neutral-700);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
+  text-align: center;
 }
 
 /* ----------------------------------------------------------------- CTAs */
 /*
- * Pills, per the system. The 4px bed under the primary is the one place this
- * departs from --shadow-*: on a touch screen there is no hover, so the press
- * has to be visible in the geometry or the button feels dead.
+ * The amber stub. Squared off, because paper is - the only curve on it is the
+ * 3px the handoff gives its buttons. The 3px bed underneath is the press: on a
+ * touch screen there is no hover, so it has to be visible in the geometry.
  */
 .cta {
   display: block;
   width: 100%;
   margin-top: var(--space-2);
-  padding: 15px var(--space-4);
-  border: 1px solid transparent;
-  border-radius: 999px;
+  padding: 13px var(--space-4);
+  border: none;
+  border-radius: var(--radius-sm);
   font-family: var(--font-heading);
   font-weight: 400;
-  font-size: 15px;
-  letter-spacing: 0.02em;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   text-align: center;
-  color: var(--color-bg);
-  background: var(--color-accent);
-  box-shadow: 0 4px 0 var(--color-accent-700);
+  color: var(--amber-ink);
+  background: var(--amber);
+  box-shadow: 0 3px 0 var(--amber-deep);
   transition: background 0.15s, transform 0.1s, box-shadow 0.1s;
 }
-.cta:hover { background: var(--color-accent-600); }
+.cta:hover { background: var(--amber-lit); }
 .cta:active {
-  background: var(--color-accent-700);
-  transform: translateY(3px);
-  box-shadow: 0 1px 0 var(--color-accent-700);
+  background: var(--amber-deep);
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--amber-deep);
 }
-.cta:disabled { opacity: 0.45; box-shadow: none; cursor: not-allowed; }
+.cta:disabled { opacity: 0.4; box-shadow: none; cursor: not-allowed; }
 
 .cta small {
   display: block;
   font-family: var(--font-body);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  opacity: 0.82;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  opacity: 0.75;
   margin-top: 2px;
 }
 
+/* The second action is written on the paper, not stamped on a stub. */
 .cta.alt {
-  color: var(--color-accent-800);
+  color: var(--ink-2);
   background: transparent;
-  border-color: var(--color-divider);
+  border: 2px dashed var(--rule);
   box-shadow: none;
-  font-size: 14px;
+  font-size: 13px;
 }
-.cta.alt:hover { background: var(--color-ink-08); }
-.cta.alt:active { background: var(--color-ink-14); transform: translateY(2px); box-shadow: none; }
+.cta.alt:hover { background: rgba(63, 42, 28, 0.05); }
+.cta.alt:active { background: rgba(63, 42, 28, 0.1); transform: translateY(2px); box-shadow: none; }
 
 /* When there is a save, CONTINUE is the hero and NEW SHIFT steps back. */
 #continueBtn:not([hidden]) + #playBtn {
-  color: var(--color-accent-800);
+  color: var(--ink-2);
   background: transparent;
-  border-color: var(--color-divider);
+  border: 2px dashed var(--rule);
   box-shadow: none;
-  font-size: 14px;
+  font-size: 13px;
 }
 #continueBtn:not([hidden]) + #playBtn:active {
-  background: var(--color-ink-14);
+  background: rgba(63, 42, 28, 0.1);
   transform: translateY(2px);
   box-shadow: none;
 }
@@ -813,21 +843,21 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
   width: 100%;
   margin-top: var(--space-3);
   padding: var(--space-1) var(--space-2);
-  border-radius: 999px;
-  color: var(--color-accent-700);
-  font-size: 12px;
-  font-weight: 600;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-align: center;
   text-decoration: underline;
   text-underline-offset: 3px;
+  text-decoration-style: dashed;
 }
-.linkbtn:hover { background: rgba(198, 113, 57, 0.10); }
-.linkbtn:active { background: rgba(198, 113, 57, 0.18); }
+.linkbtn:hover { color: var(--ink); }
 
 /* --------------------------------------------------------- title tiles */
 .title-menu {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: var(--space-2);
   margin-top: var(--space-4);
 }
@@ -836,28 +866,30 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
   flex-direction: column;
   align-items: center;
   gap: var(--space-1);
-  padding: var(--space-3) var(--space-1) var(--space-2);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg);
-  color: var(--color-neutral-700);
-  font-size: 9px;
+  padding: var(--space-2) var(--space-1);
+  border: 2px dashed var(--rule-soft);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 8.5px;
   font-weight: 700;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  transition: transform 0.12s, background 0.15s, color 0.15s;
+  transition: transform 0.12s, border-color 0.15s, color 0.15s;
 }
-.tile:hover { background: var(--color-accent-100); color: var(--color-accent-800); }
-.tile:active { transform: scale(0.94); background: var(--color-accent-200); }
+.tile:hover { color: var(--ink); border-color: var(--ink-4); }
+.tile:active { transform: scale(0.95); }
 
 /*
- * The tiles carried emoji, which on a cream ground arrive as three unrelated
- * illustrations at three different weights. Swapped for Lucide glyphs at the
- * system's 2.75 stroke, masked so they take the tile's own colour. The emoji
- * stays in the markup as the fallback if masks are unavailable.
+ * Lucide glyphs at the system's 2.75 stroke, masked so they take the tile's
+ * own ink. Listed one by one on purpose: a blanket rule masks a tile that has
+ * no glyph assigned with an undefined image, and an undefined mask paints the
+ * whole box - which is how the Outfit tile once arrived as a solid square. A
+ * tile nobody has drawn an icon for keeps its emoji instead.
  */
 .tile .tile-ico {
-  width: 24px; height: 24px;
-  font-size: 21px;
+  width: 22px; height: 22px;
+  font-size: 19px;
   line-height: 1;
 }
 #storeBtn   .tile-ico { --tile-icon: var(--icon-shirt); }
@@ -865,10 +897,6 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
 #boardBtn   .tile-ico { --tile-icon: var(--icon-trophy); }
 #accountBtn .tile-ico { --tile-icon: var(--icon-chef); }
 
-/* Listed one by one on purpose. A blanket .tile .tile-ico rule masks a tile
-   that has no glyph assigned with an undefined image, and an undefined mask
-   paints the whole box - which is how the new Outfit tile arrived as a solid
-   square. A tile nobody has drawn an icon for keeps its emoji instead. */
 @supports (mask: url("")) or (-webkit-mask: url("")) {
   #storeBtn .tile-ico,
   #coopBtn .tile-ico,
@@ -883,243 +911,244 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
 
 /* --------------------------------------------------------------- prose */
 .lede {
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--color-neutral-700);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
   margin-bottom: var(--space-3);
 }
-.lede b { color: var(--color-text); font-weight: 700; }
+.lede b { color: var(--ink); font-weight: 700; }
 
 .rules {
-  margin: var(--space-3) 0 var(--space-3);
+  margin: var(--space-3) 0;
   padding-left: var(--space-4);
   text-align: left;
   display: grid;
   gap: var(--space-2);
 }
-.rules li { font-size: 12px; line-height: 1.5; color: var(--color-neutral-700); }
-.rules li::marker { color: var(--color-accent); font-weight: 700; }
-.rules b { color: var(--color-text); font-weight: 700; }
+.rules li { font-size: 11.5px; line-height: 1.55; color: var(--ink-2); }
+.rules li::marker { color: var(--amber-deep); font-weight: 700; }
+.rules b { color: var(--ink); font-weight: 700; }
 
-.note { font-size: 12px; line-height: 1.5; color: var(--color-neutral-700); margin-top: var(--space-3); }
-.note.big { font-size: 14px; color: var(--color-text); }
+.note { font-size: 11.5px; line-height: 1.55; color: var(--ink-3); margin-top: var(--space-3); }
+.note.big { font-size: 13px; color: var(--ink-2); }
 
 .pause-line {
-  font-size: 13px;
-  color: var(--color-neutral-700);
+  font-size: 12.5px;
+  color: var(--ink-3);
   margin-bottom: var(--space-4);
   font-variant-numeric: tabular-nums;
 }
-.pause-line b { color: var(--color-text); font-weight: 700; }
+.pause-line b { color: var(--ink); font-weight: 700; }
 
 /* -------------------------------------------------------------- receipt */
-/* Paper on the counter: the lightest neutral, a dashed rule where a real till
-   roll would perforate. */
+/* The till roll itself: no box, just ruled lines down the paper it is already
+   printed on. A panel here would be paper on paper. */
 .receipt {
   text-align: left;
-  border-radius: var(--radius-md);
-  padding: var(--space-3);
-  background: var(--color-neutral-100);
+  padding: 0;
+  border-top: 1px dashed var(--rule);
+  border-bottom: 1px dashed var(--rule);
+  margin: var(--space-2) 0 0;
 }
 .line {
   display: flex;
   justify-content: space-between;
   gap: var(--space-3);
-  font-size: 13px;
-  padding: 3px 0;
-  color: var(--color-neutral-700);
+  font-size: 12.5px;
+  padding: 5px 0;
+  color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
-.line b { color: var(--color-text); font-weight: 700; }
-.line.total { border-top: 1px dashed var(--color-neutral-400); margin-top: 5px; padding-top: 8px; }
-.line.rent b { color: var(--color-alarm-600); }
+.line b { color: var(--ink); font-weight: 700; }
+.line.total { border-top: 1px dashed var(--rule-soft); margin-top: 3px; padding-top: 7px; }
+.line.rent b { color: var(--alarm-deep); }
 .line.net {
-  border-top: 1px dashed var(--color-neutral-400);
-  margin-top: 5px; padding-top: 8px;
-  font-size: 13px;
+  border-top: 1px dashed var(--rule-soft);
+  margin-top: 3px; padding-top: 7px;
 }
 .line.net b {
   font-family: var(--font-heading); font-weight: 400;
-  color: var(--color-accent-2-700);
-  font-size: 18px;
+  color: var(--stamp-good);
+  font-size: 17px;
 }
 
+/* Three boxes rubber-stamped at the bottom of the receipt. */
 .stats-row { display: flex; gap: var(--space-2); margin: var(--space-3) 0 0; }
 .chip {
   flex: 1;
-  border-radius: var(--radius-md);
+  border: 2px dashed var(--rule);
+  border-radius: var(--radius-sm);
   padding: var(--space-2) var(--space-1);
   text-align: center;
-  background: var(--color-bg);
 }
 .chip span {
   display: block;
   font-family: var(--font-heading); font-weight: 400;
-  font-size: 21px;
-  color: var(--color-accent-800);
+  font-size: 19px;
+  color: var(--ink);
 }
 .chip small {
   display: block;
-  font-size: 8px; font-weight: 700;
-  letter-spacing: 0.1em;
-  color: var(--color-neutral-600);
+  font-size: 7.5px; font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--ink-4);
   margin-top: 2px;
 }
 
 /* ---------------------------------------------------------------- shop */
 .wallet {
-  font-size: 9px;
-  letter-spacing: 0.16em;
+  font-size: 8.5px;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: var(--color-neutral-600);
+  color: var(--ink-4);
   font-weight: 700;
   margin-bottom: var(--space-3);
 }
 .wallet b {
   display: block;
   font-family: var(--font-heading); font-weight: 400;
-  font-size: 32px;
+  font-size: 30px;
   letter-spacing: 0;
-  color: var(--color-accent-2-700);
+  color: var(--stamp-good);
   margin-top: 2px;
 }
 
 .unlock-box {
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-3) var(--space-3);
+  border: 2px dashed var(--rule);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
   margin-bottom: var(--space-3);
-  background: var(--color-accent-100);
 }
 .unlock-title {
-  font-size: 8.5px; letter-spacing: 0.16em; font-weight: 700;
+  font-size: 8px; letter-spacing: 0.2em; font-weight: 700;
   text-transform: uppercase;
-  color: var(--color-accent-700);
+  color: var(--amber-deep);
 }
-/* Each new ingredient is a pill with the thing itself drawn inside it. Stacked
-   vertically these were a 60px drawing adrift in a 290px box; on their side
-   they fill the row and read as "two new things on the menu", countable. */
+/* Each new ingredient is the thing itself drawn next to its name. */
 .unlock-list {
   display: flex; flex-wrap: wrap;
-  gap: var(--space-1);
-  margin-top: var(--space-2);
+  gap: var(--space-2);
+  margin-top: var(--space-1);
 }
-.unlock-list .u {
-  display: flex; align-items: center; gap: 2px;
-  padding: 2px 12px 2px 2px;
-  border-radius: 999px;
-  background: var(--color-bg);
-}
+.unlock-list .u { display: flex; align-items: center; gap: 2px; }
 .unlock-list canvas { width: 40px; height: 34px; }
-.unlock-list .n { font-size: 10px; font-weight: 700; color: var(--color-accent-900); }
+.unlock-list .n { font-size: 10px; font-weight: 700; color: var(--ink-2); }
 
-.upgrade-list { display: grid; gap: var(--space-1); }
+/* Ruled rows down the page, the way a docket lists what it lists. */
+.upgrade-list { display: grid; }
 .upg {
   display: grid;
   grid-template-columns: 30px 1fr auto;
   gap: var(--space-2);
   align-items: center;
   text-align: left;
-  border-radius: var(--radius-md);
-  padding: var(--space-2);
-  background: var(--color-bg);
+  padding: var(--space-2) 0;
+  border-top: 1px dashed var(--rule-soft);
 }
+.upgrade-list .upg:first-child { border-top: none; }
 /* Drawn, not typed: Art.drawUpgrade puts a canvas in here. */
 .upg .uicon { display: grid; place-items: center; }
 .upg .uicon canvas { display: block; }
-.upg b { display: block; font-size: 12px; font-weight: 700; }
-.upg small { display: block; font-size: 9.5px; color: var(--color-neutral-600); margin-top: 1px; }
+.upg b { display: block; font-size: 12px; font-weight: 700; color: var(--ink); }
+.upg small { display: block; font-size: 9.5px; color: var(--ink-4); margin-top: 1px; }
 .pips { display: flex; gap: 3px; margin-top: 5px; }
-.pips i { width: 12px; height: 4px; border-radius: 999px; background: var(--color-neutral-400); }
-.pips i.on { background: var(--color-accent); }
+.pips i { width: 12px; height: 4px; border-radius: 1px; background: var(--rule-soft); }
+.pips i.on { background: var(--amber); }
 
 .ubuy {
-  border-radius: 999px;
-  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  padding: 7px 11px;
   font-family: var(--font-heading); font-weight: 400;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: var(--color-bg);
-  background: var(--color-accent);
-  transition: background 0.15s, transform 0.1s;
+  color: var(--amber-ink);
+  background: var(--amber);
+  box-shadow: 0 2px 0 var(--amber-deep);
+  transition: background 0.15s, transform 0.1s, box-shadow 0.1s;
 }
-.ubuy:hover { background: var(--color-accent-600); }
-.ubuy:active { background: var(--color-accent-700); transform: scale(0.95); }
-.ubuy:disabled { background: var(--color-neutral-300); color: var(--color-neutral-600); cursor: not-allowed; }
+.ubuy:hover { background: var(--amber-lit); }
+.ubuy:active { background: var(--amber-deep); transform: translateY(2px); box-shadow: none; }
+.ubuy:disabled {
+  background: transparent; color: var(--ink-4);
+  box-shadow: none;
+  border: 2px dashed var(--rule-soft);
+  cursor: not-allowed;
+}
 .ubuy.maxed {
-  background: var(--color-accent-2-100);
-  color: var(--color-accent-2-800);
-  box-shadow: inset 0 0 0 1px var(--color-accent-2-400);
+  background: transparent;
+  color: var(--stamp-good);
+  border: 2px dashed var(--stamp-good);
+  box-shadow: none;
 }
 
 .next-kitchen {
   margin-top: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  background: var(--color-bg);
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--rule);
   font-size: 11px;
   line-height: 1.55;
-  color: var(--color-neutral-700);
+  color: var(--ink-3);
 }
 .next-kitchen span {
   display: block;
   font-size: 8px;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.2em;
   font-weight: 700;
   text-transform: uppercase;
-  color: var(--color-accent-700);
+  color: var(--amber-deep);
   margin-bottom: 3px;
 }
-.next-kitchen b { color: var(--color-text); font-size: 12px; font-weight: 700; }
+.next-kitchen b { color: var(--ink); font-size: 12px; font-weight: 700; }
 .next-kitchen em {
   font-style: normal;
   font-weight: 700;
   font-size: 9.5px;
-  color: var(--color-accent-2-700);
+  color: var(--stamp-good);
 }
 
-.next-line { font-size: 12px; color: var(--color-neutral-700); margin-top: var(--space-3); }
-.next-line b { color: var(--color-alarm-600); font-weight: 700; }
-
+.next-line {
+  font-size: 11px; color: var(--ink-4); margin-top: var(--space-2);
+  letter-spacing: 0.06em; text-transform: uppercase; font-weight: 700;
+}
+.next-line b { color: var(--alarm-deep); font-weight: 700; }
 
 /* -------------------------------------------------------- the outfitters */
 /*
- * The paid shop. Same cards, same pills, same two voices as everywhere else -
- * a store that looks like a different app is a store that reads as a trap.
- * Terracotta is the buy, sage is what you already own, and a worn skin gets
- * the sage ring so the answer to "which one am I wearing" is one glance.
+ * The paid shop, on the same paper as the free one. A store that looks like a
+ * different app is a store that reads as a trap. Amber is the buy, a green
+ * dashed stamp is what you already own.
  */
 .seg {
   display: flex;
   width: 100%;
-  overflow: hidden;
   margin-bottom: var(--space-3);
-  border-radius: 999px;
-  background: var(--color-bg);
+  border: 2px dashed var(--rule);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
 }
 .seg-opt {
   flex: 1 1 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 9px 12px;
-  font-size: 10px;
+  padding: 8px 12px;
+  font-size: 9.5px;
   font-weight: 700;
-  letter-spacing: 0.14em;
-  color: var(--color-neutral-700);
+  letter-spacing: 0.16em;
+  color: var(--ink-3);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
 .seg-opt input {
   position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none;
 }
-.seg-opt:has(input:checked) { background: var(--color-accent); color: var(--color-bg); }
-.seg-opt:not(:has(input:checked)):hover { background: var(--color-ink-08); }
-.seg-opt:has(input:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.seg-opt:has(input:checked) { background: var(--amber); color: var(--amber-ink); }
+.seg-opt:not(:has(input:checked)):hover { background: rgba(63, 42, 28, 0.05); }
+.seg-opt:has(input:focus-visible) { outline: 2px solid var(--amber-deep); outline-offset: -2px; }
 
 .store-list {
   display: grid;
-  gap: var(--space-1);
-  max-height: 46vh;
+  max-height: 44vh;
   overflow-y: auto;
   /* The body sets touch-action: none so the kitchen never scrolls under a
      finger. A list that is meant to scroll has to say so, or it is dead on a
@@ -1132,53 +1161,50 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
   grid-template-columns: 56px 1fr auto;
   gap: var(--space-2);
   align-items: center;
-  padding: var(--space-2);
-  border-radius: var(--radius-md);
-  background: var(--color-bg);
+  padding: var(--space-2) 0;
+  border-top: 1px dashed var(--rule-soft);
   text-align: left;
 }
-.sku.worn { background: var(--color-accent-2-100); box-shadow: inset 0 0 0 1.5px var(--color-accent-2-500); }
-.sku-art { width: 56px; height: 56px; display: block; border-radius: var(--radius-sm); }
+.store-list .sku:first-child { border-top: none; }
+.sku.worn { background: rgba(63, 122, 42, 0.09); }
+.sku-art { width: 56px; height: 56px; display: block; }
 .sku-badge {
   width: 56px; height: 56px;
   display: grid; place-items: center;
-  border-radius: 999px;
   font-size: 22px;
-  background: var(--color-accent-100);
 }
 .sku-badge canvas { display: block; }
-.sku b { display: block; font-size: 12.5px; font-weight: 700; }
-.sku small { display: block; font-size: 10px; line-height: 1.35; color: var(--color-neutral-600); margin-top: 1px; }
+.sku b { display: block; font-size: 12.5px; font-weight: 700; color: var(--ink); }
+.sku small { display: block; font-size: 10px; line-height: 1.35; color: var(--ink-4); margin-top: 1px; }
 
 /* Three coins, filled to the tier. Stands in for a price the platform has not
    handed over yet, and still says "this one costs more" when it has. */
 .tier { display: flex; gap: 3px; margin-top: 5px; }
-.tier i { width: 6px; height: 6px; border-radius: 999px; background: var(--color-neutral-300); }
-.tier i.on { background: var(--color-accent); }
+.tier i { width: 6px; height: 6px; border-radius: 999px; background: var(--rule-soft); }
+.tier i.on { background: var(--amber); }
 
 .sku-buy {
-  border-radius: 999px;
-  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
   font-family: var(--font-heading);
   font-weight: 400;
   font-size: 12px;
-  color: var(--color-bg);
-  background: var(--color-accent);
-  transition: background 0.15s, transform 0.1s;
+  color: var(--amber-ink);
+  background: var(--amber);
+  box-shadow: 0 2px 0 var(--amber-deep);
+  transition: background 0.15s, transform 0.1s, box-shadow 0.1s;
 }
-.sku-buy:hover { background: var(--color-accent-600); }
-.sku-buy:active { background: var(--color-accent-700); transform: scale(0.95); }
+.sku-buy:hover { background: var(--amber-lit); }
+.sku-buy:active { background: var(--amber-deep); transform: translateY(2px); box-shadow: none; }
 .sku-buy.own {
   background: transparent;
-  color: var(--color-accent-2-800);
-  box-shadow: inset 0 0 0 1.5px var(--color-accent-2-400);
+  color: var(--stamp-good);
+  border: 2px dashed var(--stamp-good);
+  box-shadow: none;
 }
-.sku-buy.own:hover { background: var(--color-accent-2-100); }
+.sku-buy.own:hover { background: rgba(63, 122, 42, 0.08); }
 .sku-buy:disabled { cursor: default; transform: none; }
-.sku-buy.busy { opacity: 0.55; }
-
-/* The title tiles go two by two once there are four of them. */
-.title-menu { grid-template-columns: repeat(2, 1fr); }
+.sku-buy.busy { opacity: 0.5; }
 
 /* ------------------------------------------------------- online bits */
 .title-row { display: flex; gap: var(--space-4); }
@@ -1186,90 +1212,101 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
 
 .net-state {
   margin-top: var(--space-3);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  color: var(--color-neutral-600);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: var(--ink-4);
+  text-align: center;
 }
-.net-state.on { color: var(--color-accent-2-700); }
+.net-state.on { color: var(--stamp-good); }
 
-.lb-list { display: grid; gap: var(--space-1); max-height: 46vh; overflow-y: auto; touch-action: pan-y; }
+.lb-list { display: grid; max-height: 46vh; overflow-y: auto; touch-action: pan-y; }
 .lb-row {
   display: grid;
   grid-template-columns: 26px 1fr auto auto;
   gap: var(--space-2);
   align-items: baseline;
-  padding: var(--space-2);
-  border-radius: var(--radius-md);
-  background: var(--color-bg);
-  font-size: 13px;
+  padding: var(--space-2) 0;
+  border-top: 1px dashed var(--rule-soft);
+  font-size: 12.5px;
   text-align: left;
+  color: var(--ink-2);
 }
-.lb-row.me { background: var(--color-accent-100); box-shadow: inset 0 0 0 1.5px var(--color-accent); }
-.lb-row .r { font-family: var(--font-heading); font-weight: 400; color: var(--color-neutral-600); font-size: 12px; }
-.lb-row .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.lb-row .d { font-family: var(--font-heading); font-weight: 400; color: var(--color-accent-700); }
-.lb-row .e { font-size: 11px; color: var(--color-neutral-600); font-variant-numeric: tabular-nums; }
-.lb-gap { text-align: center; color: var(--color-neutral-500); font-size: 13px; letter-spacing: 0.2em; }
+.lb-list .lb-row:first-child { border-top: none; }
+.lb-row.me { background: rgba(232, 160, 33, 0.14); }
+.lb-row .r { font-family: var(--font-heading); font-weight: 400; color: var(--ink-4); font-size: 12px; }
+.lb-row .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.lb-row .d { font-family: var(--font-heading); font-weight: 400; color: var(--amber-deep); }
+.lb-row .e { font-size: 11px; color: var(--ink-4); font-variant-numeric: tabular-nums; }
+.lb-gap { text-align: center; color: var(--ink-4); font-size: 13px; letter-spacing: 0.2em; }
 
 /* -------------------------------------------------------------- fields */
+/* A line to write on, not a box to type in. */
 .field { display: block; text-align: left; margin-top: var(--space-3); }
 .field span {
   display: block;
-  font-size: 8.5px;
-  letter-spacing: 0.16em;
+  font-size: 8px;
+  letter-spacing: 0.2em;
   font-weight: 700;
   text-transform: uppercase;
-  color: var(--color-neutral-600);
-  margin-bottom: 5px;
+  color: var(--ink-4);
+  margin-bottom: 3px;
 }
 .field input {
   width: 100%;
-  padding: 11px 14px;
-  border-radius: 999px;
-  border: 1px solid var(--color-divider);
-  background: var(--color-bg);
-  color: var(--color-text);
-  caret-color: var(--color-accent);
+  padding: 8px 2px;
+  border: none;
+  border-bottom: 2px dashed var(--rule);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  caret-color: var(--amber-deep);
   font-family: inherit;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
-.field input::placeholder { color: var(--color-neutral-500); }
-.field input:hover { border-color: var(--color-neutral-500); }
-.field input:focus-visible { border-color: var(--color-accent); outline-offset: 0; }
+.field input::placeholder { color: var(--rule); }
+.field input:hover { border-bottom-color: var(--ink-4); }
+.field input:focus-visible {
+  border-bottom-color: var(--amber-deep);
+  outline: none;
+}
 
 .divider {
   margin: var(--space-4) 0 var(--space-1);
-  font-size: 8.5px;
-  letter-spacing: 0.18em;
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--rule);
+  font-size: 8px;
+  letter-spacing: 0.2em;
   font-weight: 700;
   text-transform: uppercase;
-  color: var(--color-neutral-600);
+  color: var(--ink-4);
 }
 
+/* Read aloud down the phone, so it is stamped rather than typed. */
 .code-out {
   margin-top: var(--space-3);
-  padding: var(--space-3);
-  border-radius: var(--radius-md);
-  background: var(--color-accent-100);
+  padding: var(--space-3) var(--space-2);
+  border: 2px dashed var(--amber-deep);
+  border-radius: var(--radius-sm);
   font-family: var(--font-heading);
   font-weight: 400;
-  font-size: 30px;
+  font-size: 28px;
   letter-spacing: 0.24em;
   text-indent: 0.24em;
-  color: var(--color-accent-700);
+  text-align: center;
+  color: var(--amber-deep);
   user-select: text;
   -webkit-user-select: text;
 }
 .code-out small {
   display: block;
   font-family: var(--font-body);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 9.5px;
+  font-weight: 700;
   letter-spacing: 0.1em;
   text-indent: 0;
-  color: var(--color-neutral-700);
+  color: var(--ink-4);
   margin-top: var(--space-2);
 }
 
@@ -1289,7 +1326,8 @@ body.cramped #rotate {
   align-items: center;
   justify-content: center;
   padding: var(--space-4);
-  background: var(--color-bg);
+  background: radial-gradient(120% 120% at 50% 0%, #3a2216 0%, #1b0f09 70%);
+  text-align: center;
 }
 
 .rotate-inner { max-width: 380px; }
@@ -1306,7 +1344,7 @@ body.cramped #rotate {
 @supports (mask: url("")) or (-webkit-mask: url("")) {
   .rotate-icon {
     font-size: 0;
-    background: var(--color-accent);
+    background: var(--amber);
     -webkit-mask: var(--icon-phone) center / contain no-repeat;
     mask: var(--icon-phone) center / contain no-repeat;
   }
@@ -1322,17 +1360,17 @@ body.cramped #rotate {
   margin: 0 0 var(--space-2);
   font-family: var(--font-heading);
   font-weight: 400;
-  font-size: 26px;
-  line-height: 1.12;
-  letter-spacing: -0.015em;
-  color: var(--color-accent-800);
+  font-size: 24px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--amber);
 }
 
 #rotate p {
   margin: 0;
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--color-neutral-700);
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: rgba(255, 244, 224, 0.72);
 }
 
 /* ---------------------------------------------------------- tight screens */
@@ -1342,8 +1380,8 @@ body.cramped #rotate {
 @media (max-height: 700px) {
   #stage { min-height: 220px; }
   #hud { padding: 6px var(--space-3); }
-  .title-sheet { padding: var(--space-6) var(--space-4) var(--space-4); }
-  .logo-wrap { margin-bottom: var(--space-4); }
+  .title-sheet { padding: var(--space-6) var(--space-4) var(--space-3); }
+  .logo-wrap { margin-bottom: var(--space-3); }
 }
 
 /* ------------------------------------------------------- reduced motion */

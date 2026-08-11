@@ -78,7 +78,12 @@ var RAF_SHIM = '<script>(function(){' +
   'g.save();g.beginPath();var rad=cn.id==="stage"?28:0;' +
   'if(g.roundRect)g.roundRect(r.x,r.y,r.width,r.height,rad);else g.rect(r.x,r.y,r.width,r.height);' +
   'g.clip();g.drawImage(cn,r.x,r.y,r.width,r.height);g.restore();};' +
-  'g.fillStyle=getComputedStyle(document.body).backgroundColor;g.fillRect(0,0,W,H);' +
+  'var bg=getComputedStyle(document.body).backgroundColor;' +
+  // A body painted with the background shorthand and gradients reports a
+  // transparent background-color, which used to fill the ground white and
+  // make every dark chrome element look washed out in the snapshot.
+  'if(!bg||bg==="rgba(0, 0, 0, 0)"||bg==="transparent")bg=(getComputedStyle(document.documentElement).getPropertyValue("--bg-0")||"#150e0c").trim();' +
+  'g.fillStyle=bg;g.fillRect(0,0,W,H);' +
   'var stage=document.getElementById("stage");if(stage)paste(stage);' +
   'g.drawImage(img,0,0);' +
   'var ms=document.querySelectorAll(".modal.show"),top=ms.length?ms[ms.length-1]:null;' +
