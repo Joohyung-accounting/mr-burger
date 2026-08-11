@@ -1449,7 +1449,10 @@
     var lit = (opts && opts.lit) || 0;
     // the dark opening
     var hole = rectPts(x + w * 0.06, y + h * 0.26, w * 0.88, h * 0.56, h * 0.10, w * 0.003, s + 1);
-    ink(ctx, hole, mixHex('#2a1a12', '#f4b41a', lit * 0.35), { lw: lw, line: '#1a100b', seed: s + 1 });
+    // A dining room with the lights low, not a black rectangle. On a cream
+    // shell the old #2a1a12 was the darkest mass on the screen and pulled the
+    // eye to the one place nothing happens until a plate is ready.
+    ink(ctx, hole, mixHex('#46291a', '#f6a06b', lit * 0.38), { lw: lw, line: '#2b1810', seed: s + 1 });
     // sill
     ink(ctx, rectPts(x, y + h * 0.74, w, h * 0.24, h * 0.07, w * 0.003, s + 2),
         T.top, { lw: lw, off: w * 0.002, line: mixHex(T.side, '#2a1a10', 0.4), seed: s + 2 });
@@ -1489,28 +1492,28 @@
 
     // pedal and foot, so it reads as a bin you step on rather than a vase
     ink(ctx, rectPts(x + w * 0.06, footY - h * 0.01, w * 0.26, h * 0.050, w * 0.02, w * 0.006, s + 8),
-        '#6e828c', { lw: lw * 0.85, line: '#33454e', seed: s + 8 });
+        '#7c8468', { lw: lw * 0.85, line: '#3f4534', seed: s + 8 });
 
     // drum: a cylinder, so the sides are parallel and the foot is an ellipse
     var bodyW = w * 0.72, bx = x + (w - bodyW) / 2;
     var body = jitter([[bx, bodyTop], [bx + bodyW, bodyTop],
                        [bx + bodyW, footY], [bx, footY]], w * 0.008, s);
-    ink(ctx, body, '#93a7b2', { lw: lw, off: w * 0.008, line: '#33454e', seed: s });
+    ink(ctx, body, '#a8ae94', { lw: lw, off: w * 0.008, line: '#3f4534', seed: s });
     // the base, seen as a shallow ellipse - what makes it read as round
     ink(ctx, ellPts(x + w * 0.5, footY, bodyW / 2, h * 0.055, 20, w * 0.007, s + 11),
-        '#7f95a1', { lw: lw, off: w * 0.006, line: '#33454e', seed: s + 11 });
+        '#949b7f', { lw: lw, off: w * 0.006, line: '#3f4534', seed: s + 11 });
     ctx.save();
     trace(ctx, body); ctx.clip();
     // a soft shade down each side turns the flat drum into a cylinder
     var cyl = ctx.createLinearGradient(bx, 0, bx + bodyW, 0);
-    cyl.addColorStop(0, 'rgba(30,48,58,0.34)');
+    cyl.addColorStop(0, 'rgba(48,52,38,0.34)');
     cyl.addColorStop(0.32, 'rgba(255,255,255,0.16)');
     cyl.addColorStop(0.62, 'rgba(255,255,255,0.05)');
-    cyl.addColorStop(1, 'rgba(30,48,58,0.40)');
+    cyl.addColorStop(1, 'rgba(48,52,38,0.40)');
     ctx.fillStyle = cyl;
     ctx.fillRect(bx, bodyTop, bodyW, footY - bodyTop);
     // vertical ribs
-    ctx.strokeStyle = '#637c88';
+    ctx.strokeStyle = '#7d866a';
     ctx.globalAlpha = 0.45;
     ctx.lineWidth = Math.max(0.9, w * 0.022);
     ctx.lineCap = 'round';
@@ -1523,7 +1526,7 @@
     }
     // two hoop bands, bowed like the rim so they wrap the drum
     ctx.globalAlpha = 0.7;
-    ctx.strokeStyle = '#5b737f';
+    ctx.strokeStyle = '#6d7659';
     ctx.lineWidth = Math.max(1, w * 0.034);
     [0.30, 0.72].forEach(function (f) {
       var by = bodyTop + (footY - bodyTop) * f;
@@ -1535,20 +1538,20 @@
       ctx.stroke();
     });
     ctx.restore();
-    hatch(ctx, body, '#33454e', s, { n: 4, alpha: 0.10, gap: h * 0.22 });
+    hatch(ctx, body, '#3f4534', s, { n: 4, alpha: 0.10, gap: h * 0.22 });
 
     // rim, dark mouth, and the bag folded over the lip
     ink(ctx, ellPts(x + w * 0.5, bodyTop, bodyW / 2, h * 0.070, 20, w * 0.008, s + 2),
-        '#aebfc9', { lw: lw, off: w * 0.006, line: '#33454e', seed: s + 2 });
+        '#c0c5aa', { lw: lw, off: w * 0.006, line: '#3f4534', seed: s + 2 });
     ink(ctx, ellPts(x + w * 0.5, bodyTop + h * 0.006, bodyW * 0.38, h * 0.048, 18, w * 0.006, s + 7),
-        '#2b3a42', { lw: lw * 0.7, line: '#17222a', seed: s + 7 });
+        '#3a4030', { lw: lw * 0.7, line: '#242819', seed: s + 7 });
     ctx.save();
     ctx.globalAlpha = 0.9;
     for (i = 0; i < 5; i++) {
       var a = Math.PI * (0.10 + i * 0.20);
       ink(ctx, blobPts(x + w * 0.5 + Math.cos(a) * bodyW * 0.40, bodyTop + Math.sin(a) * h * 0.048 + h * 0.012,
                        w * 0.075, h * 0.028, 4, 0.22, i, 14, w * 0.005, s + 20 + i),
-          '#3d4a52', { lw: lw * 0.6, line: '#1c262b', lineAlpha: 0.8, seed: s + 20 + i });
+          '#525a44', { lw: lw * 0.6, line: '#2b3021', lineAlpha: 0.8, seed: s + 20 + i });
     }
     ctx.restore();
 
@@ -1559,11 +1562,11 @@
     ctx.translate(-(bx + bodyW * 0.06), -(bodyTop - h * 0.06));
     ctx.translate(0, -open * h * 0.055);
     ink(ctx, ellPts(x + w * 0.5, bodyTop - h * 0.075, bodyW * 0.60, h * 0.072, 20, w * 0.008, s + 3),
-        '#c2d3dc', { lw: lw, off: w * 0.007, line: '#33454e', seed: s + 3 });
+        '#d2d7bd', { lw: lw, off: w * 0.007, line: '#3f4534', seed: s + 3 });
     ink(ctx, ellPts(x + w * 0.5, bodyTop - h * 0.105, bodyW * 0.40, h * 0.048, 18, w * 0.006, s + 9),
-        '#aebfc9', { lw: lw * 0.8, line: '#33454e', lineAlpha: 0.7, seed: s + 9 });
+        '#c0c5aa', { lw: lw * 0.8, line: '#3f4534', lineAlpha: 0.7, seed: s + 9 });
     ctx.save();
-    ctx.strokeStyle = '#5b737f';
+    ctx.strokeStyle = '#6d7659';
     ctx.lineWidth = Math.max(1.2, w * 0.030);
     ctx.lineCap = 'round';
     ctx.beginPath();

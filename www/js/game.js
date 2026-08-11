@@ -2125,12 +2125,20 @@
     el.unlockBox.hidden = news.length === 0;
     if (news.length) {
       el.unlockList.innerHTML = '';
+      /*
+       * In a bun, not on its own. drawIcon draws a layer at the height that
+       * layer really has, and a sauce is two pixels of it - so the sauces, the
+       * ones a player is least able to picture, arrived as an empty box with a
+       * word under it. Between two bun halves every unlock is the same size and
+       * reads as "this is what you will be putting on a burger tomorrow".
+       */
+      var UW = 40, UH = 34;
       news.forEach(function (ing) {
         var d = document.createElement('div');
         d.className = 'u';
         var c = document.createElement('canvas');
-        c.width = Math.round(64 * dpr);
-        c.height = Math.round(34 * dpr);
+        c.width = Math.round(UW * dpr);
+        c.height = Math.round(UH * dpr);
         d.appendChild(c);
         var n = document.createElement('span');
         n.className = 'n';
@@ -2139,7 +2147,8 @@
         el.unlockList.appendChild(d);
         var g = c.getContext('2d');
         g.setTransform(dpr, 0, 0, dpr, 0, 0);
-        Art.drawIcon(g, ing.id, 64, 34);
+        var shown = Core.displayStack(['bun', ing.id]);
+        Art.drawStack(g, shown, UW / 2, UH - 2, Art.fitWidth(shown, UW * 0.88, UH - 4));
       });
     }
 
