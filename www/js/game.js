@@ -685,35 +685,12 @@
     return null;
   }
 
-  /*
-   * Who actually walked in. The five archetypes are rules - how long they wait
-   * and what they tip - and there are only five of them, so a board of five
-   * tickets used to be five copies of the same face. Each archetype casts from
-   * its own set of people instead: a Rush is somebody with somewhere to be, a
-   * Kid is a child. Art.GUESTS has the fourteen.
-   */
-  var GUEST_CAST = {
-    regular: ['office', 'student', 'artist', 'farmer', 'granny', 'grandpa'],
-    rush:    ['office', 'courier', 'builder', 'police', 'nurse'],
-    chill:   ['teen', 'artist', 'athlete', 'student', 'grandpa'],
-    foodie:  ['office', 'artist', 'student', 'nurse', 'granny'],
-    kid:     ['kid', 'baby', 'kid', 'teen']
-  };
-
-  var GUEST_OK = {};
-  Art.GUESTS.forEach(function (id) { GUEST_OK[id] = true; });
-
-  function castGuest(archId) {
-    var cast = GUEST_CAST[archId] || GUEST_CAST.regular;
-    return cast[Math.floor(Math.random() * cast.length) % cast.length];
-  }
-
   function spawnTicket() {
     var arch = Core.pickCustomer(S.day, Math.random);
     var order = Core.makeOrder(S.day, Math.random, arch);
     var secs = S.cfg.patience * arch.patience;
     S.tickets.push({
-      uid: ++uid, arch: arch, guest: castGuest(arch.id), items: order.items,
+      uid: ++uid, arch: arch, items: order.items,
       patience: secs, max: secs, tick: 0
     });
     S.spawned++;
@@ -1358,23 +1335,6 @@
     }
   }
 
-  /**
-   * A guest framed head-and-shoulders in a w x h box whose top-left is the
-   * current origin - the order board and the serving window both want that.
-   *
-   * Not Art.drawGuestFace, which anchors the feet and so frames a baby and a
-   * builder by the same rule: the builder loses the top of his hard hat and the
-   * baby sits half out of the bottom. Scaling to the box and standing them a
-   * little below it puts all fourteen behind the same window.
-   */
-  function guestBust(g, id, w, h, mood) {
-    g.save();
-    g.beginPath();
-    g.rect(0, 0, w, h);
-    g.clip();
-    Art.drawGuest(g, w / 2, h * 1.28, h / 0.62, { type: id, mood: mood });
-    g.restore();
-  }
 
   /**
    * The ring that says "this is the station the cook is walking to". The slabs
@@ -1674,22 +1634,14 @@
     Art.scene.hatch(ctx, h.x, h.y, h.w, h.h, decor(), { lit: ready ? 1 : 0.30 });
 
     /*
-     * Somebody is actually standing there. The window used to say SERVE into an
-     * empty lit hole; the person who has been waiting longest is a better sign
-     * than the word, and their face sours as their bar runs down.
+     * The window is a window, not a portrait. Nobody stands in it now, so the
+     * prompt takes the middle of the opening instead of being squeezed onto the
+     * sill underneath a face - which is where it had to go when there was one.
+     * Light ink, because it is sitting on the dim room rather than on the wood.
      */
-    var next = S.tickets[0];
-    if (next && next.guest) {
-      ctx.save();
-      ctx.translate(h.x + h.w * 0.07, h.y + h.h * 0.27);
-      guestBust(ctx, next.guest, h.w * 0.86, h.h * 0.54,
-        clamp(next.patience / next.max, 0, 1));
-      ctx.restore();
-    }
-
-    // the prompt moves down to the sill so it does not sit across their face
     label(ready ? '▲  S E R V E  ▲' : S.tickets.length + ' waiting',
-      h.x + h.w / 2, h.y + h.h * 0.87, ready ? C.sageInk : K.inkSoft, ready ? 9 : 7.5);
+      h.x + h.w / 2, h.y + h.h * 0.52,
+      ready ? C.sageLift : 'rgba(249,244,237,0.58)', ready ? 10 : 8.5);
     if (live) pickRing(h, 14);
 
     var b = binRect();
@@ -2019,8 +1971,6 @@
   // Smaller than it was: the words below it do the identifying now, and the
   // board had grown to a fifth of a phone screen at the kitchen's expense.
   var MINI_W = 38, MINI_H = 42;
-  // the customer's head, cropped at the shoulders. guestBust fills it.
-  var WHO_W = 34, WHO_H = 24;
 
   /*
    * What the ticket is actually asking for, in words.
@@ -2088,15 +2038,6 @@
       d.className = 'ticket' + (t.arch.id === 'rush' ? ' rush' : '');
       d.setAttribute('data-uid', t.uid);
 
-      // the customer, drawn with the same pen as the cook rather than an emoji
-      var who = document.createElement('canvas');
-      who.className = 'who';
-      who.width = Math.round(WHO_W * dpr);
-      who.height = Math.round(WHO_H * dpr);
-      d.appendChild(who);
-      t.faceEl = who;
-      t.faceMood = -1;
-
       var c = document.createElement('canvas');
       c.className = 'mini';
       c.width = Math.round(MINI_W * dpr);
@@ -2131,29 +2072,10 @@
     updateBoardBars();
   }
 
-  /**
-   * The customer on a ticket, redrawn only when their face would actually
-   * change. A guest is a couple of hundred pen strokes; drawing one on every
-   * bar update would repaint four of them sixty times a second for nothing.
-   */
-  function drawTicketFace(t, ratio) {
-    // 4 steps of mood: happy while there is time, then souring toward a scowl
-    var step = Math.min(3, Math.floor(clamp(ratio, 0, 1) * 4));
-    if (!t.faceEl || t.faceMood === step) return;
-    t.faceMood = step;
-    var g = t.faceEl.getContext('2d');
-    if (!g) return;
-    var dpr = Math.min(window.devicePixelRatio || 1, 3);
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.clearRect(0, 0, WHO_W, WHO_H);
-    guestBust(g, t.guest, WHO_W, WHO_H, step / 3);
-  }
-
   function updateBoardBars() {
     for (var i = 0; i < S.tickets.length; i++) {
       var t = S.tickets[i];
       var ratio = clamp(t.patience / t.max, 0, 1);
-      drawTicketFace(t, ratio);
       if (!t.barEl) continue;
       t.barEl.style.width = (ratio * 100) + '%';
       t.barEl.className = ratio < 0.12 ? 'crit' : (ratio < 0.28 ? 'warn' : '');
@@ -2252,18 +2174,29 @@
     Core.UPGRADES.forEach(function (u) {
       var lvl = active[u.id] || 0;
       var cost = Core.upgradeCost(u.id, lvl);
+      /*
+       * Asked about tomorrow, because that is the shift the purchase lands in.
+       * The room grows on its own and the whole kitchen is capped at five
+       * stations, so past a point another burner is a burner that can never be
+       * installed - and this shop was happily charging for it.
+       */
+      var gains = Core.upgradeGains(u.id, S.day + 1, active);
       var row = document.createElement('div');
       row.className = 'upg';
       var pips = '';
       for (var i = 0; i < u.max; i++) pips += '<i class="' + (i < lvl ? 'on' : '') + '"></i>';
+      var note = (cost !== null && !gains) ? '<small>The kitchen is already full</small>' : '';
       row.innerHTML =
         '<span class="uicon">' + u.icon + '</span>' +
-        '<div><b>' + u.name + '</b><small>' + u.desc + '</small>' +
+        '<div><b>' + u.name + '</b><small>' + u.desc + '</small>' + note +
         '<div class="pips">' + pips + '</div></div>';
       var btn = document.createElement('button');
-      btn.className = 'ubuy' + (cost === null ? ' maxed' : '');
+      btn.className = 'ubuy' + ((cost === null || !gains) ? ' maxed' : '');
       if (cost === null) {
         btn.textContent = 'MAX';
+        btn.disabled = true;
+      } else if (!gains) {
+        btn.textContent = 'FULL';
         btn.disabled = true;
       } else {
         btn.textContent = Core.money(cost);
@@ -2456,9 +2389,12 @@
   function activeLevels() { return Core.levelsWithGear(S.levels, S.owned); }
 
   function buyUpgrade(id) {
-    var lvl = activeLevels()[id] || 0;
+    var active = activeLevels();
+    var lvl = active[id] || 0;
     var cost = Core.upgradeCost(id, lvl);
     if (cost === null || S.money < cost) return;
+    // Never take money for a level that cannot do anything tomorrow.
+    if (!Core.upgradeGains(id, S.day + 1, active)) return;
     S.money -= cost;
     S.levels[id] = (S.levels[id] || 0) + 1;
     S.fx = Core.effects(activeLevels(), S.day);
@@ -2774,7 +2710,7 @@
       plates: S.plates.map(function (p) { return p.stack; }),
       grill: S.grill.map(function (g) { return g ? { id: g.id, t: g.t } : null; }),
       tickets: S.tickets.map(function (t) {
-        return { uid: t.uid, a: t.arch.id, g: t.guest, items: t.items, p: t.patience, m: t.max };
+        return { uid: t.uid, a: t.arch.id, items: t.items, p: t.patience, m: t.max };
       }),
       chefs: S.chefs.map(function (c) {
         return {
@@ -2827,8 +2763,6 @@
       if (!old) changed = true;
       var tk = old || { uid: t.uid, tick: 0 };
       tk.arch = ARCH_BY_ID[t.a] || Core.CUSTOMERS[0];
-      // both screens have to show the same person at the window
-      tk.guest = GUEST_OK[t.g] ? t.g : castGuest(tk.arch.id);
       tk.items = t.items;
       tk.patience = t.p; tk.max = t.m;
       return tk;

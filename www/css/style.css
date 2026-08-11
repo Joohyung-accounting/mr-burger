@@ -102,7 +102,6 @@
    * The parts a ticket is made of, named so the board can reserve its height
    * before a single ticket exists. --order-rows is set per day by game.js.
    */
-  --tk-face: 24px;
   --tk-mini: 42px;
   --tk-row: 11px;
   --tk-gap: 3px;
@@ -469,7 +468,6 @@ body:not(.no-clock) .shopsign { opacity: 0.42; }
    */
   min-height: calc(
     var(--space-1) + 5px
-    + var(--tk-face) + var(--tk-gap)
     + var(--tk-mini) + var(--tk-gap)
     + var(--order-rows) * (var(--tk-row) + 1px) - 1px
     + var(--tk-gap) + var(--tk-bar)
@@ -488,11 +486,11 @@ body:not(.no-clock) .shopsign { opacity: 0.42; }
   box-shadow: none;
   animation: none;
 }
-.ticket.rush .who { animation: jitter 0.5s infinite; }
+/* The impatient archetype used to twitch by their face. With the faces gone
+   the burger is the only thing on the ticket that can fidget. */
+.ticket.rush .mini { animation: jitter 0.5s infinite; }
 @keyframes jitter { 0%,100% { transform: translateX(0); } 50% { transform: translateX(1.5px); } }
 
-/* the customer, drawn on a canvas by guestBust in game.js - not an emoji */
-.ticket .who { width: 34px; height: var(--tk-face); display: block; }
 .ticket .mini { width: 38px; height: var(--tk-mini); display: block; }
 
 /* ---------------------------------------------------------- what it wants */
@@ -1331,10 +1329,6 @@ body.cramped #rotate {
 @media (max-height: 800px) { .shopsign { display: none; } }
 
 @media (max-height: 700px) {
-  /* The face crops smaller on a short screen; the mini burger does not - its
-     canvas is 38x42 and squashing the box just distorts the drawing. */
-  :root { --tk-face: 21px; }
-  .ticket .who { width: 30px; }
   #stage { min-height: 220px; }
   #hud { padding: 6px var(--space-3); }
   .title-sheet { padding: var(--space-6) var(--space-4) var(--space-4); }

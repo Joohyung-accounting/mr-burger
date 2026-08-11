@@ -906,6 +906,46 @@ test('paid gear reaches a track sooner, never further', function () {
     'a paid level must be indistinguishable from an earned one');
 });
 
+test('the shop never charges for a level that changes nothing', function () {
+  /*
+   * The kitchen grows on its own and the whole room is capped at STATION_CAP,
+   * so there are days on which another Extra Burner is a burner that can never
+   * be installed. The shop used to light the button anyway and take the money.
+   */
+  for (var day = 1; day <= 25; day++) {
+    Core.UPGRADES.forEach(function (u) {
+      var levels = {};
+      for (var lv = 0; lv < u.max; lv++) {
+        levels[u.id] = lv;
+        var gains = Core.upgradeGains(u.id, day, levels);
+        var before = Core.effects(levels, day);
+        var next = {}; next[u.id] = lv + 1;
+        var after = Core.effects(next, day);
+        var moved = before.speed !== after.speed || before.plates !== after.plates ||
+          before.grillSlots !== after.grillSlots ||
+          before.perfectWindow !== after.perfectWindow || before.tipMult !== after.tipMult;
+        assert.strictEqual(gains, moved,
+          u.name + ' level ' + (lv + 1) + ' on day ' + day +
+          ': upgradeGains says ' + gains + ' but effects() ' + (moved ? 'moved' : 'did not move'));
+      }
+      // and at the top of the track there is nothing left to gain, ever
+      levels[u.id] = u.max;
+      assert.strictEqual(Core.upgradeGains(u.id, day, levels), false,
+        u.name + ' offered a level past its max on day ' + day);
+    });
+  }
+
+  // the two that the station cap actually bites, named so a change to the cap
+  // or to the day curve shows up here rather than in a player's till
+  assert.strictEqual(Core.upgradeGains('burner', 19, { burner: 1 }), false,
+    'a second Extra Burner cannot fit once the day already runs four');
+  assert.strictEqual(Core.upgradeGains('burner', 18, { burner: 1 }), true,
+    'but it still fits the day before');
+  assert.strictEqual(Core.upgradeGains('plate', 17, { plate: 1 }), false,
+    'a second Plating Station cannot fit once the day already runs four');
+  assert.strictEqual(Core.upgradeGains('plate', 16, { plate: 1 }), true);
+});
+
 test('the store only sells cosmetics, existing upgrade levels, and cash', function () {
   var kinds = {};
   Core.STORE.forEach(function (p) {

@@ -838,6 +838,38 @@
     };
   }
 
+  /**
+   * Would the next level of this upgrade actually change anything on `day`?
+   *
+   * It is not always yes, and the shop used to charge as if it were. The
+   * kitchen grows on its own as the shifts get heavier and the whole room is
+   * capped at STATION_CAP, so from day 19 the line already runs four burners
+   * and a second Extra Burner is a burner that can never be installed -
+   * 2 + 2 + 2 clamped back down to 5. The button was still lit and still took
+   * the money, and the burner never appeared. Same for the second Plating
+   * Station from day 17.
+   *
+   * Asked of the whole effects object rather than of one field, so a cap added
+   * to some future upgrade cannot reintroduce this quietly. Once an upgrade is
+   * blocked it stays blocked: the day term only ever grows.
+   */
+  function upgradeGains(id, day, levels) {
+    var u = UPGRADE_BY_ID[id];
+    if (!u) return false;
+    levels = levels || {};
+    var lv = levels[id] || 0;
+    if (lv >= u.max) return false;
+
+    var next = {};
+    Object.keys(levels).forEach(function (k) { next[k] = levels[k]; });
+    next[id] = lv + 1;
+
+    var a = effects(levels, day), b = effects(next, day);
+    return a.speed !== b.speed || a.plates !== b.plates ||
+      a.grillSlots !== b.grillSlots || a.perfectWindow !== b.perfectWindow ||
+      a.tipMult !== b.tipMult;
+  }
+
   /* ------------------------------------------------------------ format */
   function money(cents) {
     var neg = cents < 0;
@@ -854,6 +886,7 @@
     STORE: STORE,
     storeItem: function (id) { return STORE_BY_ID[id] || null; },
     levelsWithGear: levelsWithGear,
+    upgradeGains: upgradeGains,
     skinsOwned: skinsOwned,
     COOK_TIME: COOK_TIME,
     BURN_TIME: BURN_TIME,
