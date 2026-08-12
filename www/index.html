@@ -69,42 +69,32 @@
 <div id="flash" aria-hidden="true"></div>
 
 <!-- ----------------------------------------------------------- title --->
-<div id="start" class="modal show">
-  <div class="sheet title-sheet">
-    <div class="logo-wrap">
-      <div class="logo-mr">MR.</div>
-      <div class="logo-burger">BURGER</div>
-      <!-- The wordmark's burger, drawn from the game's own layers by
-           Art.drawLogo - so the thing on the slip is the thing you cook. -->
-      <canvas id="logoArt" class="logo-art"></canvas>
-      <p class="tag">Run the line</p>
-    </div>
+<!--
+  The title is one canvas. Art.ui.title paints the diner, the rail, the clipped
+  slip, the hand-lettered wordmark and every button on it - nothing here is set
+  in a typeface, which is the whole point of the slip.
 
-    <button id="continueBtn" class="cta" hidden>
-      CONTINUE<small>Day <span id="continueDay">1</span></small>
-    </button>
-    <button id="playBtn" class="cta">NEW SHIFT</button>
+  The buttons below are the same controls as before, moved onto the drawn boxes
+  by Art.ui.titleBoxes and painted out. The canvas carries the look; the real
+  <button> keeps the tap target, the focus ring, the keyboard and the screen
+  reader. One set of constants feeds both, so they cannot drift apart.
+-->
+<div id="start" class="modal show drawn">
+  <canvas id="titleArt" class="screen-art"></canvas>
 
-    <!-- Two by two rather than three across: four tiles at 375px leaves 66px
-         each, which is not enough for an icon and a word that fits. -->
-    <div class="title-menu">
-      <button id="storeBtn" class="tile">
-        <span class="tile-ico">👕</span><span>Outfit</span>
-      </button>
-      <button id="coopBtn" class="tile">
-        <span class="tile-ico">👥</span><span>Co-op</span>
-      </button>
-      <button id="boardBtn" class="tile">
-        <span class="tile-ico">🏆</span><span>Ranks</span>
-      </button>
-      <button id="accountBtn" class="tile">
-        <span class="tile-ico">🧑‍🍳</span><span>You</span>
-      </button>
-    </div>
+  <button id="continueBtn" class="hit" hidden>Continue &mdash; day <span id="continueDay">1</span></button>
+  <button id="playBtn" class="hit">New shift</button>
+  <!-- Second slot on a fresh install, where NEW SHIFT would otherwise offer to
+       restart a shift nobody has played yet. -->
+  <button id="howBtn2" class="hit">How to play</button>
+  <button id="coopBtn" class="hit">Co-op</button>
+  <button id="boardBtn" class="hit">Ranks</button>
+  <button id="accountBtn" class="hit">You</button>
 
-    <button id="howBtn" class="linkbtn">How to play</button>
-    <div id="netState" class="net-state">offline — progress stays on this device</div>
-  </div>
+  <!-- The slip carries no DOM text: everything on it is drawn. The net state
+       is written along its foot by titleNote(); this element only survives so
+       the online code has somewhere to put the long version. -->
+  <div id="netState" class="net-state" hidden>offline — progress stays on this device</div>
 </div>
 
 <!-- ---------------------------------------------------- how to play --->
@@ -191,6 +181,12 @@
     <button id="resumeBtn" class="cta">RESUME</button>
     <button id="restartBtn" class="cta alt">RESTART THIS DAY</button>
     <button id="pauseSoundBtn" class="cta alt">SOUND: ON</button>
+    <!-- The rules moved here off the title. On the slip they were a line of
+         DOM text lying on a drawn page; and by the time you have a shift to
+         come back to, the place to ask "how does this work again" is mid-shift,
+         not before it. A fresh install still gets HOW TO PLAY as the second
+         button on the title, where NEW SHIFT has nothing to restart. -->
+    <button id="howBtn" class="cta alt">HOW TO PLAY</button>
     <button id="quitBtn" class="linkbtn">Quit to the title screen</button>
   </div>
 </div>

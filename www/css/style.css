@@ -665,6 +665,61 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
 .modal.show { opacity: 1; pointer-events: auto; }
 
 /*
+ * A screen the pen draws instead of the stylesheet. The canvas is the whole
+ * picture - diner, rail, slip, wordmark, buttons - and the controls sit on top
+ * of it, invisible, on the rects Art.ui.titleBoxes hands back.
+ *
+ * They stay real buttons. Painting a control onto a canvas and hit-testing the
+ * taps costs the focus ring, tab order, :focus-visible and the screen reader,
+ * and the slip does not look any different for it.
+ */
+.modal.drawn {
+  padding: 0;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  overflow: hidden;
+  touch-action: manipulation;
+}
+.screen-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.hit {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: transparent;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 10px;
+  -webkit-tap-highlight-color: transparent;
+  /* laid out by paintTitle(); off-screen until then so a slow first paint
+     never leaves a stack of buttons in the corner */
+  left: -9999px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+}
+.hit:focus-visible {
+  outline: 2.5px solid var(--amber);
+  outline-offset: 3px;
+}
+/* The press is the only thing the canvas cannot show, so the tap dips the
+   drawn button by nudging the whole hit box - the repaint follows it. */
+.hit:active { transform: translateY(1.5px); }
+
+/* Nothing else goes on a drawn screen. A .modal.drawn holds its canvas and the
+   invisible controls laid over it, and that is all - the moment a line of DOM
+   text sits on the paper, the screen is half drawn and half typeset. */
+.modal.drawn > :not(.screen-art):not(.hit) { display: none; }
+
+/*
  * A slip torn off the roll and dropped on the counter - so it lands a degree
  * or two off square, and the tear runs along the bottom. The rail above it is
  * the ::before; the label on the rail is per-sheet, set with --rail-label.

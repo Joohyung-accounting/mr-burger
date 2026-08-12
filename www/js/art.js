@@ -11,6 +11,9 @@
  * blended. The wobble is derived from `hash(seed)` - NOT Math.random - so a
  * layer looks identical on every frame and never boils while the cook walks.
  *
+ * Customers are not part of this build - the guest drawings in the design
+ * handoff are deliberately left out, and the chef carries CHEF_SKINS.
+ *
  * Layers are drawn into a box: (x, y) is the top-left, w is the *bun* width.
  */
 (function (root) {
@@ -1033,7 +1036,6 @@
     fn(ctx, w / 2, h / 2, P, Math.max(1, P * 0.028));
   }
 
-  /* --------------------------------------------------------------- API */
   /* ------------------------------------------------------------- seating
    * Where a layer's INK actually lives inside its own band, as a fraction of
    * the band height: [top, bottom]. MEASURED, not guessed - each layer was
@@ -1329,18 +1331,7 @@
    * bigger than the head. Now drawn with the same wobbling pen as the food, so
    * the cook and the burger look like they came out of one sketchbook.
    *
-   * opts: { face, bob, blink, hop, carry, skin }
-   */
-  /*
-   * What a skin actually is: eleven colours. The cook is drawn, not blitted, so
-   * a new outfit costs a palette rather than a sprite sheet - which is the only
-   * reason a zero-asset project can sell them at all.
-   *
-   * `classic` is what the cook has always worn and stays the free one; the rest
-   * are sold. They are deliberately built from the same warm family the kitchen
-   * is (terracotta, sage, cream) with one deep outlier, so a paid cook still
-   * looks like they work here rather than like they wandered in from a
-   * different game.
+   * opts: { face, bob, blink, hop, carry }
    */
   var CHEF_SKINS = {
     classic: {
@@ -1752,27 +1743,26 @@
             '#e2704f', { lw: lw * 0.55, line: '#8a3a1c', seed: s + 22 });
       }
       var tx = lx + lw2 * (lpad + (1 - lpad - rpad) * 0.5);
-      ctx.save();
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#5a4030';
-      var fs = Math.max(6.5, Math.min(lh * 0.62, w * 0.15));
       var room = lw2 * (1 - lpad - rpad);
       var txt = String(opts.name).toUpperCase();
+      // Hand-lettered like every other label in the game. Same fit logic as
+      // before: shrink first, and only squeeze horizontally when a long name
+      // has nowhere left to go (JALAPENO on a 54px crate).
+      var cap = Math.max(4.6, Math.min(lh * 0.46, w * 0.108));
       for (i = 0; i < 6; i++) {
-        ctx.font = '900 ' + fs.toFixed(1) + 'px "Trebuchet MS", system-ui, sans-serif';
-        if (ctx.measureText(txt).width <= room || fs <= 6.5) break;
-        fs *= 0.9;
+        if (penTextWidth(txt, cap, 0.07) <= room || cap <= 4.6) break;
+        cap *= 0.9;
       }
-      // a long name on a narrow crate is squeezed rather than allowed to run
-      // off the paper - JALAPENO on a 54px box has nowhere else to go
-      var tw = ctx.measureText(txt).width;
+      var tw = penTextWidth(txt, cap, 0.07);
+      ctx.save();
       if (tw > room) {
         ctx.translate(tx, 0);
         ctx.scale(room / tw, 1);
         ctx.translate(-tx, 0);
       }
-      ctx.fillText(txt, tx, ly2 + lh * 0.56);
+      penLetters(ctx, txt, tx, ly2 + lh * 0.56 + cap * 0.44, cap, {
+        fill: '#5a4030', weight: 0.145, track: 0.07, seed: s + 25, tilt: 0.05, wobble: 0.028
+      });
       ctx.restore();
     }
 
@@ -1851,8 +1841,6 @@
       ctx.restore();
     }
   }
-
-  /** A plate seen from above, with the rim ring drawn as its own pass. */
 
   /* A plate seen from above.
    *
@@ -1959,10 +1947,7 @@
     var lit = (opts && opts.lit) || 0;
     // the dark opening
     var hole = rectPts(x + w * 0.06, y + h * 0.26, w * 0.88, h * 0.56, h * 0.10, w * 0.003, s + 1);
-    // A dining room with the lights low, not a black rectangle. On a cream
-    // shell the old #2a1a12 was the darkest mass on the screen and pulled the
-    // eye to the one place nothing happens until a plate is ready.
-    ink(ctx, hole, mixHex('#46291a', '#f6a06b', lit * 0.38), { lw: lw, line: '#2b1810', seed: s + 1 });
+    ink(ctx, hole, mixHex('#2a1a12', '#f4b41a', lit * 0.35), { lw: lw, line: '#1a100b', seed: s + 1 });
     // sill
     ink(ctx, rectPts(x, y + h * 0.74, w, h * 0.24, h * 0.07, w * 0.003, s + 2),
         T.top, { lw: lw, off: w * 0.002, line: mixHex(T.side, '#2a1a10', 0.4), seed: s + 2 });
@@ -1993,112 +1978,1057 @@
         '#c9a33f', { lw: lw * 0.8, line: '#8a6416', seed: s + 6 });
   }
 
-  /** Kerbside bin: pedal, ribbed drum, bag folded over the rim, hinged lid. */
+  /**
+   * The bin by the hatch. A tapered galvanised can with a rolled rim, two side
+   * handles and a bag lining folded over the front lip; the lid is hinged at
+   * the back and swings up when `open` goes to 1.
+   *
+   * Proportions are its own, not the box's: the slot the room gives it is wide
+   * and short (52x46), and stretching a drum to fill that produced a squat
+   * bulging pot that read as a cauldron. It now sizes itself off whichever of
+   * the two is tighter and stands centred on the floor of its slot.
+   */
   function drawBin(ctx, x, y, w, h, opts) {
-    var s = 691, lw = Math.max(1, w * 0.030), i;
+    var s = 691, i, c;
     var open = (opts && opts.open) || 0;
-    var bodyTop = y + h * 0.34;
-    var footY = y + h * 0.94;
+    var cx = x + w * 0.5;
+    var botY = y + h * 0.95;
+    var bw = Math.min(w * 0.66, h * 0.70);          // width at the rim
+    var bh = Math.min(h * 0.64, bw * 1.34);          // drum height - taller than wide
+    var topY = botY - bh;
+    var botW = bw * 0.82;                            // the taper
+    var lw = Math.max(1, bw * 0.042);
 
-    // pedal and foot, so it reads as a bin you step on rather than a vase
-    ink(ctx, rectPts(x + w * 0.06, footY - h * 0.01, w * 0.26, h * 0.050, w * 0.02, w * 0.006, s + 8),
-        '#7c8468', { lw: lw * 0.85, line: '#3f4534', seed: s + 8 });
-
-    // drum: a cylinder, so the sides are parallel and the foot is an ellipse
-    var bodyW = w * 0.72, bx = x + (w - bodyW) / 2;
-    var body = jitter([[bx, bodyTop], [bx + bodyW, bodyTop],
-                       [bx + bodyW, footY], [bx, footY]], w * 0.008, s);
-    ink(ctx, body, '#a8ae94', { lw: lw, off: w * 0.008, line: '#3f4534', seed: s });
-    // the base, seen as a shallow ellipse - what makes it read as round
-    ink(ctx, ellPts(x + w * 0.5, footY, bodyW / 2, h * 0.055, 20, w * 0.007, s + 11),
-        '#949b7f', { lw: lw, off: w * 0.006, line: '#3f4534', seed: s + 11 });
+    // scribbled contact shadow, the same three strokes everything else stands on
     ctx.save();
-    trace(ctx, body); ctx.clip();
-    // a soft shade down each side turns the flat drum into a cylinder
-    var cyl = ctx.createLinearGradient(bx, 0, bx + bodyW, 0);
-    cyl.addColorStop(0, 'rgba(48,52,38,0.34)');
-    cyl.addColorStop(0.32, 'rgba(255,255,255,0.16)');
-    cyl.addColorStop(0.62, 'rgba(255,255,255,0.05)');
-    cyl.addColorStop(1, 'rgba(48,52,38,0.40)');
-    ctx.fillStyle = cyl;
-    ctx.fillRect(bx, bodyTop, bodyW, footY - bodyTop);
-    // vertical ribs
-    ctx.strokeStyle = '#7d866a';
-    ctx.globalAlpha = 0.45;
-    ctx.lineWidth = Math.max(0.9, w * 0.022);
+    ctx.strokeStyle = INK;
     ctx.lineCap = 'round';
-    for (i = 0; i < 5; i++) {
-      var vx = bx + bodyW * (0.16 + i * 0.17);
+    for (i = 0; i < 2; i++) {
+      ctx.globalAlpha = 0.13;
+      ctx.lineWidth = bh * 0.055;
+      var sw = botW * 0.62 * (1 - i * 0.22);
       ctx.beginPath();
-      ctx.moveTo(vx, bodyTop + h * 0.05);
-      ctx.lineTo(vx, footY - h * 0.02);
+      ctx.moveTo(cx - sw, botY + i * bh * 0.035);
+      ctx.quadraticCurveTo(cx, botY + i * bh * 0.035 + bh * 0.02, cx + sw, botY + i * bh * 0.035);
       ctx.stroke();
     }
-    // two hoop bands, bowed like the rim so they wrap the drum
-    ctx.globalAlpha = 0.7;
-    ctx.strokeStyle = '#6d7659';
-    ctx.lineWidth = Math.max(1, w * 0.034);
-    [0.30, 0.72].forEach(function (f) {
-      var by = bodyTop + (footY - bodyTop) * f;
+    ctx.restore();
+
+    // handles, behind the drum so only the loops show past its sides
+    ctx.save();
+    ctx.strokeStyle = '#5b737f';
+    ctx.lineWidth = Math.max(1.2, bw * 0.055);
+    ctx.lineCap = 'round';
+    [-1, 1].forEach(function (d) {
       ctx.beginPath();
-      for (var c = 0; c <= 10; c++) {
-        var t = c / 10;
-        ctx.lineTo(bx + bodyW * t, by + Math.sin(t * Math.PI) * h * 0.022);
-      }
+      ctx.arc(cx + d * bw * 0.46, topY + bh * 0.26, bw * 0.11,
+              d > 0 ? -Math.PI * 0.55 : Math.PI * 0.45, d > 0 ? Math.PI * 0.55 : Math.PI * 1.55);
       ctx.stroke();
     });
     ctx.restore();
-    hatch(ctx, body, '#3f4534', s, { n: 4, alpha: 0.10, gap: h * 0.22 });
 
-    // rim, dark mouth, and the bag folded over the lip
-    ink(ctx, ellPts(x + w * 0.5, bodyTop, bodyW / 2, h * 0.070, 20, w * 0.008, s + 2),
-        '#c0c5aa', { lw: lw, off: w * 0.006, line: '#3f4534', seed: s + 2 });
-    ink(ctx, ellPts(x + w * 0.5, bodyTop + h * 0.006, bodyW * 0.38, h * 0.048, 18, w * 0.006, s + 7),
-        '#3a4030', { lw: lw * 0.7, line: '#242819', seed: s + 7 });
+    // The lid is HINGED on the near-left of the rim and only ever rotates about
+    // that point - it is never translated. Lifting it clear left it hanging in
+    // the air with nothing holding it up, which is the thing that looked wrong
+    // about the old bin in the first place. When it is open it is also drawn
+    // BEFORE the rim, so the rim overlaps its lower edge: that overlap is what
+    // says "still attached" rather than "resting above".
+    var hx = cx - bw * 0.46, hy = topY - bh * 0.020;
+    var lidY = topY - bh * 0.055;
+    // Work out the widest swing this slot has headroom for ONCE, then take a
+    // fraction of it. Clamping the angle itself made the lid stop moving at
+    // open 0.4 and sit there for the rest of the animation.
+    var probe = [[cx + bw * 0.56, lidY - bh * 0.09], [cx, lidY - bh * 0.085 - bw * 0.12],
+                 [cx - bw * 0.56, lidY - bh * 0.09]];
+    var swing = 1.0;
+    while (swing > 0.05) {
+      var top = 1e9;
+      for (i = 0; i < probe.length; i++) {
+        var px = probe[i][0] - hx, py = probe[i][1] - hy;
+        top = Math.min(top, hy - px * Math.sin(swing) + py * Math.cos(swing));
+      }
+      if (top >= y + lw) break;
+      swing *= 0.88;
+    }
+    var ang = -open * swing;
+
+    function paintLid() {
+      ctx.save();
+      ctx.translate(hx, hy);
+      ctx.rotate(ang);
+      ctx.translate(-hx, -hy);
+      ink(ctx, ellPts(cx, lidY, bw * 0.56, bh * 0.090, 22, bw * 0.009, s + 3),
+          '#c2d3dc', { lw: lw, off: bw * 0.008, line: '#33454e', seed: s + 3 });
+      ink(ctx, ellPts(cx, lidY - bh * 0.045, bw * 0.30, bh * 0.050, 18, bw * 0.007, s + 9),
+          '#aebfc9', { lw: lw * 0.8, line: '#33454e', lineAlpha: 0.7, seed: s + 9 });
+      ctx.strokeStyle = '#5b737f';
+      ctx.lineWidth = Math.max(1.2, bw * 0.048);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(cx, lidY - bh * 0.085, bw * 0.11, Math.PI * 1.05, Math.PI * 1.95);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // the drum: a tapered barrel with slightly bowed sides
+    var body = jitter([[cx - bw * 0.50, topY],
+                       [cx - bw * 0.49, topY + bh * 0.50],
+                       [cx - botW * 0.50, botY],
+                       [cx, botY + bh * 0.035],
+                       [cx + botW * 0.50, botY],
+                       [cx + bw * 0.49, topY + bh * 0.50],
+                       [cx + bw * 0.50, topY]], bw * 0.012, s);
+    ink(ctx, body, '#93a7b2', { lw: lw, off: bw * 0.012, line: '#33454e', seed: s });
+    hatch(ctx, body, '#33454e', s, { n: 5, alpha: 0.16, gap: bh * 0.13 });
     ctx.save();
-    ctx.globalAlpha = 0.9;
-    for (i = 0; i < 5; i++) {
-      var a = Math.PI * (0.10 + i * 0.20);
-      ink(ctx, blobPts(x + w * 0.5 + Math.cos(a) * bodyW * 0.40, bodyTop + Math.sin(a) * h * 0.048 + h * 0.012,
-                       w * 0.075, h * 0.028, 4, 0.22, i, 14, w * 0.005, s + 20 + i),
-          '#525a44', { lw: lw * 0.6, line: '#2b3021', lineAlpha: 0.8, seed: s + 20 + i });
+    trace(ctx, body);
+    ctx.clip();
+    // two hoop bands, bowed so they wrap the drum instead of ruling across it
+    ctx.strokeStyle = '#5b737f';
+    ctx.globalAlpha = 0.75;
+    ctx.lineWidth = Math.max(1, bw * 0.050);
+    ctx.lineCap = 'round';
+    [0.36, 0.72].forEach(function (f, k) {
+      var by = topY + bh * f;
+      ctx.beginPath();
+      for (c = 0; c <= 10; c++) {
+        var t = c / 10;
+        ctx.lineTo(cx - bw * 0.55 + bw * 1.10 * t, by + Math.sin(t * Math.PI) * bh * 0.045);
+      }
+      ctx.stroke();
+    });
+    // a couple of vertical seams, not a whole grid of them
+    ctx.globalAlpha = 0.30;
+    ctx.lineWidth = Math.max(0.9, bw * 0.030);
+    [-0.22, 0.20].forEach(function (f, k) {
+      ctx.beginPath();
+      ctx.moveTo(cx + bw * f, topY + bh * 0.10);
+      ctx.lineTo(cx + bw * f * 0.86, botY - bh * 0.04);
+      ctx.stroke();
+    });
+    ctx.restore();
+
+    // The mouth has to be a hole you can see into, or the bin reads as a closed
+    // pot however far the lid is up: rolled rim as a ring, dark opening inside
+    // it, and the bag folded over the FRONT lip only so it never covers the
+    // hole. Order: rim, mouth, wrapper in the mouth, then the fold over the lip.
+    if (open > 0.02) paintLid();
+    ink(ctx, ellPts(cx, topY, bw * 0.53, bh * 0.105, 22, bw * 0.009, s + 2),
+        '#aebfc9', { lw: lw, off: bw * 0.008, line: '#33454e', seed: s + 2 });
+    // the hinge the lid actually turns on
+    ink(ctx, rectPts(hx - bw * 0.055, hy - bh * 0.028, bw * 0.11, bh * 0.055, bh * 0.020, bw * 0.005, s + 30),
+        '#5b737f', { lw: lw * 0.6, line: '#33454e', seed: s + 30 });
+
+    if (open > 0.02) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, open * 4);
+      ink(ctx, ellPts(cx, topY + bh * 0.014, bw * 0.42, bh * 0.078, 20, bw * 0.008, s + 7),
+          '#2b3a42', { lw: lw * 0.75, line: '#17222a', seed: s + 7 });
+      // one wrapper poking out, so it reads as a bin in use rather than a churn
+      ink(ctx, blobPts(cx + bw * 0.18, topY - bh * 0.030, bw * 0.15, bh * 0.070, 5, 0.26, 1.2, 18, bw * 0.010, s + 24),
+          '#fdf6e6', { lw: lw * 0.7, line: '#a8907a', seed: s + 24 });
+      ctx.save();
+      ctx.strokeStyle = '#c0562f';
+      ctx.globalAlpha = 0.8 * Math.min(1, open * 4);
+      ctx.lineWidth = Math.max(0.9, bw * 0.030);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(cx + bw * 0.13, topY - bh * 0.040);
+      ctx.lineTo(cx + bw * 0.24, topY - bh * 0.018);
+      ctx.stroke();
+      ctx.restore();
+      // the bag, folded over the near lip in three soft scallops
+      for (i = 0; i < 3; i++) {
+        var a = Math.PI * (0.22 + i * 0.28);
+        ink(ctx, blobPts(cx + Math.cos(a) * bw * 0.40, topY + Math.sin(a) * bh * 0.085 + bh * 0.020,
+                         bw * 0.13, bh * 0.045, 4, 0.20, i * 1.3, 16, bw * 0.008, s + 20 + i),
+            '#dfe6ea', { lw: lw * 0.6, line: '#6b7f88', lineAlpha: 0.85, seed: s + 20 + i });
+      }
+      ctx.restore();
+    }
+
+    // the lid: flat on the rim when shut, tipped up and back when open
+    if (open <= 0.02) paintLid();
+  }
+
+  /* ------------------------------------------------------------ pen font
+   * A one-stroke alphabet, written out as centre lines rather than outlines, so
+   * every letter is DRAWN by the same pen as the food instead of set in a
+   * typeface. Each glyph lives in a box 1 unit tall (0 = cap line, 1 = the
+   * baseline) and `adv` units wide; strokes are polylines through that box.
+   *
+   * Why bother: the wordmark was Trebuchet with a per-letter tilt, and a
+   * tilted typeface still reads as a typeface. Hand-set centre lines wobble at
+   * the joints, vary in weight, and close their bowls imperfectly - which is
+   * what makes lettering look lettered.
+   */
+  var PEN_SRC = {
+    'A': [0.66, '0.03,1 0.33,0.02 0.63,1|0.14,0.66 0.52,0.65'],
+    'B': [0.62, '0.09,0.02 0.09,0.99|0.09,0.03 0.38,0.05 0.47,0.21 0.42,0.42 0.09,0.48|0.09,0.48 0.45,0.51 0.55,0.72 0.46,0.96 0.09,0.99'],
+    'C': [0.62, '0.57,0.17 0.44,0.04 0.23,0.05 0.09,0.24 0.07,0.6 0.15,0.9 0.35,1 0.57,0.89'],
+    'D': [0.64, '0.09,0.02 0.09,0.99|0.09,0.03 0.37,0.07 0.53,0.29 0.53,0.72 0.36,0.96 0.09,0.99'],
+    'E': [0.58, '0.1,0.03 0.1,0.99|0.1,0.04 0.52,0.02|0.1,0.5 0.43,0.49|0.1,0.98 0.54,1'],
+    'F': [0.56, '0.1,0.02 0.1,1|0.1,0.04 0.52,0.02|0.1,0.5 0.41,0.49'],
+    'G': [0.66, '0.58,0.19 0.43,0.04 0.22,0.06 0.08,0.25 0.07,0.62 0.16,0.92 0.37,1 0.56,0.9 0.58,0.62|0.58,0.62 0.38,0.6'],
+    'H': [0.64, '0.09,0.02 0.09,1|0.55,0.02 0.55,1|0.09,0.52 0.55,0.5'],
+    'I': [0.3, '0.15,0.03 0.15,0.99'],
+    'J': [0.56, '0.5,0.03 0.5,0.78 0.42,0.97 0.24,1 0.1,0.86'],
+    'K': [0.62, '0.1,0.02 0.1,1|0.54,0.03 0.1,0.55|0.23,0.44 0.56,1'],
+    'L': [0.54, '0.11,0.02 0.11,0.98|0.11,0.98 0.52,1'],
+    'M': [0.8, '0.05,1 0.1,0.03|0.1,0.03 0.4,0.68|0.4,0.68 0.7,0.03|0.7,0.03 0.75,1'],
+    'N': [0.68, '0.09,1 0.09,0.03|0.09,0.05 0.57,0.96|0.57,0.97 0.57,0.03'],
+    'O': [0.7, '0.35,0.02 0.14,0.16 0.07,0.5 0.14,0.87 0.35,1 0.56,0.86 0.63,0.5 0.55,0.15 0.35,0.02 0.28,0.05'],
+    'P': [0.6, '0.1,0.02 0.1,1|0.1,0.03 0.41,0.06 0.51,0.25 0.45,0.47 0.1,0.52'],
+    'Q': [0.7, '0.35,0.02 0.14,0.16 0.07,0.5 0.14,0.87 0.35,1 0.56,0.86 0.63,0.5 0.55,0.15 0.35,0.02 0.28,0.05|0.42,0.76 0.66,1.09'],
+    'R': [0.64, '0.1,0.02 0.1,1|0.1,0.03 0.41,0.06 0.51,0.25 0.43,0.47 0.1,0.51|0.27,0.51 0.58,1'],
+    'S': [0.6, '0.55,0.15 0.37,0.03 0.17,0.08 0.13,0.27 0.31,0.45 0.49,0.57 0.53,0.81 0.37,0.99 0.15,0.94 0.07,0.82'],
+    'T': [0.6, '0.04,0.04 0.56,0.02|0.3,0.03 0.3,1'],
+    'U': [0.64, '0.09,0.03 0.09,0.74 0.21,0.97 0.42,0.98 0.54,0.76 0.54,0.02'],
+    'V': [0.64, '0.05,0.03 0.32,1 0.6,0.02'],
+    'W': [0.86, '0.03,0.03 0.18,1|0.18,1 0.42,0.4|0.42,0.4 0.64,1|0.64,1 0.8,0.02'],
+    'X': [0.62, '0.06,0.03 0.56,1|0.56,0.03 0.06,1'],
+    'Y': [0.62, '0.05,0.03 0.31,0.53 0.57,0.02|0.31,0.53 0.31,1'],
+    'Z': [0.6, '0.06,0.05 0.55,0.03|0.55,0.03 0.08,0.97|0.08,0.97 0.57,1'],
+    '0': [0.62, '0.31,0.03 0.12,0.18 0.07,0.52 0.14,0.88 0.31,1 0.49,0.87 0.55,0.5 0.48,0.16 0.31,0.03'],
+    '1': [0.44, '0.08,0.19 0.28,0.03 0.28,1|0.12,1 0.45,0.99'],
+    '2': [0.58, '0.08,0.21 0.21,0.05 0.43,0.07 0.51,0.26 0.36,0.51 0.1,0.98 0.55,0.96'],
+    '3': [0.58, '0.1,0.11 0.35,0.03 0.51,0.17 0.41,0.44 0.21,0.47|0.41,0.44 0.55,0.66 0.47,0.93 0.22,0.99 0.08,0.88'],
+    '4': [0.6, '0.43,0.03 0.06,0.71 0.57,0.7|0.43,0.03 0.43,1'],
+    '5': [0.58, '0.51,0.04 0.15,0.05 0.13,0.45 0.35,0.42 0.53,0.57 0.51,0.84 0.31,0.99 0.1,0.92'],
+    '6': [0.6, '0.51,0.06 0.27,0.07 0.11,0.35 0.09,0.72 0.21,0.96 0.41,0.98 0.55,0.79 0.47,0.56 0.23,0.53 0.11,0.67'],
+    '7': [0.56, '0.06,0.05 0.55,0.04 0.28,1'],
+    '8': [0.6, '0.32,0.04 0.15,0.15 0.17,0.36 0.33,0.48 0.5,0.6 0.5,0.86 0.32,0.99 0.14,0.86 0.16,0.61 0.33,0.48 0.48,0.36 0.5,0.15 0.32,0.04'],
+    '9': [0.6, '0.14,0.95 0.37,0.96 0.53,0.7 0.55,0.31 0.43,0.06 0.23,0.05 0.11,0.21 0.17,0.43 0.41,0.47 0.53,0.35'],
+    '$': [0.62, '0.34,-0.08 0.34,1.08|0.55,0.16 0.38,0.05 0.18,0.1 0.14,0.28 0.32,0.45 0.5,0.57 0.54,0.8 0.38,0.97 0.16,0.92 0.08,0.8'],
+    '.': [0.28, '0.11,0.96 0.17,0.97'],
+    ',': [0.28, '0.16,0.9 0.09,1.13'],
+    ':': [0.28, '0.12,0.36 0.18,0.37|0.12,0.94 0.18,0.95'],
+    '\u00b7': [0.32, '0.12,0.55 0.19,0.56'],
+    '-': [0.46, '0.06,0.56 0.4,0.55'],
+    '\u2014': [0.9, '0.05,0.56 0.85,0.54'],
+    '/': [0.5, '0.05,1 0.45,0.02'],
+    '!': [0.28, '0.15,0.03 0.14,0.68|0.13,0.95 0.19,0.96'],
+    '?': [0.54, '0.08,0.19 0.23,0.03 0.43,0.09 0.45,0.29 0.28,0.45 0.26,0.63|0.24,0.95 0.3,0.96'],
+    '+': [0.5, '0.07,0.55 0.43,0.54|0.25,0.36 0.25,0.73'],
+    '%': [0.74, '0.14,0.04 0.06,0.14 0.13,0.24 0.21,0.15 0.14,0.04|0.6,0.98 0.68,0.87 0.61,0.76 0.53,0.87 0.6,0.98|0.66,0.05 0.09,1'],
+    '(': [0.34, '0.26,0.0 0.11,0.3 0.11,0.72 0.26,1.02'],
+    ')': [0.34, '0.08,0.0 0.23,0.3 0.23,0.72 0.08,1.02'],
+    '\'': [0.24, '0.13,0.03 0.1,0.24'],
+    '&': [0.7, '0.62,1 0.24,0.55 0.14,0.34 0.22,0.1 0.42,0.08 0.47,0.26 0.3,0.48 0.11,0.68 0.14,0.9 0.34,1 0.55,0.86'],
+    ' ': [0.34, '']
+  };
+  var PEN_CACHE = {};
+  function penGlyph(ch) {
+    if (PEN_CACHE[ch]) return PEN_CACHE[ch];
+    var src = PEN_SRC[ch];
+    if (!src) return null;
+    var strokes = src[1] ? src[1].split('|').map(function (sk) {
+      return sk.split(' ').map(function (p) {
+        var xy = p.split(',');
+        return [parseFloat(xy[0]), parseFloat(xy[1])];
+      });
+    }) : [];
+    PEN_CACHE[ch] = { adv: src[0], strokes: strokes };
+    return PEN_CACHE[ch];
+  }
+
+  /** Smoothed open polyline - the pen never travels in straight segments. */
+  function penPath(ctx, p) {
+    ctx.beginPath();
+    if (p.length < 3) {
+      ctx.moveTo(p[0][0], p[0][1]);
+      ctx.lineTo(p[p.length - 1][0], p[p.length - 1][1]);
+      return;
+    }
+    ctx.moveTo(p[0][0], p[0][1]);
+    for (var i = 1; i < p.length - 1; i++) {
+      ctx.quadraticCurveTo(p[i][0], p[i][1],
+                           (p[i][0] + p[i + 1][0]) / 2, (p[i][1] + p[i + 1][1]) / 2);
+    }
+    ctx.lineTo(p[p.length - 1][0], p[p.length - 1][1]);
+  }
+
+  /* Lowercase is drawn as small caps: this is signwriting, and a hand-painted
+   * shop sign has no lowercase. */
+  function penChars(txt) {
+    var out = [], i, ch;
+    for (i = 0; i < txt.length; i++) {
+      ch = txt[i];
+      var small = ch >= 'a' && ch <= 'z';
+      if (small) ch = ch.toUpperCase();
+      out.push({ ch: ch, g: penGlyph(ch), small: small });
+    }
+    return out;
+  }
+
+  function penTextWidth(txt, size, track) {
+    var cs = penChars(txt), w = 0;
+    track = track === undefined ? 0.055 : track;
+    for (var i = 0; i < cs.length; i++) {
+      if (!cs[i].g) continue;
+      w += (cs[i].g.adv * (cs[i].small ? 0.80 : 1) + (i ? track : 0)) * size;
+    }
+    return w;
+  }
+
+  /**
+   * Hand-lettered text.
+   *   Art.ui.letters(ctx, 'BURGER', cx, baselineY, capHeight, {
+   *     fill, line, weight, track, align, seed, tilt, wobble
+   *   })
+   * `fill` is the pen colour; `line` (optional) is a heavier stroke under it,
+   * which is how the display sizes get their inked edge. Returns the width.
+   */
+  function penLetters(ctx, txt, cx, baseY, size, o) {
+    o = o || {};
+    var track = o.track === undefined ? 0.055 : o.track;
+    var seed = o.seed || 0, i, k;
+    var weight = (o.weight === undefined ? 0.105 : o.weight) * size;
+    var jit = (o.wobble === undefined ? 0.022 : o.wobble) * size;
+    var tilt = o.tilt === undefined ? 0.035 : o.tilt;
+    var cs = penChars(txt);
+    var total = penTextWidth(txt, size, track);
+    var x = o.align === 'left' ? cx : o.align === 'right' ? cx - total : cx - total / 2;
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (i = 0; i < cs.length; i++) {
+      var g = cs[i].g;
+      if (!g) continue;
+      var sc = cs[i].small ? 0.80 : 1;
+      var gw = g.adv * sc * size;
+      if (g.strokes.length) {
+        ctx.save();
+        ctx.translate(x + gw / 2, baseY + wob(seed + i, 1) * size * 0.035);
+        ctx.rotate(wob(seed + i, 2) * tilt);
+        ctx.translate(-(x + gw / 2), -baseY);
+        for (k = 0; k < g.strokes.length; k++) {
+          var src = g.strokes[k], p = [];
+          for (var j = 0; j < src.length; j++) {
+            p.push([x + src[j][0] * sc * size, baseY - size * sc * (1 - src[j][1])]);
+          }
+          jitter(p, jit, seed + i * 7 + k);
+          if (o.line) {
+            ctx.strokeStyle = o.line;
+            ctx.lineWidth = weight * sc * 2.05;
+            penPath(ctx, p);
+            ctx.stroke();
+          }
+          ctx.strokeStyle = o.fill || INK;
+          ctx.lineWidth = weight * sc * (1 + wob(seed + i, 3 + k) * 0.18);
+          penPath(ctx, p);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+      x += gw + track * size;
+    }
+    ctx.restore();
+    return total;
+  }
+
+  /* ------------------------------------------------------------------ HUD
+   * The status bar reads as a strip of paper taped over the top of the screen,
+   * hand-lettered in the same pen as the food: the day and the clock written
+   * on it, the takings drawn as a hatched thermometer, tips as a row of ticks,
+   * and lives as five little inked hearts.
+   *
+   * The old bar was a dark rounded plate with CSS gradients, a candy-striped
+   * fill and glossy inner highlights - the one thing left on screen that came
+   * from a different game. Everything here is drawn with wobble, offset colour
+   * and hatching, so it belongs to the kitchen behind it.
+   */
+
+  /** A small inked heart. `on` false leaves it as an empty outline. */
+  function drawHeart(ctx, cx, cy, r, on, seed) {
+    var p = [], i, t;
+    for (i = 0; i <= 30; i++) {
+      t = i / 30 * TAU;
+      var sx = Math.pow(Math.sin(t), 3);
+      var sy = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+      p.push([cx + sx * r * 1.00, cy - sy * r * 0.077]);
+    }
+    p = jitter(p, r * 0.06, seed);
+    if (on) {
+      ink(ctx, p, '#d94436', { lw: Math.max(0.9, r * 0.20), off: r * 0.09, line: '#7a1a16', seed: seed });
+      hatch(ctx, p, '#7a1a16', seed, { n: 3, alpha: 0.18, gap: r * 0.60 });
+    } else {
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      ctx.strokeStyle = '#a08a6e';
+      ctx.lineWidth = Math.max(0.9, r * 0.17);
+      ctx.lineJoin = 'round';
+      trace(ctx, p);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  /**
+   * Art.ui.hud(ctx, x, y, w, h, {
+   *   day, time,            '4', '1:48'
+   *   earned, goal,         numbers - written as $18.40 / $26.00
+   *   pct,                  0..1 takings against the goal (defaults to earned/goal)
+   *   tip,                  0..1 tip meter
+   *   lives, maxLives,      hearts
+   *   urgent,               true under a minute - the clock goes red and underlined
+   *   paused                the pause square reads as two bars either way
+   * })
+   * Draws its own paper, so the host only needs to clear the strip behind it.
+   */
+  function drawHUD(ctx, x, y, w, h, o) {
+    o = o || {};
+    var s = 1471, i;
+    var lives = o.lives === undefined ? 3 : o.lives;
+    var maxL = o.maxLives || 5;
+    var goal = o.goal === undefined ? 26 : o.goal;
+    var earned = o.earned === undefined ? 0 : o.earned;
+    var pct = o.pct === undefined ? (goal ? earned / goal : 0) : o.pct;
+    pct = Math.max(0, Math.min(1, pct));
+    var lw = Math.max(1, h * 0.030);
+
+    // the paper, tilted a hair off level like everything else pinned up here
+    ctx.save();
+    ctx.translate(x + w / 2, y + h / 2);
+    ctx.rotate(-0.004);
+    ctx.translate(-(x + w / 2), -(y + h / 2));
+
+    var pad = h * 0.13;
+    var px = x + pad, py = y + pad, pw = w - pad * 2, ph = h - pad * 2;
+    var paper = rectPts(px, py, pw, ph, h * 0.06, w * 0.0035, s);
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = INK;
+    trace(ctx, rectPts(px + pad * 0.4, py + pad * 0.55, pw, ph, h * 0.06, w * 0.003, s + 1));
+    ctx.fill();
+    ctx.restore();
+    ink(ctx, paper, '#fdf6e6', { lw: lw, off: w * 0.0025, line: '#8a7259', seed: s });
+    hatch(ctx, paper, '#c4ab8a', s, { n: 4, alpha: 0.10, gap: ph * 0.42 });
+
+    // two bits of tape holding it to the top of the screen - the rotated
+    // corners have to clear y, so the strip is shorter than the padding
+    [[px + pw * 0.10, -0.16], [px + pw * 0.90, 0.13]].forEach(function (t, k) {
+      var th = pad * 0.62, tw = w * 0.045;
+      ctx.save();
+      ctx.translate(t[0], py + th * 0.20);
+      ctx.rotate(t[1]);
+      ctx.globalAlpha = 0.62;
+      ink(ctx, rectPts(-tw, -th, tw * 2, th * 2, h * 0.012, w * 0.002, s + 5 + k),
+          '#e8d5b8', { lw: lw * 0.55, line: '#a8907a', lineAlpha: 0.8, seed: s + 5 + k });
+      ctx.restore();
+    });
+
+    // pause: a hand-drawn square with two bars, not a chrome button
+    var bs = ph * 0.52, bx = px + pw * 0.028, by = y + h / 2 - bs / 2;
+    ink(ctx, rectPts(bx, by, bs, bs, bs * 0.20, bs * 0.035, s + 8),
+        '#4a3226', { lw: lw * 0.9, off: bs * 0.030, line: '#2a1a12', seed: s + 8 });
+    ctx.save();
+    ctx.strokeStyle = '#fdf6e6';
+    ctx.lineWidth = Math.max(1.2, bs * 0.13);
+    ctx.lineCap = 'round';
+    [-0.16, 0.16].forEach(function (d, k) {
+      ctx.beginPath();
+      ctx.moveTo(bx + bs * (0.5 + d) + wob(s + k, 0) * bs * 0.03, by + bs * 0.26);
+      ctx.lineTo(bx + bs * (0.5 + d) + wob(s + k, 1) * bs * 0.03, by + bs * 0.74);
+      ctx.stroke();
+    });
+    ctx.restore();
+
+    // hearts, right-hand end, one row of five
+    var hr = ph * 0.105, hgap = hr * 2.5;
+    var hRight = px + pw * 0.972, hLeft = hRight - hgap * (maxL - 1) - hr;
+    for (i = 0; i < maxL; i++) {
+      drawHeart(ctx, hLeft + hr + i * hgap, y + h * 0.315, hr, i < lives, s + 40 + i);
+    }
+
+    var cx0 = bx + bs + pw * 0.032;             // left edge of the writing
+    var cx1 = px + pw * 0.972;                  // right edge
+
+    // Top line: DAY 4 · the clock · takings. Laid out by measuring, not by
+    // fractions - '$120.50 / $150.00' on a 220px bar used to run straight
+    // through the clock.
+    var ty = y + h * 0.375;
+    var daySize = ph * 0.145, numSize = ph * 0.215, clockSize = ph * 0.225;
+    var dw = penTextWidth('DAY', daySize, 0.13);
+    var dayTxt = String(o.day === undefined ? 1 : o.day);
+    var dayEnd = cx0 + dw + ph * 0.09 + penTextWidth(dayTxt, numSize, 0.06);
+    penLetters(ctx, 'DAY', cx0, ty, daySize, { fill: '#a08a6e', weight: 0.13, track: 0.13, align: 'left', seed: s + 11 });
+    penLetters(ctx, dayTxt, cx0 + dw + ph * 0.09, ty + ph * 0.012, numSize, { fill: '#4a3226', line: '#8a7259', weight: 0.13, track: 0.06, align: 'left', seed: s + 12 });
+
+    var clock = o.time === undefined ? '2:00' : o.time;
+    var clockX = dayEnd + ph * 0.16;
+    var clockW = penTextWidth(clock, clockSize, 0.07);
+    penLetters(ctx, clock, clockX, ty + ph * 0.010, clockSize, {
+      fill: o.urgent ? '#c0392b' : '#3f2a1c', weight: 0.135, track: 0.07, align: 'left', seed: s + 13
+    });
+    if (o.urgent) {
+      ctx.save();
+      ctx.strokeStyle = '#c0392b';
+      ctx.globalAlpha = 0.8;
+      ctx.lineWidth = lw * 0.9;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (i = 0; i <= 8; i++) {
+        ctx.lineTo(clockX + clockW * i / 8, ty + ph * 0.115 + wob(s + 14, i) * ph * 0.02);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // takings: the longest wording that still fits between clock and hearts
+    var moneyRight = hLeft - ph * 0.16;
+    var room = moneyRight - (clockX + clockW + ph * 0.16);
+    var forms = ['$' + earned.toFixed(2) + ' / $' + goal.toFixed(2),
+                 '$' + earned.toFixed(2) + '/$' + goal.toFixed(2),
+                 '$' + Math.round(earned) + '/$' + Math.round(goal),
+                 Math.round(earned) + '/' + Math.round(goal)];
+    var mSize = ph * 0.150, money = forms[0], fi = 0;
+    while (penTextWidth(money, mSize, 0.06) > room) {
+      if (fi < forms.length - 1) money = forms[++fi];
+      else if (mSize > ph * 0.10) mSize *= 0.92;
+      else break;
+    }
+    penLetters(ctx, money, moneyRight, ty, mSize, {
+      fill: '#7d6249', weight: 0.125, track: 0.06, align: 'right', seed: s + 15
+    });
+
+    // takings thermometer: hatched fill with a torn leading edge
+    var barY = y + h * 0.52, barH = ph * 0.20;
+    var barW = cx1 - cx0;
+    var track = rectPts(cx0, barY, barW, barH, barH * 0.42, barH * 0.06, s + 20);
+    ink(ctx, track, '#efe3cc', { lw: lw * 0.85, off: 0, line: '#8a7259', seed: s + 20 });
+    if (pct > 0.008) {
+      ctx.save();
+      trace(ctx, track);
+      ctx.clip();
+      var fill = rectPts(cx0, barY, Math.max(barH, barW * pct), barH, barH * 0.42, barH * 0.07, s + 21);
+      ink(ctx, fill, '#f0b429', { lw: lw * 0.8, off: barH * 0.05, line: '#a8701a', seed: s + 21 });
+      hatch(ctx, fill, '#a8701a', s + 21, { n: 7, alpha: 0.26, gap: barH * 0.80 });
+      ctx.restore();
+    }
+    // quarter ticks over the top edge, hand-ruled
+    ctx.save();
+    ctx.strokeStyle = '#8a7259';
+    ctx.globalAlpha = 0.45;
+    ctx.lineWidth = Math.max(0.8, lw * 0.7);
+    ctx.lineCap = 'round';
+    [0.25, 0.5, 0.75].forEach(function (f, k) {
+      var tx2 = cx0 + barW * f;
+      ctx.beginPath();
+      ctx.moveTo(tx2 + wob(s + 22, k) * barH * 0.10, barY - barH * 0.30);
+      ctx.lineTo(tx2 + wob(s + 23, k) * barH * 0.10, barY + barH * 0.14);
+      ctx.stroke();
+    });
+    ctx.restore();
+
+    // tips: a label, then a row of dashes inked in as they fill
+    var tipY = barY + barH * 1.70;
+    var tipLabelW = penTextWidth('TIPS', ph * 0.105, 0.16);
+    penLetters(ctx, 'TIPS', cx0, tipY + barH * 0.22, ph * 0.105, {
+      fill: '#a08a6e', weight: 0.13, track: 0.16, align: 'left', seed: s + 32
+    });
+    var dashX = cx0 + tipLabelW + ph * 0.10, dashW = cx1 - dashX;
+    var n = 12, tipOn = Math.round((o.tip || 0) * n);
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (i = 0; i < n; i++) {
+      var dx = dashX + (dashW / n) * (i + 0.14), dw2 = (dashW / n) * 0.62;
+      ctx.strokeStyle = i < tipOn ? '#4f9d76' : '#c4ab8a';
+      ctx.globalAlpha = i < tipOn ? 0.95 : 0.40;
+      ctx.lineWidth = Math.max(1, barH * (i < tipOn ? 0.34 : 0.22));
+      ctx.beginPath();
+      ctx.moveTo(dx, tipY + wob(s + 30, i) * barH * 0.10);
+      ctx.lineTo(dx + dw2, tipY + wob(s + 31, i) * barH * 0.10);
+      ctx.stroke();
     }
     ctx.restore();
 
-    // lid, hinged at the back-left and lifted clear when open
-    ctx.save();
-    ctx.translate(bx + bodyW * 0.06, bodyTop - h * 0.06);
-    ctx.rotate(-open * 0.66);
-    ctx.translate(-(bx + bodyW * 0.06), -(bodyTop - h * 0.06));
-    ctx.translate(0, -open * h * 0.055);
-    ink(ctx, ellPts(x + w * 0.5, bodyTop - h * 0.075, bodyW * 0.60, h * 0.072, 20, w * 0.008, s + 3),
-        '#d2d7bd', { lw: lw, off: w * 0.007, line: '#3f4534', seed: s + 3 });
-    ink(ctx, ellPts(x + w * 0.5, bodyTop - h * 0.105, bodyW * 0.40, h * 0.048, 18, w * 0.006, s + 9),
-        '#c0c5aa', { lw: lw * 0.8, line: '#3f4534', lineAlpha: 0.7, seed: s + 9 });
-    ctx.save();
-    ctx.strokeStyle = '#6d7659';
-    ctx.lineWidth = Math.max(1.2, w * 0.030);
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.arc(x + w * 0.5, bodyTop - h * 0.135, bodyW * 0.16, Math.PI * 1.05, Math.PI * 1.95);
-    ctx.stroke();
-    ctx.restore();
     ctx.restore();
   }
 
-
-  /* ------------------------------------------------------------- glyphs
-   * The little drawn icons the interface uses where a UI kit would reach for
-   * an emoji or a stroked pictogram: the tiles on the title slip, the sound
-   * and music toggles, the leaderboard.
-   *
-   * Lifted from the handoff document itself rather than from its art.js -
-   * the doc draws these in its own script, which is why the title screen did
-   * not match while every function in art.js did.
-   *
-   * Art.glyph(ctx, id, w, h) - fills the box, centred.
-   * ids: coop / rank / you / outfit / grillUp / shoes / sound / music / board
+  /* ---------------------------------------------------------------- title
+   * The front page, drawn as a sheet torn out of the shop's own order pad and
+   * lettered by hand: every letter set individually with its own tilt, the
+   * wordmark hatched inside, the buttons wobbled and shaded with strokes
+   * instead of shadows.
    */
+
+  /**
+   * Run `paint` into an offscreen layer, then lay hatching over whatever it
+   * drew and nothing else - the only way to get pen shading INSIDE letterforms,
+   * since canvas cannot clip to text.
+   */
+  function hatchedLayer(ctx, bx, by, bw, bh, paint, hatchColor, seed, opts) {
+    opts = opts || {};
+    if (typeof document === 'undefined') { paint(ctx, bx, by); return; }
+    var d = Math.ceil(Math.max(1, bw)), e = Math.ceil(Math.max(1, bh));
+    var cv = document.createElement('canvas');
+    cv.width = d; cv.height = e;
+    var g = cv.getContext('2d');
+    paint(g, 0, 0);
+    g.save();
+    g.globalCompositeOperation = 'source-atop';
+    g.globalAlpha = opts.alpha === undefined ? 0.24 : opts.alpha;
+    g.strokeStyle = hatchColor;
+    g.lineWidth = Math.max(1, e * (opts.lw || 0.018));
+    g.lineCap = 'round';
+    var gap = e * (opts.gap || 0.13);
+    for (var k = -e; k < d + e; k += gap) {
+      g.beginPath();
+      g.moveTo(k + wob(seed, k) * gap * 0.3, e + gap);
+      g.lineTo(k + e + gap + wob(seed + 1, k) * gap * 0.3, -gap);
+      g.stroke();
+    }
+    g.restore();
+    ctx.drawImage(cv, bx, by);
+  }
+
+  /** A torn-edge sheet: straight sides, ragged top and bottom. */
+  function tornPts(x, y, w, h, tear, seed) {
+    var p = [], n = 13, i, f;
+    for (i = 0; i <= n; i++) {
+      f = i / n;
+      p.push([x + w * f, y + (i % 2 ? tear : 0) + wob(seed, i) * tear * 0.5]);
+    }
+    for (i = n; i >= 0; i--) {
+      f = i / n;
+      p.push([x + w * f, y + h - (i % 2 ? tear : 0) + wob(seed + 3, i) * tear * 0.5]);
+    }
+    return jitter(p, Math.min(w, h) * 0.004, seed);
+  }
+
+  /* ------------------------------------------------- paper UI primitives
+   * The screens are all the same three moves: a dark room, a sheet of paper
+   * clipped to a rail, and things written on the sheet. These are exported so
+   * game.js can build the shop, the receipt and the pause card out of the same
+   * parts as the title, instead of CSS panels.
+   */
+
+  /** The dark diner behind any paper screen, with the line hinted at the foot. */
+  function drawScreenBack(ctx, x, y, w, h, o) {
+    o = o || {};
+    var s = 2401, i;
+    ctx.save();
+    ctx.fillStyle = '#1b100c';
+    ctx.fillRect(x, y, w, h);
+    var glow = ctx.createRadialGradient(x + w * 0.5, y + h * 0.06, 0, x + w * 0.5, y + h * 0.06, h * 0.55);
+    glow.addColorStop(0, 'rgba(122,62,32,0.55)');
+    glow.addColorStop(1, 'rgba(27,16,12,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#000000';
+    ctx.globalAlpha = 0.12;
+    ctx.lineWidth = Math.max(1, h * 0.004);
+    for (i = 0; i < 26; i++) {
+      var gy = y + h * (i / 26);
+      ctx.beginPath();
+      ctx.moveTo(x, gy);
+      ctx.lineTo(x + w, gy + wob(s + i, 2) * h * 0.008);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    if (o.kitchen !== false) {
+      var T = SCENE_THEMES.diner;
+      var roomY = y + h * (o.kitchenTop === undefined ? 0.80 : o.kitchenTop);
+      var roomH = y + h - roomY;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, roomY, w, roomH);
+      ctx.clip();
+      drawFloor(ctx, x, roomY + roomH * 0.42, w, roomH * 0.58, T, w / 4.5);
+      drawCounter(ctx, x - w * 0.06, roomY + roomH * 0.20, w * 1.12, roomH * 0.34, roomH * 0.12, T);
+      drawPlate(ctx, x + w * 0.30, roomY + roomH * 0.30, w * 0.30, { food: 0 });
+      drawStack(ctx, ['bun', 'patty', 'cheese', 'bunTop'], x + w * 0.72, roomY + roomH * 0.28, w * 0.16, {});
+      ctx.globalAlpha = o.kitchenWash === undefined ? 0.52 : o.kitchenWash;
+      ctx.fillStyle = '#1b100c';
+      ctx.fillRect(x, roomY, w, roomH);
+      ctx.restore();
+    }
+  }
+
+  /** The wooden rail a sheet hangs from. Returns its bottom edge. */
+  function drawRail(ctx, x, y, w, h, seed) {
+    ink(ctx, rectPts(x + w * 0.05, y, w * 0.90, h, h * 0.35, w * 0.004, seed),
+        '#8a5a30', { lw: Math.max(1, w * 0.006), off: w * 0.003, line: '#4a2f18', seed: seed });
+    return y + h;
+  }
+
+  /** A steel clip over the top edge of a sheet. */
+  function drawClip(ctx, cx, y, w, h, seed) {
+    ink(ctx, rectPts(cx - w / 2, y, w, h, h * 0.28, w * 0.05, seed),
+        '#aebfc9', { lw: Math.max(1, w * 0.05), line: '#33454e', seed: seed });
+  }
+
+  /**
+   * A sheet of paper: torn top and bottom, pencil rules, a coffee ring.
+   * Art.ui.sheet(ctx, x, y, w, h, { rules, ring, seed, tear })
+   */
+  function drawSheet(ctx, x, y, w, h, o) {
+    o = o || {};
+    var s = o.seed === undefined ? 3110 : o.seed, i;
+    var tear = h * (o.tear === undefined ? 0.012 : o.tear);
+    ctx.save();
+    ctx.globalAlpha = 0.34;
+    ctx.fillStyle = '#000000';
+    trace(ctx, tornPts(x + w * 0.012, y + h * 0.012, w, h, tear, s + 9));
+    ctx.fill();
+    ctx.restore();
+    var sheet = tornPts(x, y, w, h, tear, s);
+    ink(ctx, sheet, '#fdf6e6', { lw: Math.max(1.2, w * 0.006), off: w * 0.0025, line: '#8a7259', seed: s });
+    ctx.save();
+    trace(ctx, sheet);
+    ctx.clip();
+    if (o.rules !== false) {
+      ctx.strokeStyle = '#c4ab8a';
+      ctx.globalAlpha = 0.20;
+      ctx.lineWidth = Math.max(0.8, w * 0.003);
+      var n = o.rules || 16;
+      for (i = 1; i < n; i++) {
+        var ly = y + h * (i / n);
+        ctx.beginPath();
+        for (var c = 0; c <= 6; c++) ctx.lineTo(x + w * (c / 6), ly + wob(s + 30 + i, c) * h * 0.004);
+        ctx.stroke();
+      }
+    }
+    if (o.ring !== false) {
+      ctx.globalAlpha = 0.16;
+      ctx.strokeStyle = '#8a5a30';
+      ctx.lineWidth = Math.max(1.4, w * 0.008);
+      trace(ctx, ellPts(x + w * (o.ringX || 0.86), y + h * (o.ringY || 0.055),
+                        w * 0.10, w * 0.085, 18, w * 0.006, s + 40));
+      ctx.stroke();
+    }
+    ctx.restore();
+    return sheet;
+  }
+
+  /**
+   * A button drawn with the pen: wobbled outline, hatched face, and seven short
+   * strokes for a shadow. `dashed` gives the quiet secondary version.
+   * Art.ui.button(ctx, x, y, w, h, label, { fill, line, text, dashed, seed })
+   */
+  function drawSketchButton(ctx, bx, by, bw, bh, label, o) {
+    o = o || {};
+    var seed = o.seed === undefined ? 4210 : o.seed;
+    var line = o.line || (o.dashed ? '#a8907a' : '#8a5a12');
+    var pts = rectPts(bx, by, bw, bh, bh * 0.16, bw * 0.005, seed);
+    ctx.save();
+    ctx.strokeStyle = '#3f2a1c';
+    ctx.globalAlpha = o.dashed ? 0.28 : 0.55;
+    ctx.lineCap = 'round';
+    ctx.lineWidth = Math.max(1, bh * 0.05);
+    for (var k = 0; k < 7; k++) {
+      var f = 0.10 + k * 0.13;
+      ctx.beginPath();
+      ctx.moveTo(bx + bw * f + bh * 0.10, by + bh + bh * 0.04);
+      ctx.lineTo(bx + bw * f + bh * 0.26, by + bh + bh * 0.24);
+      ctx.stroke();
+    }
+    ctx.restore();
+    if (o.dashed) {
+      ctx.save();
+      ctx.strokeStyle = line;
+      ctx.globalAlpha = 0.9;
+      ctx.lineWidth = Math.max(1.2, bh * 0.075);
+      ctx.lineCap = 'round';
+      ctx.setLineDash([bh * 0.30, bh * 0.26]);
+      trace(ctx, pts);
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      ink(ctx, pts, o.fill || '#f0b429', { lw: Math.max(1.2, bh * 0.075), off: bh * 0.05, line: line, seed: seed });
+      hatch(ctx, pts, line, seed, { n: 6, alpha: 0.16, gap: bh * 0.42 });
+    }
+    penLetters(ctx, label, bx + bw / 2, by + bh * 0.66, bh * (o.size || 0.32), {
+      fill: o.text || (o.dashed ? '#5c4432' : '#3f2a08'),
+      line: o.dashed ? null : mixHex(line, '#ffffff', 0.20),
+      weight: 0.125, track: 0.10, seed: seed + 1, tilt: 0.04
+    });
+  }
+
+  /** A hand-drawn dashed rule - the receipt's tear lines. */
+  function drawRule(ctx, x, y, w, o) {
+    o = o || {};
+    var seed = o.seed === undefined ? 5310 : o.seed;
+    ctx.save();
+    ctx.strokeStyle = o.color || '#c4ab8a';
+    ctx.globalAlpha = o.alpha === undefined ? 0.8 : o.alpha;
+    ctx.lineWidth = o.lw || Math.max(1, w * 0.004);
+    ctx.lineCap = 'round';
+    var dash = w * 0.022, i = 0;
+    for (var px2 = x; px2 < x + w; px2 += dash * 1.8, i++) {
+      ctx.beginPath();
+      ctx.moveTo(px2, y + wob(seed, i) * dash * 0.30);
+      ctx.lineTo(Math.min(px2 + dash, x + w), y + wob(seed + 1, i) * dash * 0.30);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /**
+   * A written line: label on the left, value on the right, dot leaders between.
+   * Art.ui.row(ctx, x, y, w, 'Till so far', '$18.40', { size, valueCol, seed })
+   */
+  function drawRow(ctx, x, y, w, label, value, o) {
+    o = o || {};
+    var size = o.size || w * 0.055;
+    var seed = o.seed === undefined ? 6410 : o.seed;
+    var lw2 = penLetters(ctx, label, x, y, size, {
+      fill: o.labelCol || '#7d6249', weight: 0.12, track: 0.07, align: 'left', seed: seed
+    });
+    var vw = value === undefined || value === null ? 0 : penTextWidth(String(value), size * (o.valueSize || 1.06), 0.07);
+    if (value !== undefined && value !== null) {
+      penLetters(ctx, String(value), x + w, y, size * (o.valueSize || 1.06), {
+        fill: o.valueCol || '#3f2a1c', weight: 0.135, track: 0.07, align: 'right', seed: seed + 1
+      });
+    }
+    if (o.leaders !== false) {
+      var from = x + lw2 + size * 0.4, to = x + w - vw - size * 0.4;
+      if (to > from) {
+        ctx.save();
+        ctx.fillStyle = '#c4ab8a';
+        ctx.globalAlpha = 0.7;
+        for (var dx = from, i = 0; dx < to; dx += size * 0.42, i++) {
+          ctx.beginPath();
+          ctx.arc(dx, y - size * 0.12 + wob(seed + 2, i) * size * 0.06, Math.max(0.6, size * 0.045), 0, TAU);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+    return y + size * 1.9;
+  }
+
+  /**
+   * Art.ui.title(ctx, x, y, w, h, {
+   *   day,                    a number turns the primary button into CONTINUE
+   *   primary, secondary,     button labels (defaults from `day`)
+   *   sub,                    the line under the wordmark
+   *   tiles: [{id,label}],    up to three menu tiles along the bottom
+   *   tile(ctx,id,x,y,w,h),   callback that draws a tile's glyph
+   *   logo(ctx,x,y,w,h)       callback for the burger under the wordmark
+   * })
+   * Paints the whole screen: the dark diner behind, then the sheet.
+   */
+  /**
+   * Where drawTitle puts everything you can press.
+   *   Art.ui.titleBoxes(x, y, w, h, tileCount)
+   *     -> { sheet, tilt, primary, secondary, tiles: [ {x,y,w,h}, ... ] }
+   * The game hangs its real <button>s on these rects and paints them out, so
+   * the slip keeps its hand-drawn buttons without losing focus, keyboard or a
+   * screen reader. Both this and drawTitle read the same constants, so the
+   * drawing and the touch target cannot drift apart.
+   */
+  function titleBoxes(x, y, w, h, n) {
+    var railY = y + h * 0.055, railH = h * 0.022;
+    var pw = w * 0.90, px = x + (w - pw) / 2;
+    var py = railY + railH * 0.6, ph = h * 0.735;
+    var cx = px + pw / 2, bw = pw * 0.80, bx = cx - bw / 2;
+    var out = {
+      sheet: { x: px, y: py, w: pw, h: ph },
+      tilt: -0.014,
+      primary: { x: bx, y: py + ph * 0.475, w: bw, h: ph * 0.095 },
+      secondary: { x: bx, y: py + ph * 0.600, w: bw, h: ph * 0.080 },
+      tiles: []
+    };
+    n = n || 0;
+    if (n) {
+      var gap = pw * 0.045, tw = (bw - gap * (n - 1)) / n;
+      var th = ph * 0.165, ty = py + ph * 0.720;
+      for (var i = 0; i < n; i++) out.tiles.push({ x: bx + i * (tw + gap), y: ty, w: tw, h: th });
+    }
+    return out;
+  }
+
+  function drawTitle(ctx, x, y, w, h, o) {
+    o = o || {};
+    var s = 1907, i;
+    var day = o.day;
+
+    drawScreenBack(ctx, x, y, w, h, {});
+
+    // the rail the sheet hangs from, and its clip
+    var railY = y + h * 0.055, railH = h * 0.022;
+    drawRail(ctx, x, railY, w, railH, s + 1);
+
+    // the sheet
+    var B = titleBoxes(x, y, w, h, (o.tiles || []).length);
+    var pw = B.sheet.w, px = B.sheet.x, py = B.sheet.y, ph = B.sheet.h;
+    ctx.save();
+    ctx.translate(px + pw / 2, py + ph / 2);
+    ctx.rotate(B.tilt);
+    ctx.translate(-(px + pw / 2), -(py + ph / 2));
+    drawSheet(ctx, px, py, pw, ph, { seed: s + 2 });
+
+    // the clip, over the top edge of the sheet
+    drawClip(ctx, px + pw * 0.50, railY - railH * 0.25, pw * 0.16, railH * 1.7, s + 3);
+
+    var cx = px + pw / 2;
+
+    // MR.
+    penLetters(ctx, 'MR.', cx, py + ph * 0.055, ph * 0.032, {
+      fill: '#c0562f', line: '#8a3a1c', weight: 0.15, track: 0.50, seed: s + 4, tilt: 0.06
+    });
+
+    // BURGER, hand-lettered and hatched inside the strokes
+    var wmSize = pw * 0.175, wmY = py + ph * 0.200;
+    hatchedLayer(ctx, px, wmY - wmSize * 1.35, pw, wmSize * 1.70, function (g) {
+      penLetters(g, 'BURGER', pw / 2, wmSize * 1.35, wmSize, {
+        fill: '#f0b429', line: '#3f2a1c', weight: 0.150, track: 0.085, seed: s + 5, tilt: 0.04
+      });
+    }, '#7a3e20', s + 5, { alpha: 0.32, gap: 0.075, lw: 0.016 });
+
+    // swash under the wordmark, drawn as two passes of the same stroke
+    ctx.save();
+    ctx.strokeStyle = '#c0562f';
+    ctx.lineCap = 'round';
+    for (i = 0; i < 2; i++) {
+      ctx.globalAlpha = i ? 0.45 : 0.95;
+      ctx.lineWidth = Math.max(1.2, pw * (i ? 0.011 : 0.016));
+      ctx.beginPath();
+      ctx.moveTo(px + pw * 0.20, py + ph * 0.228 + i * ph * 0.006);
+      ctx.bezierCurveTo(px + pw * 0.40, py + ph * 0.242 + i * ph * 0.005,
+                        px + pw * 0.62, py + ph * 0.217 + i * ph * 0.005,
+                        px + pw * 0.80, py + ph * 0.232 + i * ph * 0.006);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // the burger itself
+    var lgW = pw * 0.52, lgH = ph * 0.150;
+    if (o.logo) o.logo(ctx, cx - lgW / 2, py + ph * 0.250, lgW, lgH);
+
+    penLetters(ctx, o.sub === undefined ? 'RUN THE LINE' : o.sub, cx, py + ph * 0.430, ph * 0.028, {
+      fill: '#a08a6e', weight: 0.115, track: 0.28, seed: s + 6, tilt: 0.05
+    });
+
+    /** A wobbled button with strokes for a shadow instead of a soft one. */
+    function button(bx, by, bw, bh, label, fill, line, textCol, seed, dashed) {
+      drawSketchButton(ctx, bx, by, bw, bh, label,
+                       { fill: fill, line: line, text: textCol, seed: seed, dashed: dashed });
+    }
+
+    var P = B.primary, Q = B.secondary;
+    button(P.x, P.y, P.w, P.h,
+           o.primary || (day ? 'CONTINUE \u2014 DAY ' + day : 'START THE SHIFT'),
+           '#f0b429', '#8a5a12', '#3f2a08', s + 50, false);
+    button(Q.x, Q.y, Q.w, Q.h,
+           o.secondary || 'NEW SHIFT', null, '#a8907a', '#5c4432', s + 60, true);
+
+    // the menu tiles, boxed by hand
+    var tiles = o.tiles || [];
+    if (tiles.length) {
+      for (i = 0; i < tiles.length; i++) {
+        var T = B.tiles[i], tx2 = T.x, tyy = T.y, tw = T.w, th = T.h;
+        var box = rectPts(tx2, tyy, tw, th, tw * 0.10, tw * 0.012, s + 70 + i);
+        ctx.save();
+        ctx.strokeStyle = '#c4ab8a';
+        ctx.lineWidth = Math.max(1.1, tw * 0.030);
+        ctx.lineJoin = 'round';
+        trace(ctx, box);
+        ctx.stroke();
+        ctx.globalAlpha = 0.5;
+        ctx.lineWidth = Math.max(0.9, tw * 0.020);
+        trace(ctx, rectPts(tx2 + tw * 0.02, tyy + th * 0.02, tw * 0.96, th * 0.96, tw * 0.10, tw * 0.012, s + 80 + i));
+        ctx.stroke();
+        ctx.restore();
+        if (o.tile) o.tile(ctx, tiles[i].id, tx2 + tw * 0.22, tyy + th * 0.10, tw * 0.56, th * 0.52);
+        penLetters(ctx, tiles[i].label || '', tx2 + tw / 2, tyy + th * 0.90, th * 0.125, {
+          fill: '#8a7259', weight: 0.115, track: 0.13, seed: s + 90 + i, tilt: 0.05
+        });
+      }
+    }
+
+    // a note written along the bottom of the sheet
+    if (o.note) {
+      penLetters(ctx, o.note, cx, py + ph * 0.945, ph * 0.025, {
+        fill: '#a08a6e', weight: 0.11, track: 0.12, seed: s + 100, tilt: 0.06
+      });
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * The order rail: a wooden batten with the live tickets clipped to it.
+   *
+   * Art.ui.orders(ctx, x, y, w, h, {
+   *   label,                        'ORDERS' burnt into the batten
+   *   tickets: [{ who, items, rows, pct, bar }],
+   *   face(ctx, who, x, y, w, h),   draws the guest's head
+   *   food(ctx, t, x, y, w, h)      draws what they asked for
+   * })
+   * Each ticket is a torn slip under a steel clip, its lines written with the
+   * pen and its patience drawn as a stroke that thins as it runs out - the CSS
+   * version was a gradient batten, a clip-path zigzag and a typeface.
+   */
+  function drawOrders(ctx, x, y, w, h, o) {
+    o = o || {};
+    var s = 7700, i;
+    var tickets = o.tickets || [];
+    var railH = h * 0.115, railY = y + h * 0.014;
+    drawRail(ctx, x, railY, w, railH, s);
+    penLetters(ctx, o.label === undefined ? 'ORDERS' : o.label, x + w / 2, railY + railH * 0.78, railH * 0.52, {
+      fill: '#f0d8b4', weight: 0.13, track: 0.34, seed: s + 1, tilt: 0.03
+    });
+    if (!tickets.length) return;
+
+    var gap = w * 0.016;
+    var tw = (w - gap * (tickets.length + 1)) / tickets.length;
+    // the slips hang BELOW the batten, so the clips never cross its lettering
+    var ty = railY + railH * 1.02, th = h - (ty - y) - h * 0.035;
+
+    for (i = 0; i < tickets.length; i++) {
+      var t = tickets[i], tx = x + gap + i * (tw + gap);
+      var seed = s + 10 + i * 9;
+      ctx.save();
+      ctx.translate(tx + tw / 2, ty + th / 2);
+      ctx.rotate((wob(seed, 5)) * 0.045);
+      ctx.translate(-(tx + tw / 2), -(ty + th / 2));
+
+      drawSheet(ctx, tx, ty, tw, th, { seed: seed, rules: 7, ring: false, tear: 0.020 });
+      drawClip(ctx, tx + tw * 0.5, ty - th * 0.055, tw * 0.30, th * 0.070, seed + 3);
+
+      if (o.face) o.face(ctx, t.who, tx + tw * 0.20, ty + th * 0.075, tw * 0.60, th * 0.235);
+      if (o.food) o.food(ctx, t, tx + tw * 0.14, ty + th * 0.325, tw * 0.72, th * 0.255);
+
+      var rows = t.rows || [], ry = ty + th * 0.665, rs = th * 0.068;
+      for (var k = 0; k < rows.length; k++) {
+        ink(ctx, rectPts(tx + tw * 0.10, ry - rs * 0.62, rs * 0.62, rs * 0.62, rs * 0.16, rs * 0.05, seed + 20 + k),
+            rows[k].c, { lw: Math.max(0.8, rs * 0.12), line: '#4a3226', lineAlpha: 0.8, seed: seed + 20 + k });
+        penLetters(ctx, rows[k].n, tx + tw * 0.26, ry, rs * 0.60, {
+          fill: '#4a3226', weight: 0.13, track: 0.05, align: 'left', seed: seed + 30 + k
+        });
+        ry += rs * 1.15;
+      }
+
+      // patience: one pen stroke over a faint one, thinning as it empties
+      var pct = typeof t.pct === 'string' ? parseFloat(t.pct) / 100 : (t.pct || 0);
+      var by = ty + th * 0.935, bx0 = tx + tw * 0.10, bw3 = tw * 0.80;
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = '#c4ab8a';
+      ctx.globalAlpha = 0.45;
+      ctx.lineWidth = Math.max(1, th * 0.014);
+      ctx.beginPath();
+      for (var c = 0; c <= 5; c++) ctx.lineTo(bx0 + bw3 * (c / 5), by + wob(seed + 40, c) * th * 0.006);
+      ctx.stroke();
+      ctx.strokeStyle = t.bar || '#3f7a2a';
+      ctx.globalAlpha = 0.95;
+      ctx.lineWidth = Math.max(1.4, th * 0.024 * (0.6 + pct * 0.6));
+      ctx.beginPath();
+      for (c = 0; c <= 5; c++) {
+        var f = (c / 5) * Math.max(0.06, pct);
+        ctx.lineTo(bx0 + bw3 * f, by + wob(seed + 41, c) * th * 0.006);
+      }
+      ctx.stroke();
+      ctx.restore();
+      ctx.restore();
+    }
+  }
+
   function drawGlyph(ctx, id, w, h) {
 
   var s = 760, cx = w / 2, cy = h / 2, R = Math.min(w, h) * 0.36, lw = Math.max(1.2, R * 0.10);
@@ -2193,15 +3123,21 @@
    * with three left, and only ever stamped the word PAID.
    */
   var UI = {
+    /* --- the handoff kit --- */
+    hud: drawHUD, title: drawTitle, orders: drawOrders, heart: drawHeart,
+    text: penLetters, letters: penLetters, width: penTextWidth,
+    back: drawScreenBack, rail: drawRail, clip: drawClip, sheet: drawSheet,
+    button: drawSketchButton, rule: drawRule, row: drawRow, torn: tornPts,
+    titleBoxes: titleBoxes,
+
+    /* --- ornaments --- */
+
     /** n hearts, the first `left` of them still beating. */
     hearts: function (ctx, w, h, left, n) {
       n = n || 5;
       for (var k = 0; k < n; k++) {
-        var cx = w * ((0.5 + k) / n), cy = h * 0.52, r = Math.min(h * 0.30, w / n * 0.38);
-        var lost = k >= left;
-        var pts = blobPts(cx, cy, r, r, 2, 0.24, 1.6, 20, r * 0.10, 700 + k);
-        ink(ctx, pts, lost ? '#6b5a52' : '#e63946',
-            { lw: 1.4, line: '#4a3226', lineAlpha: lost ? 0.5 : 1, seed: 700 + k });
+        var r = Math.min(h * 0.30, w / n * 0.38);
+        drawHeart(ctx, w * ((0.5 + k) / n), h * 0.52, r, k < left, 700 + k);
       }
     },
 
@@ -2216,11 +3152,8 @@
       ctx.lineJoin = 'round';
       trace(ctx, ellPts(0, 0, w * 0.40, h * 0.36, 22, w * 0.012, 720));
       ctx.stroke();
-      ctx.fillStyle = '#3f7a2a';
-      ctx.font = '900 ' + Math.round(h * 0.28) + 'px "Trebuchet MS", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(text || 'PAID', 0, 0);
+      penLetters(ctx, text || 'PAID', 0, h * 0.10, h * 0.26,
+                 { fill: '#3f7a2a', weight: 0.15, track: 0.14, seed: 721 });
       ctx.restore();
     },
 
@@ -2239,11 +3172,8 @@
       trace(ctx, rectPts(-w * 0.36, -h * 0.26, w * 0.72, h * 0.52, h * 0.08, w * 0.008, 742));
       ctx.stroke();
       ctx.globalAlpha = 0.9;
-      ctx.fillStyle = '#c0562f';
-      ctx.font = '900 ' + Math.round(h * 0.34) + 'px "Trebuchet MS", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(text || 'PAUSED', 0, h * 0.02);
+      penLetters(ctx, text || 'PAUSED', 0, h * 0.13, h * 0.30,
+                 { fill: '#c0562f', weight: 0.145, track: 0.11, seed: 743 });
       ctx.restore();
     },
 
@@ -2252,11 +3182,11 @@
       var s2 = 751, b;
       for (b = 2; b >= 0; b--) {
         ink(ctx, rectPts(w * 0.10 + b * w * 0.02, h * 0.30 - b * h * 0.09, w * 0.64, h * 0.34, h * 0.06, w * 0.008, s2 + b),
-            b === 0 ? '#cfe0b4' : '#bcd39c', { lw: 1.4, line: '#5c7a3a', seed: s2 + b });
+            b === 0 ? '#cfe0b4' : '#bcd39c', { lw: Math.max(1.1, w * 0.014), line: '#5c7a3a', seed: s2 + b });
       }
-      ink(ctx, ellPts(w * 0.34, h * 0.30, w * 0.10, h * 0.14, 14, w * 0.006, s2 + 5), '#8fb35f', { lw: 1.2, line: '#5c7a3a', seed: s2 + 5 });
-      ink(ctx, ellPts(w * 0.78, h * 0.66, w * 0.16, h * 0.22, 16, w * 0.006, s2 + 6), '#f4c93f', { lw: 1.4, line: '#8a6416', seed: s2 + 6 });
-      ink(ctx, ellPts(w * 0.78, h * 0.66, w * 0.10, h * 0.14, 14, w * 0.005, s2 + 7), '#f7dc7a', { lw: 1, line: '#8a6416', lineAlpha: 0.7, seed: s2 + 7 });
+      ink(ctx, ellPts(w * 0.34, h * 0.30, w * 0.10, h * 0.14, 14, w * 0.006, s2 + 5), '#8fb35f', { lw: Math.max(1, w * 0.012), line: '#5c7a3a', seed: s2 + 5 });
+      ink(ctx, ellPts(w * 0.78, h * 0.66, w * 0.16, h * 0.22, 16, w * 0.006, s2 + 6), '#f4c93f', { lw: Math.max(1.1, w * 0.014), line: '#8a6416', seed: s2 + 6 });
+      ink(ctx, ellPts(w * 0.78, h * 0.66, w * 0.10, h * 0.14, 14, w * 0.005, s2 + 7), '#f7dc7a', { lw: Math.max(1, w * 0.010), line: '#8a6416', lineAlpha: 0.7, seed: s2 + 7 });
     },
 
     /** A swing tag: notched left edge, punched hole, the price written on it. */
@@ -2270,12 +3200,9 @@
       ctx.globalAlpha = 0.85;
       trace(ctx, ellPts(w * 0.19, h * 0.50, w * 0.045, h * 0.075, 12, w * 0.004, s3 + 1));
       ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.font = '900 ' + Math.round(h * 0.36) + 'px "Trebuchet MS", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(text || '$0', w * 0.58, h * 0.52);
       ctx.restore();
+      penLetters(ctx, text || '$0', w * 0.58, h * 0.66, h * 0.34,
+                 { fill: '#3f2a1c', weight: 0.14, track: 0.06, seed: s3 + 2 });
     }
   };
 
@@ -2292,6 +3219,16 @@
     bin: drawBin
   };
 
+  /* ------------------------------------------------------------- guests
+   * The people on the other side of the hatch, drawn to the chef's own recipe:
+   * one head, one soft body, dot eyes, rosy cheeks. Everything that makes a
+   * guest a PERSON rather than a palette swap lives in three places - the
+   * silhouette on top of the head, the shape of the torso, and one prop.
+   *
+   * Art.drawGuest(ctx, x, y, s, { type, blink, bob, mood })
+   *   x, y  feet baseline    s  the same scale number you pass drawChef
+ *   opts.prop  false to leave the hand prop out (portraits crop at the shoulders)
+   */
   root.Art = {
     rr: rr,
     hash: hash,
@@ -2306,12 +3243,8 @@
     drawIcon: drawIcon,
     drawPortrait: drawPortrait,
     drawUpgrade: drawUpgrade,
-    glyph: drawGlyph,
-    ui: UI,
-    drawLogo: drawLogo,
     UPGRADES: UPGRADE_IDS,
     drawChef: drawChef,
-    CHEF_SKINS: CHEF_SKINS,
     SAUCES: SAUCES,
     has: function (id) { return !!LAYERS[id]; },
     // hand-drawn toolkit, exported so game.js can draw counters, crates and the
@@ -2319,11 +3252,15 @@
     ink: ink,
     hatch: hatch,
     trace: trace,
+    jitter: jitter,
     rectPts: rectPts,
     ellPts: ellPts,
     blobPts: blobPts,
     crescentPts: crescentPts,
     scene: SCENE,
+    ui: UI,
+    glyph: drawGlyph,
+    drawLogo: drawLogo,
     INK: INK
   };
 })(typeof self !== 'undefined' ? self : this);

@@ -332,6 +332,9 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     layout();
     showCramped();
+    // The title is a canvas now, so a rotation or a resized window has to
+    // redraw it and move the controls back onto the boxes it drew.
+    if (el.start && el.start.classList.contains('show')) paintTitle();
   }
 
   // A finger needs something to aim at. Below this the stations are still drawn
@@ -878,9 +881,10 @@
     S.chef.target = null;
     renderBoard();
     var saved = load();
-    el.continueBtn.hidden = !saved;
+    S.saved = !!saved;
     if (saved) el.continueDay.textContent = saved.day;
     showModal(el.start);
+    paintTitle();
   }
 
   /* -------------------------------------------------------- the chef works */
@@ -2131,12 +2135,22 @@
    * single burner plate, so the icon alone carries the difference.
    */
   /*
-   * The drawn ornaments on the title slip: the wordmark's burger and the glyph
-   * on each tile. These live in the handoff DOCUMENT rather than in its
-   * art.js, which is why a clean function-by-function audit of art.js still
-   * left the title screen looking like a different design.
+   * The title slip, painted whole by Art.ui.title.
+   *
+   * The slip used to be DOM: a .sheet, a Caprasimo wordmark and four emoji
+   * tiles. The handoff draws all of it instead - the diner behind, the rail,
+   * the clip, the torn paper, and the letters themselves, which is the only
+   * way BURGER gets an inked outline with hatching inside the strokes. Nothing
+   * on a sheet of paper is set in a typeface.
+   *
+   * Three tiles, as drawn. The outfit shop kept its own way in from the shop
+   * screen ("Change the cook's outfit"), which is where the money is anyway.
    */
-  var TILE_GLYPH = { storeBtn: 'outfit', coopBtn: 'coop', boardBtn: 'rank', accountBtn: 'you' };
+  var TITLE_TILES = [
+    { id: 'coop', label: 'CO-OP', btn: 'coopBtn' },
+    { id: 'rank', label: 'RANKS', btn: 'boardBtn' },
+    { id: 'you', label: 'YOU', btn: 'accountBtn' }
+  ];
 
   /** Size a canvas to the display, clear it, and hand the painter a CSS box. */
   function paintOn(cv, W, H, paint) {
@@ -2153,17 +2167,62 @@
     paint(g, W, H);
   }
 
-  function paintTitleArt() {
-    var on = paintOn;
-    on(el.logoArt, 120, 60, function (g, W, H) { Art.drawLogo(g, W, H); });
-    Object.keys(TILE_GLYPH).forEach(function (id) {
-      var btn = el[id];
-      var host = btn && btn.querySelector && btn.querySelector('.tile-ico');
-      if (!host) return;
-      var cv = host.querySelector('canvas');
-      if (!cv) { cv = document.createElement('canvas'); host.appendChild(cv); }
-      on(cv, 30, 30, function (g, W, H) { Art.glyph(g, TILE_GLYPH[id], W, H); });
+  /** Put a control exactly on a drawn box, or park it if there is no box. */
+  function overlay(btn, box) {
+    if (!btn) return;
+    btn.hidden = !box;
+    if (!box) { btn.style.left = '-9999px'; return; }
+    btn.style.left = box.x + 'px';
+    btn.style.top = box.y + 'px';
+    btn.style.width = box.w + 'px';
+    btn.style.height = box.h + 'px';
+  }
+
+  /** The line written along the foot of the slip. */
+  function titleNote() {
+    if (S.bestDay > 1) return 'BEST DAY ' + S.bestDay + ' · ' + Core.money(S.lifetime || 0);
+    return Net.online ? 'SIGNED IN · SAVED EVERYWHERE'
+                      : 'OFFLINE · SAVED ON THIS DEVICE';
+  }
+
+  function paintTitle() {
+    if (!el.titleArt || !Art.ui || !Art.ui.title) return;
+    var W = el.start.clientWidth || window.innerWidth;
+    var H = el.start.clientHeight || window.innerHeight;
+    if (!W || !H) return;
+
+    // A save turns the top button into CONTINUE and pushes NEW SHIFT under it.
+    // On a fresh install there is nothing to continue, so the second button
+    // teaches the game instead of offering a restart of a shift never played.
+    var resume = !!(S.saved && S.day > 0);
+
+    paintOn(el.titleArt, W, H, function (g) {
+      Art.ui.title(g, 0, 0, W, H, {
+        day: resume ? S.day : 0,
+        primary: resume ? null : 'START THE SHIFT',
+        secondary: resume ? 'NEW SHIFT' : 'HOW TO PLAY',
+        note: titleNote(),
+        tiles: TITLE_TILES,
+        logo: function (gg, lx, ly, lw, lh) {
+          gg.save();
+          gg.translate(lx, ly);
+          Art.drawLogo(gg, lw, lh);
+          gg.restore();
+        },
+        tile: function (gg, id, tx, ty, tw, th) {
+          gg.save();
+          gg.translate(tx, ty);
+          Art.glyph(gg, id, tw, th);
+          gg.restore();
+        }
+      });
     });
+
+    var B = Art.ui.titleBoxes(0, 0, W, H, TITLE_TILES.length);
+    overlay(el.continueBtn, resume ? B.primary : null);
+    overlay(el.playBtn, resume ? B.secondary : B.primary);
+    overlay(el.howBtn2, resume ? null : B.secondary);
+    TITLE_TILES.forEach(function (t, i) { overlay(el[t.btn], B.tiles[i]); });
   }
 
   function upgradeIcon(host, id, size) {
@@ -3034,7 +3093,6 @@
       hideModal(el.over);
       startDay(1);
     });
-    el.storeBtn.addEventListener('click', openStore);
     el.shopStoreBtn.addEventListener('click', openStore);
     el.storeClose.addEventListener('click', function () { hideModal(el.store); });
     el.storeRestore.addEventListener('click', restorePurchases);
@@ -3059,6 +3117,7 @@
 
     /* --- leaderboard / account / co-op */
     el.howBtn.addEventListener('click', function () { showModal(el.how); });
+    el.howBtn2.addEventListener('click', function () { showModal(el.how); });
     el.howClose.addEventListener('click', function () { hideModal(el.how); });
     el.boardBtn.addEventListener('click', showLeaderboard);
     el.lbClose.addEventListener('click', function () { hideModal(el.leaderboard); });
@@ -3103,8 +3162,9 @@
           S.lifetime = Math.max(S.lifetime || 0, claimed.lifetime || 0);
           S.fx = Core.effects(activeLevels(), S.day);
           save();
-          el.continueBtn.hidden = false;
+          S.saved = true;
           el.continueDay.textContent = S.day;
+          paintTitle();
         }
         setNetState();
         el.accountNote.textContent = 'Loaded ' + (res.name || 'that save') +
@@ -3237,13 +3297,14 @@
       'start', 'playBtn', 'continueBtn', 'continueDay',
       'dayEnd', 'dayEndTitle', 'dayEndBtn', 'dayEndNote', 'rSales', 'rTips', 'rTotal',
       'rRent', 'rNet', 'rPerfect', 'rServed', 'rWalked',
-      'coopBtn', 'netState', 'boardBtn', 'accountBtn', 'howBtn', 'how', 'howClose',
+      'titleArt', 'coopBtn', 'netState', 'boardBtn', 'accountBtn',
+      'howBtn', 'howBtn2', 'how', 'howClose',
       'leaderboard', 'lbList', 'lbNote', 'lbClose',
       'account', 'nameInput', 'nameSave', 'makeCodeBtn', 'codeOut',
       'claimInput', 'claimBtn', 'accountNote', 'accountClose',
       'coop', 'hostBtn', 'roomOut', 'joinInput', 'joinBtn', 'coopNote', 'coopClose',
-      'store', 'storeTabs', 'storeList', 'storeNote', 'storeRestore', 'storeClose', 'storeBtn',
-      'shopStoreBtn', 'logoArt', 'tillArt', 'paidStamp', 'pauseStamp',
+      'store', 'storeTabs', 'storeList', 'storeNote', 'storeRestore', 'storeClose',
+      'shopStoreBtn', 'tillArt', 'paidStamp', 'pauseStamp',
       'shop', 'walletText', 'unlockBox', 'unlockList', 'upgradeList', 'nextRent', 'nextKitchen',
       'nextDayBtn', 'nextDayNum', 'over', 'overTitle', 'overReason', 'overDay',
       'overBest', 'retryBtn', 'retryDay', 'wipeBtn'
@@ -3260,13 +3321,13 @@
       S.muted = !!saved.muted;
       S.lifetime = saved.lifetime || 0;
       S.fx = Core.effects(activeLevels(), S.day);
-      el.continueBtn.hidden = false;
+      S.saved = true;
       el.continueDay.textContent = saved.day;
     }
     // Size the board for the shift the player is about to resume, not for day
     // one - otherwise it resizes behind the title sheet as that sheet fades.
     reserveBoard(S.day || 1);
-    paintTitleArt();
+    paintTitle();
     Sfx.setMuted(S.muted);
     el.pauseSoundBtn.textContent = 'SOUND: ' + (S.muted ? 'OFF' : 'ON');
 
@@ -3305,8 +3366,9 @@
         S.lifetime = Math.max(S.lifetime || 0, cloud.lifetime);
         S.fx = Core.effects(activeLevels(), S.day);
         save();
-        el.continueBtn.hidden = false;
+        S.saved = true;
         el.continueDay.textContent = S.day;
+        paintTitle();
       });
     }).catch(function () { setNetState(); });
   }

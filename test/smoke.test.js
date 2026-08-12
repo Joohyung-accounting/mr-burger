@@ -103,7 +103,8 @@ var elements = { stage: stage };
   'start', 'playBtn', 'continueBtn', 'continueDay',
   'dayEnd', 'dayEndTitle', 'dayEndBtn', 'dayEndNote', 'rSales', 'rTips', 'rTotal',
   'rRent', 'rNet', 'rNetLabel', 'rPerfect', 'rServed', 'rWalked',
-  'coopBtn', 'netState', 'boardBtn', 'accountBtn', 'howBtn', 'how', 'howClose',
+  'titleArt', 'coopBtn', 'netState', 'boardBtn', 'accountBtn',
+  'howBtn', 'howBtn2', 'how', 'howClose',
   'leaderboard', 'lbList', 'lbNote', 'lbClose',
   'account', 'nameInput', 'nameSave', 'makeCodeBtn', 'codeOut',
   'claimInput', 'claimBtn', 'accountNote', 'accountClose',
@@ -113,7 +114,7 @@ var elements = { stage: stage };
   'overBest', 'retryBtn', 'retryDay', 'wipeBtn',
   'clockText', 'clockFill', 'clockBox',
   'store', 'storeTabs', 'storeList', 'storeNote', 'storeRestore', 'storeClose',
-  'storeBtn', 'shopStoreBtn'
+  'shopStoreBtn'
 ].forEach(function (id) { elements[id] = makeEl('div'); });
 
 // Mirror index.html: the flow sheets carry the `hidden` attribute.
