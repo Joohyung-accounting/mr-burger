@@ -2117,6 +2117,39 @@
    * window" to anybody. Art.drawUpgrade splits those two into a flame and a
    * single burner plate, so the icon alone carries the difference.
    */
+  /*
+   * The drawn ornaments on the title slip: the wordmark's burger and the glyph
+   * on each tile. These live in the handoff DOCUMENT rather than in its
+   * art.js, which is why a clean function-by-function audit of art.js still
+   * left the title screen looking like a different design.
+   */
+  var TILE_GLYPH = { storeBtn: 'outfit', coopBtn: 'coop', boardBtn: 'rank', accountBtn: 'you' };
+
+  function paintTitleArt() {
+    var dpr = Math.min(window.devicePixelRatio || 1, 3);
+    function on(cv, W, H, paint) {
+      if (!cv || !cv.getContext) return;
+      cv.width = Math.round(W * dpr);
+      cv.height = Math.round(H * dpr);
+      cv.style.width = W + 'px';
+      cv.style.height = H + 'px';
+      var g = cv.getContext('2d');
+      if (!g) return;
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.clearRect(0, 0, W, H);
+      paint(g, W, H);
+    }
+    on(el.logoArt, 120, 60, function (g, W, H) { Art.drawLogo(g, W, H); });
+    Object.keys(TILE_GLYPH).forEach(function (id) {
+      var btn = el[id];
+      var host = btn && btn.querySelector && btn.querySelector('.tile-ico');
+      if (!host) return;
+      var cv = host.querySelector('canvas');
+      if (!cv) { cv = document.createElement('canvas'); host.appendChild(cv); }
+      on(cv, 30, 30, function (g, W, H) { Art.glyph(g, TILE_GLYPH[id], W, H); });
+    });
+  }
+
   function upgradeIcon(host, id, size) {
     if (!host || !Art.drawUpgrade) return;
     var dpr = Math.min(window.devicePixelRatio || 1, 3);
@@ -3187,7 +3220,7 @@
       'claimInput', 'claimBtn', 'accountNote', 'accountClose',
       'coop', 'hostBtn', 'roomOut', 'joinInput', 'joinBtn', 'coopNote', 'coopClose',
       'store', 'storeTabs', 'storeList', 'storeNote', 'storeRestore', 'storeClose', 'storeBtn',
-      'shopStoreBtn',
+      'shopStoreBtn', 'logoArt',
       'shop', 'walletText', 'unlockBox', 'unlockList', 'upgradeList', 'nextRent', 'nextKitchen',
       'nextDayBtn', 'nextDayNum', 'over', 'overTitle', 'overReason', 'overDay',
       'overBest', 'retryBtn', 'retryDay', 'wipeBtn'
@@ -3210,6 +3243,7 @@
     // Size the board for the shift the player is about to resume, not for day
     // one - otherwise it resizes behind the title sheet as that sheet fades.
     reserveBoard(S.day || 1);
+    paintTitleArt();
     Sfx.setMuted(S.muted);
     el.pauseSoundBtn.textContent = 'SOUND: ' + (S.muted ? 'OFF' : 'ON');
 

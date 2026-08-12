@@ -58,6 +58,17 @@ var RAF_SHIM = '<script>(function(){' +
   'window.requestAnimationFrame=function(cb){q.push(cb);if(q.length===1)ch.port2.postMessage(0);return q.length;};' +
   'window.cancelAnimationFrame=function(){};' +
   'window.__shot=async function(extra){' +
+  // Two things make the live DOM and the snapshot disagree about where
+  // anything is, and canvases are pasted at their LIVE rects.
+  //
+  // 1. The SVG cannot load the webfonts, so it lays out in the fallback
+  // face while the live DOM is still in Caprasimo/Figtree - and canvases,
+  // which are pasted at their LIVE rects, then land a dozen pixels off what
+  // the snapshot drew. Put the live page on the fallback stack for the
+  // duration so both sides agree, then put it back.
+  'var fb=document.createElement("style");' +
+  'fb.textContent=":root{--font-heading:Trebuchet MS,sans-serif!important;--font-body:Trebuchet MS,sans-serif!important}*,*::before,*::after{animation:none!important;transition:none!important}";' +
+  'document.head.appendChild(fb);document.body.offsetHeight;' +
   'var css=await (await fetch("css/style.css")).text();' +
   'var W=innerWidth,H=innerHeight,c=document.documentElement.cloneNode(true);' +
   'c.querySelectorAll("link,script").forEach(function(n){n.remove()});' +
@@ -91,7 +102,8 @@ var RAF_SHIM = '<script>(function(){' +
   // canvases inside the sheet are.
   'document.querySelectorAll("canvas").forEach(function(cn){' +
   'if(cn===stage)return;if(top&&!top.contains(cn))return;paste(cn);});' +
-  'return (await fetch("/__shot",{method:"POST",body:cv.toDataURL("image/png")})).text();};' +
+  'var done=await (await fetch("/__shot",{method:"POST",body:cv.toDataURL("image/png")})).text();' +
+  'fb.remove();return done;};' +
   '})();<\/script>';
 
 function serveShotPage(res) {

@@ -2086,6 +2086,101 @@
     ctx.restore();
   }
 
+
+  /* ------------------------------------------------------------- glyphs
+   * The little drawn icons the interface uses where a UI kit would reach for
+   * an emoji or a stroked pictogram: the tiles on the title slip, the sound
+   * and music toggles, the leaderboard.
+   *
+   * Lifted from the handoff document itself rather than from its art.js -
+   * the doc draws these in its own script, which is why the title screen did
+   * not match while every function in art.js did.
+   *
+   * Art.glyph(ctx, id, w, h) - fills the box, centred.
+   * ids: coop / rank / you / outfit / grillUp / shoes / sound / music / board
+   */
+  function drawGlyph(ctx, id, w, h) {
+
+  var s = 760, cx = w / 2, cy = h / 2, R = Math.min(w, h) * 0.36, lw = Math.max(1.2, R * 0.10);
+  if (id === 'coop') {
+    ink(ctx, ellPts(cx - R * 0.42, cy - R * 0.20, R * 0.36, R * 0.36, 14, R * 0.05, s), '#e8a021', { lw: lw, line: '#4a3226', seed: s });
+    ink(ctx, ellPts(cx + R * 0.42, cy - R * 0.20, R * 0.36, R * 0.36, 14, R * 0.05, s + 1), '#c0562f', { lw: lw, line: '#4a3226', seed: s + 1 });
+    ink(ctx, blobPts(cx, cy + R * 0.58, R * 0.95, R * 0.40, 3, 0.10, 0.5, 20, R * 0.05, s + 2), '#fdf6e6', { lw: lw, line: '#4a3226', seed: s + 2 });
+  } else if (id === 'rank') {
+    ink(ctx, blobPts(cx, cy - R * 0.16, R * 0.52, R * 0.55, 3, 0.16, 1.6, 22, R * 0.05, s + 3), '#e8a021', { lw: lw, line: '#4a3226', seed: s + 3 });
+    ink(ctx, rectPts(cx - R * 0.44, cy + R * 0.56, R * 0.88, R * 0.30, R * 0.08, R * 0.04, s + 4), '#c9a33f', { lw: lw, line: '#4a3226', seed: s + 4 });
+  } else if (id === 'you') {
+    // On cream paper a white toque disappears, so the hat carries a red band
+    // and the face sits on a saturated scarf - the same weight as the others.
+    ink(ctx, blobPts(cx, cy + R * 0.72, R * 0.78, R * 0.30, 3, 0.12, 0.5, 20, R * 0.05, s + 4), '#c0562f', { lw: lw, line: '#4a3226', seed: s + 4 });
+    ink(ctx, ellPts(cx, cy + R * 0.16, R * 0.44, R * 0.46, 16, R * 0.05, s + 5), '#f2b877', { lw: lw, line: '#4a3226', seed: s + 5 });
+    ink(ctx, blobPts(cx, cy - R * 0.46, R * 0.60, R * 0.30, 4, 0.16, 0.8, 22, R * 0.05, s + 6), '#fffdf7', { lw: lw * 1.2, line: '#4a3226', seed: s + 6 });
+    ink(ctx, rectPts(cx - R * 0.46, cy - R * 0.24, R * 0.92, R * 0.20, R * 0.06, R * 0.03, s + 7), '#e8a021', { lw: lw, line: '#4a3226', seed: s + 7 });
+  } else if (id === 'outfit') {
+    // Not in the handoff - the store tile is this game's addition - so drawn
+    // to the same recipe as its neighbours: one silhouette, two colours, ink.
+    ink(ctx, blobPts(cx, cy + R * 0.10, R * 0.86, R * 0.74, 4, 0.10, 0.4, 24, R * 0.05, s + 30),
+        '#fdf6e6', { lw: lw, line: '#4a3226', seed: s + 30 });
+    ink(ctx, jitter([[cx - R * 0.40, cy - R * 0.62], [cx, cy - R * 0.06],
+                     [cx + R * 0.40, cy - R * 0.62], [cx + R * 0.16, cy - R * 0.74],
+                     [cx - R * 0.16, cy - R * 0.74]], R * 0.05, s + 31),
+        '#c0562f', { lw: lw, line: '#4a3226', seed: s + 31 });
+    ink(ctx, rectPts(cx - R * 0.10, cy - R * 0.04, R * 0.20, R * 0.80, R * 0.06, R * 0.03, s + 32),
+        '#e8a021', { lw: lw * 0.8, line: '#4a3226', seed: s + 32 });
+  } else if (id === 'grillUp') {
+    drawGrill(ctx, w * 0.10, h * 0.18, w * 0.80, h * 0.66, { hot: 0.8 });
+  } else if (id === 'shoes') {
+    ink(ctx, blobPts(cx, cy + R * 0.20, R * 0.82, R * 0.42, 4, 0.14, 0.4, 22, R * 0.05, s + 7), '#c0562f', { lw: lw, line: '#4a3226', seed: s + 7 });
+    ink(ctx, rectPts(cx - R * 0.78, cy + R * 0.52, R * 1.6, R * 0.26, R * 0.08, R * 0.04, s + 8), '#fdf6e6', { lw: lw, line: '#4a3226', seed: s + 8 });
+  } else if (id === 'sound') {
+    ink(ctx, jitter([[cx - R * 0.72, cy - R * 0.26], [cx - R * 0.30, cy - R * 0.26],
+                       [cx + R * 0.10, cy - R * 0.76], [cx + R * 0.10, cy + R * 0.76],
+                       [cx - R * 0.30, cy + R * 0.26], [cx - R * 0.72, cy + R * 0.26]], R * 0.05, s + 20),
+          '#e8a021', { lw: lw, line: '#4a3226', seed: s + 20 });
+    ctx.save();
+    ctx.strokeStyle = '#4a3226'; ctx.lineWidth = lw * 0.9; ctx.lineCap = 'round';
+    for (var w1 = 0; w1 < 2; w1++) {
+      ctx.beginPath();
+      ctx.arc(cx + R * 0.16, cy, R * (0.42 + w1 * 0.30), -0.8, 0.8);
+      ctx.stroke();
+    }
+    ctx.restore();
+  } else if (id === 'music') {
+    ink(ctx, ellPts(cx - R * 0.34, cy + R * 0.44, R * 0.30, R * 0.24, 14, R * 0.04, s + 22), '#c0562f', { lw: lw, line: '#4a3226', seed: s + 22 });
+    ink(ctx, ellPts(cx + R * 0.44, cy + R * 0.20, R * 0.30, R * 0.24, 14, R * 0.04, s + 23), '#c0562f', { lw: lw, line: '#4a3226', seed: s + 23 });
+    ctx.save();
+    ctx.strokeStyle = '#4a3226'; ctx.lineWidth = lw * 1.1; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx - R * 0.06, cy + R * 0.46);
+    ctx.lineTo(cx - R * 0.02, cy - R * 0.60);
+    ctx.lineTo(cx + R * 0.74, cy - R * 0.84);
+    ctx.lineTo(cx + R * 0.72, cy + R * 0.22);
+    ctx.stroke();
+    ctx.restore();
+  } else if (id === 'board') {
+    ink(ctx, rectPts(cx - R * 0.80, cy - R * 0.62, R * 1.6, R * 1.24, R * 0.10, R * 0.05, s + 9), '#fdf6e6', { lw: lw, line: '#4a3226', seed: s + 9 });
+    ctx.save();
+    ctx.strokeStyle = '#a08a6e'; ctx.lineWidth = Math.max(1, R * 0.09); ctx.lineCap = 'round';
+    for (var i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.moveTo(cx - R * 0.52, cy - R * 0.26 + i * R * 0.34);
+      ctx.lineTo(cx + R * 0.52, cy - R * 0.26 + i * R * 0.34);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  }
+
+  /**
+   * The wordmark's burger - a whole one, cross-sectioned, under MR. BURGER.
+   * The handoff builds it out of the game's own layers rather than drawing a
+   * logo, so the thing on the title slip is literally the thing you cook.
+   */
+  function drawLogo(ctx, w, h) {
+    var lg = ['bun', 'patty', 'cheese', 'lettuce', 'tomato', 'bunTop'];
+    drawStack(ctx, lg, w / 2, h * 0.94, fitWidth(lg, w * 0.50, h * 0.86), {});
+  }
+
   var SCENE = {
     THEMES: SCENE_THEMES,
     floor: drawFloor,
@@ -2113,6 +2208,8 @@
     drawIcon: drawIcon,
     drawPortrait: drawPortrait,
     drawUpgrade: drawUpgrade,
+    glyph: drawGlyph,
+    drawLogo: drawLogo,
     UPGRADES: UPGRADE_IDS,
     drawChef: drawChef,
     CHEF_SKINS: CHEF_SKINS,

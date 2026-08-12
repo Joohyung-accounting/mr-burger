@@ -747,7 +747,7 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
   font-size: 13px;
   letter-spacing: 0.44em;
   text-indent: 0.44em;
-  color: var(--ink-3);
+  color: #c0562f;
 }
 .logo-burger {
   font-family: var(--font-heading);
@@ -755,18 +755,19 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
   letter-spacing: -0.02em;
   color: var(--ink);
 }
-/* The perforation under the wordmark, not a bar. */
-.logo-rule {
-  height: 1px;
-  margin: var(--space-3) 0 0;
-  background: repeating-linear-gradient(90deg, var(--rule) 0 4px, transparent 4px 8px);
+/* The wordmark's burger. Art.drawLogo fills it; sized here so the slip's
+   layout does not depend on the drawing having run yet. */
+.logo-art {
+  display: block;
+  width: 120px; height: 60px;
+  margin: 6px auto 0;
 }
 .tag {
   margin: var(--space-2) 0 0;
-  color: var(--ink-3);
+  color: var(--ink-4);
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
   text-align: center;
 }
@@ -792,14 +793,15 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
   text-align: center;
   color: var(--amber-ink);
   background: var(--amber);
-  box-shadow: 0 3px 0 var(--amber-deep);
+  /* An offset ink block, the way the handoff prints it - not a bevel. */
+  box-shadow: 2px 3px 0 var(--ink);
   transition: background 0.15s, transform 0.1s, box-shadow 0.1s;
 }
 .cta:hover { background: var(--amber-lit); }
 .cta:active {
   background: var(--amber-deep);
-  transform: translateY(2px);
-  box-shadow: 0 1px 0 var(--amber-deep);
+  transform: translate(2px, 3px);
+  box-shadow: 0 0 0 var(--ink);
 }
 .cta:disabled { opacity: 0.4; box-shadow: none; cursor: not-allowed; }
 
@@ -866,14 +868,14 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
   flex-direction: column;
   align-items: center;
   gap: var(--space-1);
-  padding: var(--space-2) var(--space-1);
-  border: 2px dashed var(--rule-soft);
+  padding: 9px 2px;
+  border: 1.5px solid var(--rule-soft);
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink-3);
   font-size: 8.5px;
   font-weight: 700;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   transition: transform 0.12s, border-color 0.15s, color 0.15s;
 }
@@ -887,28 +889,14 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
  * whole box - which is how the Outfit tile once arrived as a solid square. A
  * tile nobody has drawn an icon for keeps its emoji instead.
  */
+/* Art.glyph draws into a canvas in here - the same pen as the food, in
+   colour, rather than a monochrome stroked pictogram. */
 .tile .tile-ico {
-  width: 22px; height: 22px;
-  font-size: 19px;
-  line-height: 1;
+  width: 30px; height: 30px;
+  font-size: 0;
+  display: grid; place-items: center;
 }
-#storeBtn   .tile-ico { --tile-icon: var(--icon-shirt); }
-#coopBtn    .tile-ico { --tile-icon: var(--icon-users); }
-#boardBtn   .tile-ico { --tile-icon: var(--icon-trophy); }
-#accountBtn .tile-ico { --tile-icon: var(--icon-chef); }
-
-@supports (mask: url("")) or (-webkit-mask: url("")) {
-  #storeBtn .tile-ico,
-  #coopBtn .tile-ico,
-  #boardBtn .tile-ico,
-  #accountBtn .tile-ico {
-    font-size: 0;
-    background: currentColor;
-    -webkit-mask: var(--tile-icon) center / contain no-repeat;
-    mask: var(--tile-icon) center / contain no-repeat;
-  }
-}
-
+.tile .tile-ico canvas { display: block; }
 /* --------------------------------------------------------------- prose */
 .lede {
   font-size: 12.5px;
