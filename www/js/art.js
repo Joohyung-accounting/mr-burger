@@ -2181,6 +2181,104 @@
     drawStack(ctx, lg, w / 2, h * 0.94, fitWidth(lg, w * 0.50, h * 0.86), {});
   }
 
+
+  /* ---------------------------------------------------------------- UI ink
+   * The interface's own drawn parts, lifted from the handoff DOCUMENT the same
+   * way the glyphs were: hearts, the two rubber stamps, the till bundle and the
+   * swing tag a price hangs off. A UI kit would reach for an emoji or a stroked
+   * pictogram for each of these; the point of the paper direction is that it
+   * does not.
+   *
+   * Parameterised where the document hard-coded: it only ever drew five hearts
+   * with three left, and only ever stamped the word PAID.
+   */
+  var UI = {
+    /** n hearts, the first `left` of them still beating. */
+    hearts: function (ctx, w, h, left, n) {
+      n = n || 5;
+      for (var k = 0; k < n; k++) {
+        var cx = w * ((0.5 + k) / n), cy = h * 0.52, r = Math.min(h * 0.30, w / n * 0.38);
+        var lost = k >= left;
+        var pts = blobPts(cx, cy, r, r, 2, 0.24, 1.6, 20, r * 0.10, 700 + k);
+        ink(ctx, pts, lost ? '#6b5a52' : '#e63946',
+            { lw: 1.4, line: '#4a3226', lineAlpha: lost ? 0.5 : 1, seed: 700 + k });
+      }
+    },
+
+    /** The green oval a paid receipt gets. */
+    stamp: function (ctx, w, h, text) {
+      ctx.save();
+      ctx.translate(w / 2, h / 2);
+      ctx.rotate(-0.14);
+      ctx.globalAlpha = 0.8;
+      ctx.strokeStyle = '#3f7a2a';
+      ctx.lineWidth = Math.max(1.6, w * 0.016);
+      ctx.lineJoin = 'round';
+      trace(ctx, ellPts(0, 0, w * 0.40, h * 0.36, 22, w * 0.012, 720));
+      ctx.stroke();
+      ctx.fillStyle = '#3f7a2a';
+      ctx.font = '900 ' + Math.round(h * 0.28) + 'px "Trebuchet MS", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text || 'PAID', 0, 0);
+      ctx.restore();
+    },
+
+    /** The double-ruled box the pause slip is stamped with. */
+    pauseStamp: function (ctx, w, h, text) {
+      ctx.save();
+      ctx.translate(w / 2, h / 2);
+      ctx.rotate(-0.06);
+      ctx.globalAlpha = 0.85;
+      ctx.strokeStyle = '#c0562f';
+      ctx.lineWidth = Math.max(2, w * 0.012);
+      ctx.lineJoin = 'round';
+      trace(ctx, rectPts(-w * 0.40, -h * 0.32, w * 0.80, h * 0.64, h * 0.10, w * 0.008, 741));
+      ctx.stroke();
+      ctx.globalAlpha = 0.5;
+      trace(ctx, rectPts(-w * 0.36, -h * 0.26, w * 0.72, h * 0.52, h * 0.08, w * 0.008, 742));
+      ctx.stroke();
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = '#c0562f';
+      ctx.font = '900 ' + Math.round(h * 0.34) + 'px "Trebuchet MS", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text || 'PAUSED', 0, h * 0.02);
+      ctx.restore();
+    },
+
+    /** A bundle of notes with a coin leaning on it. */
+    till: function (ctx, w, h) {
+      var s2 = 751, b;
+      for (b = 2; b >= 0; b--) {
+        ink(ctx, rectPts(w * 0.10 + b * w * 0.02, h * 0.30 - b * h * 0.09, w * 0.64, h * 0.34, h * 0.06, w * 0.008, s2 + b),
+            b === 0 ? '#cfe0b4' : '#bcd39c', { lw: 1.4, line: '#5c7a3a', seed: s2 + b });
+      }
+      ink(ctx, ellPts(w * 0.34, h * 0.30, w * 0.10, h * 0.14, 14, w * 0.006, s2 + 5), '#8fb35f', { lw: 1.2, line: '#5c7a3a', seed: s2 + 5 });
+      ink(ctx, ellPts(w * 0.78, h * 0.66, w * 0.16, h * 0.22, 16, w * 0.006, s2 + 6), '#f4c93f', { lw: 1.4, line: '#8a6416', seed: s2 + 6 });
+      ink(ctx, ellPts(w * 0.78, h * 0.66, w * 0.10, h * 0.14, 14, w * 0.005, s2 + 7), '#f7dc7a', { lw: 1, line: '#8a6416', lineAlpha: 0.7, seed: s2 + 7 });
+    },
+
+    /** A swing tag: notched left edge, punched hole, the price written on it. */
+    priceTag: function (ctx, w, h, text) {
+      var s3 = 761;
+      var pts = [[w * 0.16, h * 0.10], [w * 0.94, h * 0.12], [w * 0.92, h * 0.88],
+                 [w * 0.16, h * 0.90], [w * 0.05, h * 0.50]];
+      ink(ctx, pts, '#e8a021', { lw: Math.max(1.4, w * 0.014), off: w * 0.008, line: '#3f2a1c', seed: s3 });
+      ctx.save();
+      ctx.fillStyle = '#3f2a1c';
+      ctx.globalAlpha = 0.85;
+      trace(ctx, ellPts(w * 0.19, h * 0.50, w * 0.045, h * 0.075, 12, w * 0.004, s3 + 1));
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.font = '900 ' + Math.round(h * 0.36) + 'px "Trebuchet MS", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text || '$0', w * 0.58, h * 0.52);
+      ctx.restore();
+    }
+  };
+
   var SCENE = {
     THEMES: SCENE_THEMES,
     floor: drawFloor,
@@ -2209,6 +2307,7 @@
     drawPortrait: drawPortrait,
     drawUpgrade: drawUpgrade,
     glyph: drawGlyph,
+    ui: UI,
     drawLogo: drawLogo,
     UPGRADES: UPGRADE_IDS,
     drawChef: drawChef,

@@ -1194,6 +1194,30 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
 .sku-buy:disabled { cursor: default; transform: none; }
 .sku-buy.busy { opacity: 0.5; }
 
+
+/* ---------------------------------------------------- the drawn ornaments */
+/* Canvases the interface paints into: the till bundle, the two rubber stamps,
+   and the swing tag a shop price hangs off. Sized here so the slip lays out
+   before the drawing has run. */
+.wallet .wallet-row { display: flex; align-items: center; gap: var(--space-2); margin-top: 2px; }
+.wallet .wallet-row b { display: block; }
+.till-art { width: 40px; height: 30px; display: block; flex: 0 0 auto; }
+
+.stamp-art { width: 96px; height: 48px; display: block; margin: var(--space-2) auto 0; }
+.pause-art { width: 180px; height: 74px; display: block; margin: 0 auto var(--space-2); }
+
+/* A tagged price is the tag - no stub behind it. */
+.ubuy.tagged {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  border-radius: 0;
+}
+.ubuy.tagged canvas { display: block; }
+.ubuy.tagged:hover { background: transparent; }
+.ubuy.tagged:active { background: transparent; transform: translate(1px, 2px); }
+.ubuy.tagged:disabled { border: none; opacity: 0.45; }
+
 /* ------------------------------------------------------- online bits */
 .title-row { display: flex; gap: var(--space-4); }
 .title-row .linkbtn { width: auto; }

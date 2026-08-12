@@ -849,6 +849,7 @@
 
   /* ------------------------------------------------------------- pause menu */
   function setPaused(on) {
+    if (on) paintOn(el.pauseStamp, 180, 74, function (g, W, H) { Art.ui.pauseStamp(g, W, H, 'BACK SOON'); });
     if (S.screen !== 'service' && on) return;
     S.userPaused = !!on;
     if (S.userPaused) {
@@ -1913,11 +1914,18 @@
 
     if (hudLast.hearts !== S.hearts) {
       hudLast.hearts = S.hearts;
-      var hearts = '';
-      for (var i = 0; i < Core.START_HEARTS; i++) {
-        hearts += '<span class="h' + (i < S.hearts ? '' : ' lost') + '">❤</span>';
-      }
-      el.hearts.innerHTML = hearts;
+      /*
+       * Drawn, not typed. They were a Lucide heart in a mask, which was
+       * already better than the emoji it replaced - but the handoff draws
+       * them with the same wobbling pen as everything else, and a stamped
+       * heart next to a stamped receipt is the whole point of the direction.
+       */
+      var hw = Core.START_HEARTS * 13, hh = 15;
+      var hc = el.hearts.querySelector('canvas');
+      if (!hc) { el.hearts.innerHTML = ''; hc = document.createElement('canvas'); el.hearts.appendChild(hc); }
+      paintOn(hc, hw, hh, function (g, W, H) {
+        Art.ui.hearts(g, W, H, S.hearts, Core.START_HEARTS);
+      });
     }
 
     syncClock();
@@ -2097,6 +2105,11 @@
     el.rTotal.textContent = Core.money(total);
     el.rRent.textContent = '-' + Core.money(S.rent);
     el.rNet.textContent = Core.money(total - S.rent);
+    // Rubber-stamped only when the rent is genuinely covered.
+    if (el.paidStamp) {
+      el.paidStamp.hidden = !passed;
+      if (passed) paintOn(el.paidStamp, 96, 48, function (g, W, H) { Art.ui.stamp(g, W, H, 'PAID'); });
+    }
     el.rPerfect.textContent = S.perfect;
     el.rServed.textContent = S.served;
     el.rWalked.textContent = S.walked;
@@ -2125,20 +2138,23 @@
    */
   var TILE_GLYPH = { storeBtn: 'outfit', coopBtn: 'coop', boardBtn: 'rank', accountBtn: 'you' };
 
-  function paintTitleArt() {
+  /** Size a canvas to the display, clear it, and hand the painter a CSS box. */
+  function paintOn(cv, W, H, paint) {
+    if (!cv || !cv.getContext) return;
     var dpr = Math.min(window.devicePixelRatio || 1, 3);
-    function on(cv, W, H, paint) {
-      if (!cv || !cv.getContext) return;
-      cv.width = Math.round(W * dpr);
-      cv.height = Math.round(H * dpr);
-      cv.style.width = W + 'px';
-      cv.style.height = H + 'px';
-      var g = cv.getContext('2d');
-      if (!g) return;
-      g.setTransform(dpr, 0, 0, dpr, 0, 0);
-      g.clearRect(0, 0, W, H);
-      paint(g, W, H);
-    }
+    cv.width = Math.round(W * dpr);
+    cv.height = Math.round(H * dpr);
+    cv.style.width = W + 'px';
+    cv.style.height = H + 'px';
+    var g = cv.getContext('2d');
+    if (!g) return;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, W, H);
+    paint(g, W, H);
+  }
+
+  function paintTitleArt() {
+    var on = paintOn;
     on(el.logoArt, 120, 60, function (g, W, H) { Art.drawLogo(g, W, H); });
     Object.keys(TILE_GLYPH).forEach(function (id) {
       var btn = el[id];
@@ -2167,6 +2183,7 @@
 
   function renderShop() {
     el.walletText.textContent = Core.money(S.money);
+    paintOn(el.tillArt, 40, 30, function (g, W, H) { Art.ui.till(g, W, H); });
     el.nextDayNum.textContent = S.day + 1;
     el.nextRent.textContent = Core.money(Core.dayGoal(S.day + 1));
     var dpr = Math.min(window.devicePixelRatio || 1, 3);
@@ -2245,7 +2262,13 @@
         btn.textContent = 'FULL';
         btn.disabled = true;
       } else {
-        btn.textContent = Core.money(cost);
+        btn.textContent = '';
+        btn.classList.add('tagged');
+        var tag = document.createElement('canvas');
+        btn.appendChild(tag);
+        paintOn(tag, 64, 34, (function (money) {
+          return function (g, W, H) { Art.ui.priceTag(g, W, H, money); };
+        })(Core.money(cost)));
         btn.disabled = S.money < cost;
         btn.addEventListener('click', function () { buyUpgrade(u.id); });
       }
@@ -3220,7 +3243,7 @@
       'claimInput', 'claimBtn', 'accountNote', 'accountClose',
       'coop', 'hostBtn', 'roomOut', 'joinInput', 'joinBtn', 'coopNote', 'coopClose',
       'store', 'storeTabs', 'storeList', 'storeNote', 'storeRestore', 'storeClose', 'storeBtn',
-      'shopStoreBtn', 'logoArt',
+      'shopStoreBtn', 'logoArt', 'tillArt', 'paidStamp', 'pauseStamp',
       'shop', 'walletText', 'unlockBox', 'unlockList', 'upgradeList', 'nextRent', 'nextKitchen',
       'nextDayBtn', 'nextDayNum', 'over', 'overTitle', 'overReason', 'overDay',
       'overBest', 'retryBtn', 'retryDay', 'wipeBtn'

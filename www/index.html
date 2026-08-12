@@ -184,6 +184,7 @@
 <div id="pause" class="modal" hidden>
   <div class="sheet">
     <h2 class="sheet-title">PAUSED</h2>
+    <canvas id="pauseStamp" class="pause-art"></canvas>
     <div class="pause-line">
       DAY <b id="pauseDay">1</b> &nbsp;·&nbsp; <b id="pauseEarned">$0.00</b> of <span id="pauseRent">$0.00</span>
     </div>
@@ -210,6 +211,8 @@
       <div class="chip"><span id="rServed">0</span><small>SERVED</small></div>
       <div class="chip"><span id="rWalked">0</span><small>WALKED</small></div>
     </div>
+    <!-- Rubber-stamped on the receipt once the rent is covered. -->
+    <canvas id="paidStamp" class="stamp-art" hidden></canvas>
     <p id="dayEndNote" class="note"></p>
     <button id="dayEndBtn" class="cta">TO THE SHOP</button>
   </div>
@@ -268,7 +271,10 @@
 <div id="shop" class="modal" hidden>
   <div class="sheet wide">
     <h2 class="sheet-title">THE SHOP</h2>
-    <div class="wallet">IN THE TILL <b id="walletText">$0.00</b></div>
+    <div class="wallet">
+      <span>IN THE TILL</span>
+      <span class="wallet-row"><canvas id="tillArt" class="till-art"></canvas><b id="walletText">$0.00</b></span>
+    </div>
     <div id="unlockBox" class="unlock-box" hidden>
       <div class="unlock-title">NEW ON THE MENU</div>
       <div id="unlockList" class="unlock-list"></div>
