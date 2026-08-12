@@ -2377,6 +2377,18 @@
    * })
    * Draws its own paper, so the host only needs to clear the strip behind it.
    */
+  /**
+   * The one thing on the HUD you can press.
+   *   Art.ui.hudBoxes(x, y, w, h) -> { pause: {x,y,w,h} }
+   * Same contract as titleBoxes: drawHUD reads it too, so the drawn square and
+   * the tap target are the same square.
+   */
+  function hudBoxes(x, y, w, h) {
+    var pad = h * 0.13, px = x + pad, pw = w - pad * 2, ph = h - pad * 2;
+    var bs = ph * 0.52;
+    return { pause: { x: px + pw * 0.028, y: y + h / 2 - bs / 2, w: bs, h: bs } };
+  }
+
   function drawHUD(ctx, x, y, w, h, o) {
     o = o || {};
     var s = 1471, i;
@@ -2420,7 +2432,8 @@
     });
 
     // pause: a hand-drawn square with two bars, not a chrome button
-    var bs = ph * 0.52, bx = px + pw * 0.028, by = y + h / 2 - bs / 2;
+    var pb = hudBoxes(x, y, w, h).pause;
+    var bs = pb.w, bx = pb.x, by = pb.y;
     ink(ctx, rectPts(bx, by, bs, bs, bs * 0.20, bs * 0.035, s + 8),
         '#4a3226', { lw: lw * 0.9, off: bs * 0.030, line: '#2a1a12', seed: s + 8 });
     ctx.save();
@@ -2648,10 +2661,17 @@
     }
   }
 
-  /** The wooden rail a sheet hangs from. Returns its bottom edge. */
-  function drawRail(ctx, x, y, w, h, seed) {
+  /**
+   * The wooden rail a sheet hangs from. Returns its bottom edge.
+   * `heat` 0..1 reddens the wood - the board's rush hour, drawn rather than
+   * painted on the element behind the drawing.
+   */
+  function drawRail(ctx, x, y, w, h, seed, heat) {
+    heat = Math.max(0, Math.min(1, heat || 0));
     ink(ctx, rectPts(x + w * 0.05, y, w * 0.90, h, h * 0.35, w * 0.004, seed),
-        '#8a5a30', { lw: Math.max(1, w * 0.006), off: w * 0.003, line: '#4a2f18', seed: seed });
+        mixHex('#8a5a30', '#a3512a', heat),
+        { lw: Math.max(1, w * 0.006), off: w * 0.003,
+          line: mixHex('#4a2f18', '#6d3116', heat), seed: seed });
     return y + h;
   }
 
@@ -2969,9 +2989,10 @@
     var s = 7700, i;
     var tickets = o.tickets || [];
     var railH = h * 0.115, railY = y + h * 0.014;
-    drawRail(ctx, x, railY, w, railH, s);
+    drawRail(ctx, x, railY, w, railH, s, o.heat);
     penLetters(ctx, o.label === undefined ? 'ORDERS' : o.label, x + w / 2, railY + railH * 0.78, railH * 0.52, {
-      fill: '#f0d8b4', weight: 0.13, track: 0.34, seed: s + 1, tilt: 0.03
+      fill: o.heat ? mixHex('#f0d8b4', '#ffd9a8', o.heat) : '#f0d8b4',
+      weight: 0.13, track: 0.34, seed: s + 1, tilt: 0.03
     });
     if (!tickets.length) return;
 
@@ -2995,6 +3016,15 @@
       if (o.food) o.food(ctx, t, tx + tw * 0.14, ty + th * 0.325, tw * 0.72, th * 0.255);
 
       var rows = t.rows || [], ry = ty + th * 0.665, rs = th * 0.068;
+      // From day nine an order can call for five lines. At the drawn pitch the
+      // list runs past the bottom of the paper and through the patience stroke
+      // - and nothing here is clipped, so it would simply spill onto the batten
+      // below. Tighten the pitch, and only the pitch, once it has to: one, two
+      // and three lines still sit exactly where they were drawn.
+      var room = th * (0.900 - 0.665);
+      if (rows.length && (rows.length - 1) * rs * 1.15 + rs * 0.60 > room) {
+        rs = room / ((rows.length - 1) * 1.15 + 0.60);
+      }
       for (var k = 0; k < rows.length; k++) {
         ink(ctx, rectPts(tx + tw * 0.10, ry - rs * 0.62, rs * 0.62, rs * 0.62, rs * 0.16, rs * 0.05, seed + 20 + k),
             rows[k].c, { lw: Math.max(0.8, rs * 0.12), line: '#4a3226', lineAlpha: 0.8, seed: seed + 20 + k });
@@ -3129,6 +3159,7 @@
     back: drawScreenBack, rail: drawRail, clip: drawClip, sheet: drawSheet,
     button: drawSketchButton, rule: drawRule, row: drawRow, torn: tornPts,
     titleBoxes: titleBoxes,
+    hudBoxes: hudBoxes,
 
     /* --- ornaments --- */
 

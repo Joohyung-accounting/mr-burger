@@ -85,13 +85,12 @@
   --tooth-h: 6px;
 
   /*
-   * The parts a ticket is made of, named so the board can reserve its height
-   * before a single ticket exists. --order-rows is set per day by game.js.
+   * The longest order the day can call for, set per day by game.js before a
+   * single ticket exists. A slip is drawn now rather than built out of DOM, so
+   * this no longer adds up a ticket's parts - it buys the board canvas the
+   * height its tallest list will need, which is the same promise as before:
+   * the board must not grow under the first ticket.
    */
-  --tk-mini: 42px;
-  --tk-row: 11px;
-  --tk-gap: 3px;
-  --tk-bar: 4px;
   --order-rows: 1;
 
   --safe-t: env(safe-area-inset-top, 0px);
@@ -165,7 +164,6 @@ button {
  */
 :root {
   --teeth: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13' height='6' viewBox='0 0 13 6'%3E%3Cpath d='M0 0h13L6.5 6z' fill='%23fdf6e6'/%3E%3C/svg%3E");
-  --teeth-sm: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='5' viewBox='0 0 10 5'%3E%3Cpath d='M0 0h10L5 5z' fill='%23fdf6e6'/%3E%3C/svg%3E");
 }
 
 /* A perforation drawn across the middle of a slip. */
@@ -176,183 +174,42 @@ button {
 
 /* ------------------------------------------------------------------- HUD */
 /*
- * The order rail: a strip of wood with the shift's numbers stamped into it.
- * Dark, because it is part of the diner rather than part of the paperwork -
- * everything a cook reads mid-shift is here, and the slips below are what
- * they are working from.
+ * The HUD used to be a strip of dark wood built here out of a grid, a
+ * gradient, two meters and a row of masked hearts. Art.ui.hud draws all of it
+ * now - taped paper, the pause square, DAY and the clock, the takings and
+ * their thermometer, the tips dashes, the hearts - so this element is only a
+ * box to draw it in.
+ *
+ * Its height is the one number the stylesheet still owns, and it matters: the
+ * drawing derives every text size from it, so 58px is a type decision as much
+ * as a layout one.
  */
+/* For anything a canvas draws but cannot say out loud. */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 #hud {
-  display: grid;
-  grid-template-columns: 34px 1fr auto;
-  align-items: center;
-  gap: var(--space-3);
+  position: relative;
   flex: 0 0 auto;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  background: linear-gradient(180deg, rgba(255, 244, 224, 0.09), rgba(0, 0, 0, 0.18));
-  box-shadow: inset 0 1px 0 var(--rail-lip), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --hud-h: 58px;
 }
-
-.icon-btn {
-  width: 34px; height: 34px;
-  border-radius: var(--radius-md);
-  background: rgba(0, 0, 0, 0.28);
-  box-shadow: inset 0 0 0 1px rgba(255, 224, 186, 0.18);
-  transition: transform 0.12s, background 0.15s;
-}
-.icon-btn:hover { background: rgba(0, 0, 0, 0.42); }
-.icon-btn:active { transform: scale(0.92); }
-
-/* Two bars rather than ⏸ - the emoji is missing on plenty of Android builds. */
-.pause-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-}
-.pause-icon i {
-  width: 4px;
-  height: 14px;
-  border-radius: 1px;
-  background: var(--rail-ink);
-}
-
-.progress { min-width: 0; }
-.progress-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--space-2);
-  margin-bottom: 5px;
-}
-
-/* The one amber stub on the rail: which shift this is. */
-.day-tag {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  flex: 0 0 auto;
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-  background: var(--amber);
-  color: var(--amber-ink);
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-.day-tag b {
-  font-family: var(--font-heading);
-  font-weight: 400;
-  font-size: 12px;
-  letter-spacing: 0;
-}
-
-.goal-text {
-  flex: 0 0 auto;
-  font-size: 11px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--rail-ink);
-  transition: color 0.3s;
-}
-.goal-text.met { color: #a8d88a; }
-
-/* ------------------------------------------------------------- the clock */
-/*
- * Sits between the day and the till, because that is the reading order of the
- * question a player is asking: which shift, how long left, how am I doing.
- * Tabular numerals so the countdown does not shuffle sideways every second.
- */
-.clock {
-  font-size: 13px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-  color: #fff4e0;
-  margin-left: auto;
-  margin-right: auto;
-  padding: 0 var(--space-2);
-  transition: color 0.2s linear;
-}
-
-/* Under a minute the clock warms up; under fifteen seconds it beats. */
-.clock.warm { color: var(--amber-lit); }
-.clock.urgent { color: #ff8a72; animation: clock-beat 1s steps(1, end) infinite; }
-
-@keyframes clock-beat {
-  0%, 60%  { opacity: 1; }
-  61%, 99% { opacity: 0.4; }
-}
-
-.clock-bar {
-  height: 3px;
-  margin-top: 4px;
-  border-radius: 1px;
-  background: rgba(0, 0, 0, 0.4);
-  overflow: hidden;
-}
-
-#clockFill {
-  height: 100%;
+.hud-art {
+  display: block;
   width: 100%;
-  background: linear-gradient(90deg, #7fc06a, #a8d88a);
-  transition: width 0.25s linear, background 0.4s linear;
-}
-#clockFill.warm { background: linear-gradient(90deg, var(--amber), var(--amber-lit)); }
-#clockFill.urgent { background: linear-gradient(90deg, var(--alarm-deep), var(--alarm)); }
-
-/* Off the clock entirely outside a shift, so the title screen is not lying. */
-body.no-clock .clock,
-body.no-clock .clock-bar { visibility: hidden; }
-
-/*
- * The till bar is the striped amber stub from the handoff - a paper ticket
- * filling up, not a progress meter.
- */
-.goal-bar {
-  height: 8px;
-  border-radius: 1px;
-  background: rgba(0, 0, 0, 0.4);
-  overflow: hidden;
-}
-#goalFill {
-  height: 100%;
-  width: 0%;
-  background: repeating-linear-gradient(115deg,
-    var(--amber-lit) 0 5px, #e08e12 5px 10px);
-  transition: width 0.35s cubic-bezier(.2,.8,.3,1), background 0.4s;
-}
-#goalFill.met {
-  background: repeating-linear-gradient(115deg, #8ec96f 0 5px, #6aa851 5px 10px);
-}
-
-/* ---------------------------------------------------------------- hearts */
-.hearts { display: flex; gap: 3px; align-items: center; }
-.hearts .h {
-  width: 13px; height: 13px;
-  font-size: 12px;
-  line-height: 13px;
-  transition: transform 0.25s cubic-bezier(.2,.9,.3,1.3), background 0.25s, opacity 0.25s;
-}
-.hearts .h.lost { opacity: 0.35; transform: scale(0.72); filter: grayscale(1); }
-
-@supports (mask: url("")) or (-webkit-mask: url("")) {
-  .hearts .h {
-    font-size: 0;
-    filter: none;
-    background: #e8604a;
-    -webkit-mask: var(--icon-heart) center / contain no-repeat;
-    mask: var(--icon-heart) center / contain no-repeat;
-  }
-  .hearts .h.lost { background: rgba(255, 224, 186, 0.28); opacity: 1; filter: none; }
+  height: var(--hud-h);
 }
 
 :root {
   --icon-heart: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 21.3 4.6 14a5 5 0 0 1 7.4-6.7A5 5 0 0 1 19.4 14Z'/%3E%3C/svg%3E");
-  --icon-users: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cpath d='M22 21v-2a4 4 0 0 0-3-3.87'/%3E%3Cpath d='M16 3.13a4 4 0 0 1 0 7.75'/%3E%3C/svg%3E");
   --icon-trophy: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9H4.5a2.5 2.5 0 0 1 0-5H6'/%3E%3Cpath d='M18 9h1.5a2.5 2.5 0 0 0 0-5H18'/%3E%3Cpath d='M4 22h16'/%3E%3Cpath d='M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22'/%3E%3Cpath d='M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22'/%3E%3Cpath d='M18 2H6v7a6 6 0 0 0 12 0V2Z'/%3E%3C/svg%3E");
-  --icon-chef: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z'/%3E%3Cline x1='6' y1='17' x2='18' y2='17'/%3E%3C/svg%3E");
   --icon-shirt: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z'/%3E%3C/svg%3E");
   --icon-phone: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='2' width='14' height='20' rx='2.5'/%3E%3Cpath d='M12 18h.01'/%3E%3C/svg%3E");
 }
@@ -413,180 +270,28 @@ body:not(.no-clock) #stage { flex-grow: 40; }
  * A wooden rail with the live slips clipped to it. The rail is the only piece
  * of furniture in the interface; everything hanging off it is paper.
  */
+/*
+ * The batten and its slips are one drawing, so the wrapper carries no wood of
+ * its own - Art.ui.orders draws the rail, the lettering on it, the clips and
+ * every sheet.
+ *
+ * The height still has to be committed BEFORE the first slip exists, or the
+ * board grows under the first ticket and the kitchen loses a chunk of itself
+ * in one frame. --order-rows is reserved at the top of the day exactly as it
+ * was for the DOM tickets; it just buys canvas height now. A slip is
+ * h * 0.834 tall inside the drawing, and its list of ingredients is what needs
+ * the extra room, so the height is linear in the row count for the same
+ * reason the old min-height calc was.
+ */
 .board-wrap {
   flex: 0 0 auto;
-  padding: 0 var(--space-1) var(--space-2);
-  background: linear-gradient(180deg, var(--rail-top), var(--rail-bottom));
-  border-radius: var(--radius-md) var(--radius-md) 2px 2px;
-  box-shadow: inset 0 1px 0 var(--rail-lip), 0 3px 10px rgba(0, 0, 0, 0.4);
-  transition: background 0.5s, box-shadow 0.5s;
+  --board-h: calc(104px + var(--order-rows) * 12px);
 }
-
-.board-rail {
-  display: flex;
-  justify-content: center;
-  padding: 4px 0 6px;
-}
-.board-rail span {
-  font-size: 7px;
-  font-weight: 700;
-  letter-spacing: 0.34em;
-  text-indent: 0.34em;
-  text-transform: uppercase;
-  color: var(--rail-ink);
-}
-
-.board { display: flex; gap: var(--space-1); align-items: stretch; }
-
-/*
- * One slip. Torn off along the bottom, and the same height whether it holds a
- * one-line order or a five-line one.
- *
- * A ticket used to be as tall as its order was long, so the board jumped from
- * 42px to 165px the instant the first customer arrived - and the kitchen, which
- * lives on whatever is left, lost a quarter of its height in one frame. A
- * change that big reads to the size watchdog as a rotation, so it relaid the
- * whole room immediately and the kitchen visibly snapped smaller three seconds
- * into every shift. The longest order a day can produce is knowable from the
- * day alone, so game.js reserves it up front and the board never moves again
- * until tomorrow. Slack inside a short slip collects above the patience bar,
- * which is pinned to the bottom either way.
- */
-.ticket {
-  position: relative;
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--tk-gap);
-  padding: var(--space-1) 2px 5px;
-  min-height: calc(
-    var(--space-1) + 5px
-    + var(--tk-mini) + var(--tk-gap)
-    + var(--order-rows) * (var(--tk-row) + 1px) - 1px
-    + var(--tk-gap) + var(--tk-bar)
-  );
-  background: var(--paper);
-  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.45));
-  animation: ticketIn 0.3s cubic-bezier(.2,.9,.3,1.2);
-}
-@keyframes ticketIn { from { transform: translateY(-12px) scale(0.85); opacity: 0; } }
-
-/* An empty clip on the rail: no paper on it, just the shadow of the peg. */
-.ticket.empty {
-  background: rgba(0, 0, 0, 0.22);
-  filter: none;
-  box-shadow: inset 0 0 0 1px rgba(255, 224, 186, 0.10);
-  animation: none;
-}
-/* The impatient archetype used to twitch by their face. With the faces gone
-   the burger is the only thing on the slip that can fidget. */
-.ticket.rush .mini { animation: jitter 0.5s infinite; }
-@keyframes jitter { 0%,100% { transform: translateX(0); } 50% { transform: translateX(1.5px); } }
-
-/* torn off the roll, a size down */
-.ticket::after {
-  content: '';
-  position: absolute;
-  left: 0; right: 0; top: 100%;
-  height: 5px;
-  background: var(--teeth-sm) top left / 10px 5px repeat-x;
-}
-.ticket.empty::after { display: none; }
-
-.ticket .mini { width: 38px; height: var(--tk-mini); display: block; }
-
-/* ---------------------------------------------------------- what it wants */
-/*
- * The picture above cannot carry the answer - a layer is two or three pixels
- * tall on a phone - so the slip says it. Chip for scanning, word for certainty.
- * Sized to fit five slips across the narrowest phone we support.
- */
-.order-list {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 1px;
+.board-art {
+  display: block;
   width: 100%;
-  padding: 0 3px;
-  min-width: 0;
+  height: var(--board-h);
 }
-
-.order-row {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  min-width: 0;
-  /* Deterministic, so the reservation above can be arithmetic rather than a
-     guess at what the line box rounds to on this device. The PLAIN row was
-     inheriting the body's 1.55 and coming out 1.4px taller than a named one,
-     which was enough to move the whole board. */
-  min-height: var(--tk-row);
-  line-height: 1.35;
-}
-
-/* Square, and it stays square. Deliberately not called .chip - the receipt
-   sheet already has one of those, and its padding inflated these into bars. */
-.order-row .swatch {
-  flex: 0 0 6px;
-  align-self: center;
-  box-sizing: border-box;
-  width: 6px;
-  height: 6px;
-  padding: 0;
-  border-radius: 1px;
-  box-shadow: inset 0 0 0 1px rgba(63, 42, 28, 0.35);
-}
-
-/* Sized so the longest short name - KETCHUP, MUSTARD, LETTUCE - fits a fifth
-   of the narrowest phone we support without being cut off. */
-.order-row b {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 8px;
-  font-weight: 700;
-  line-height: 1.35;
-  letter-spacing: 0;
-  text-transform: uppercase;
-  color: var(--ink-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.order-row.plain {
-  justify-content: center;
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: var(--ink-4);
-}
-
-/* Pinned to the bottom, so a three-line order and a plain one still line their
-   patience bars up with each other across the board. */
-.ticket .bar {
-  margin-top: auto;
-  width: calc(100% - 8px);
-  height: 4px;
-  border-radius: 1px;
-  background: var(--rule-faint);
-  overflow: hidden;
-}
-.ticket .bar i {
-  display: block; height: 100%;
-  background: #6f9c52;
-  transition: background 0.3s;
-}
-.ticket .bar i.warn { background: var(--amber); }
-.ticket .bar i.crit { background: var(--alarm); }
-
-.ticket .pin { display: none; }   /* tickets are matched at the hatch now */
-
-.ticket.leaving { animation: ticketOut 0.32s ease forwards; }
-@keyframes ticketOut { to { transform: translateY(14px) scale(0.7); opacity: 0; } }
-.ticket.served { animation: ticketServed 0.32s ease forwards; }
-@keyframes ticketServed { to { transform: translateY(-16px) scale(0.75); opacity: 0; } }
 
 /* --------------------------------------------------------------- kitchen */
 /* The kitchen takes the room that is going spare; layout() scales the whole
@@ -616,7 +321,6 @@ body.rush .board-wrap {
   background: linear-gradient(180deg, #a3512a, #6d3116);
   box-shadow: inset 0 1px 0 var(--rail-lip), 0 3px 14px rgba(0, 0, 0, 0.5);
 }
-body.rush .board-rail span { color: #ffd9a8; }
 body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
 @keyframes sign-buzz {
   0%, 100% { color: #fff4e0; }
@@ -792,31 +496,6 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
   margin-bottom: var(--space-3);
 }
 .sheet-title.bad { color: var(--alarm-deep); }
-
-/* The title screen is a hero, one clear action, and four quiet doors. */
-.title-sheet { padding: var(--space-8) var(--space-4) var(--space-4); }
-
-.logo-wrap { line-height: 0.9; margin-bottom: var(--space-4); text-align: center; }
-.logo-mr {
-  font-family: var(--font-heading);
-  font-size: 13px;
-  letter-spacing: 0.44em;
-  text-indent: 0.44em;
-  color: #c0562f;
-}
-.logo-burger {
-  font-family: var(--font-heading);
-  font-size: clamp(40px, 15vw, 58px);
-  letter-spacing: -0.02em;
-  color: var(--ink);
-}
-/* The wordmark's burger. Art.drawLogo fills it; sized here so the slip's
-   layout does not depend on the drawing having run yet. */
-.logo-art {
-  display: block;
-  width: 120px; height: 60px;
-  margin: 6px auto 0;
-}
 .tag {
   margin: var(--space-2) 0 0;
   color: var(--ink-4);
@@ -910,48 +589,6 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
   text-decoration-style: dashed;
 }
 .linkbtn:hover { color: var(--ink); }
-
-/* --------------------------------------------------------- title tiles */
-.title-menu {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-2);
-  margin-top: var(--space-4);
-}
-.tile {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 9px 2px;
-  border: 1.5px solid var(--rule-soft);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--ink-3);
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  transition: transform 0.12s, border-color 0.15s, color 0.15s;
-}
-.tile:hover { color: var(--ink); border-color: var(--ink-4); }
-.tile:active { transform: scale(0.95); }
-
-/*
- * Lucide glyphs at the system's 2.75 stroke, masked so they take the tile's
- * own ink. Listed one by one on purpose: a blanket rule masks a tile that has
- * no glyph assigned with an undefined image, and an undefined mask paints the
- * whole box - which is how the Outfit tile once arrived as a solid square. A
- * tile nobody has drawn an icon for keeps its emoji instead.
- */
-/* Art.glyph draws into a canvas in here - the same pen as the food, in
-   colour, rather than a monochrome stroked pictogram. */
-.tile .tile-ico {
-  width: 30px; height: 30px;
-  font-size: 0;
-  display: grid; place-items: center;
-}
-.tile .tile-ico canvas { display: block; }
 /* --------------------------------------------------------------- prose */
 .lede {
   font-size: 12.5px;
@@ -1249,7 +886,6 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
 .sku-buy:disabled { cursor: default; transform: none; }
 .sku-buy.busy { opacity: 0.5; }
 
-
 /* ---------------------------------------------------- the drawn ornaments */
 /* Canvases the interface paints into: the till bundle, the two rubber stamps,
    and the swing tag a shop price hangs off. Sized here so the slip lays out
@@ -1272,9 +908,6 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
 .ubuy.tagged:hover { background: transparent; }
 .ubuy.tagged:active { background: transparent; transform: translate(1px, 2px); }
 .ubuy.tagged:disabled { border: none; opacity: 0.45; }
-
-/* ------------------------------------------------------- online bits */
-.title-row { display: flex; gap: var(--space-4); }
 .title-row .linkbtn { width: auto; }
 
 .net-state {
@@ -1447,8 +1080,6 @@ body.cramped #rotate {
 @media (max-height: 700px) {
   #stage { min-height: 220px; }
   #hud { padding: 6px var(--space-3); }
-  .title-sheet { padding: var(--space-6) var(--space-4) var(--space-3); }
-  .logo-wrap { margin-bottom: var(--space-3); }
 }
 
 /* ------------------------------------------------------- reduced motion */
@@ -1457,6 +1088,5 @@ body.cramped #rotate {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
-  }
-  .ticket, .sheet { animation: none; }
+  } .sheet{ animation: none; }
 }

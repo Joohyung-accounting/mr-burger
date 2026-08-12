@@ -81,6 +81,9 @@
     try {
       document.body.classList.toggle('rush', rushOn);
     } catch (e) { /* no shell to warm up */ }
+    // The batten is part of the board's drawing now, so the wood reddening is
+    // a repaint rather than a background on the element behind it.
+    if (typeof renderBoard === 'function') renderBoard();
   }
 
   /* -------------------------------------------------------------- palette */
@@ -736,11 +739,13 @@
     renderBoard();
   }
 
-  function dropTicket(t, cssClass) {
-    if (t.node) t.node.classList.add(cssClass || 'leaving');
+  function dropTicket(t) {
     var i = S.tickets.indexOf(t);
     if (i >= 0) S.tickets.splice(i, 1);
-    setTimeout(renderBoard, 320);
+    // Held in the drawing, fading, for as long as the CSS animation used to run
+    holdLeaving(t);
+    setTimeout(function () { releaseLeaving(t); renderBoard(); }, 320);
+    renderBoard();
   }
 
   function walkout(t) {
@@ -768,7 +773,7 @@
    *
    * The longest order a day can produce is knowable from the day alone.
    * makeOrder() takes at most `maxExtras` distinct extras, and from day 8 it may
-   * add a second patty - which is one more row, because orderList() only counts
+   * add a second patty - which is one more row, because orderRows() only counts
    * patties when there is more than one. Reserve that and the board holds still
    * until tomorrow, when the shop screen is covering the change anyway.
    */
@@ -1901,77 +1906,87 @@
    * every state packet, and rewriting the hearts markup several times a second
    * is exactly the sort of thing a phone stutters on.
    */
+  /*
+   * The HUD is drawn, so "sync" means repaint rather than write six text nodes.
+   * It still guards on a signature, and for the same reason as before: the
+   * clock ticks every frame but only changes once a second, and repainting the
+   * paper, the hearts and the thermometer sixty times a second for a display
+   * that changed once is what made the phone stutter.
+   */
   var hudLast = {};
+
+  function paintHud() {
+    var total = S.sales + S.tips;
+    var running = S.screen === 'service' && S.dayLength > 0;
+    var secs = Math.max(0, Math.ceil(S.timeLeft));
+
+    // Said before it is drawn, and never gated on the canvas having a size: a
+    // screen reader cannot read a canvas, so this line IS the HUD as far as
+    // one is concerned, and it must not go stale because a repaint was skipped.
+    if (el.hudRead) {
+      el.hudRead.textContent = 'Day ' + S.day +
+        (running ? ', ' + Core.clockText(secs) + ' left' : '') +
+        ', ' + Core.money(total) + ' of ' + Core.money(S.rent) +
+        ', ' + S.hearts + ' of ' + Core.START_HEARTS + ' mistakes left.';
+    }
+
+    if (!el.hudArt) return;
+    var W = el.hudArt.clientWidth, H = el.hudArt.clientHeight;
+    if (!W || !H) return;
+    paintOn(el.hudArt, W, H, function (g) {
+      Art.ui.hud(g, 0, 0, W, H, {
+        day: S.day,
+        time: running ? Core.clockText(secs) : '',
+        urgent: running && secs <= 15,
+        // Art.ui.hud writes the money itself, in dollars, and shrinks or
+        // shortens the string until it fits. Core keeps money in cents.
+        earned: total / 100,
+        goal: S.rent / 100,
+        pct: S.rent ? clamp(total / S.rent, 0, 1) : 0,
+        // Twelve dashes that fill as the line runs clean. Tips ARE the perfect
+        // rate, so this is the number behind the money rather than a second
+        // copy of it.
+        tip: S.served ? clamp(S.perfect / S.served, 0, 1) : 0,
+        lives: S.hearts,
+        maxLives: Core.START_HEARTS
+      });
+    });
+    overlay(el.pauseBtn, grow(Art.ui.hudBoxes(0, 0, W, H).pause, MIN_TOUCH));
+  }
+
   function syncHud() {
     var total = S.sales + S.tips;
-    if (hudLast.day !== S.day) { hudLast.day = S.day; el.dayNum.textContent = S.day; }
-
-    var goal = Core.money(total) + ' / ' + Core.money(S.rent);
-    if (hudLast.goal !== goal) {
-      hudLast.goal = goal;
-      el.goalText.textContent = goal;
-      var met = total >= S.rent;
-      el.goalFill.style.width = (S.rent ? clamp(total / S.rent, 0, 1) * 100 : 0) + '%';
-      el.goalFill.classList.toggle('met', met);
-      el.goalText.classList.toggle('met', met);
-    }
-
-    if (hudLast.hearts !== S.hearts) {
-      hudLast.hearts = S.hearts;
-      /*
-       * Drawn, not typed. They were a Lucide heart in a mask, which was
-       * already better than the emoji it replaced - but the handoff draws
-       * them with the same wobbling pen as everything else, and a stamped
-       * heart next to a stamped receipt is the whole point of the direction.
-       */
-      var hw = Core.START_HEARTS * 13, hh = 15;
-      var hc = el.hearts.querySelector('canvas');
-      if (!hc) { el.hearts.innerHTML = ''; hc = document.createElement('canvas'); el.hearts.appendChild(hc); }
-      paintOn(hc, hw, hh, function (g, W, H) {
-        Art.ui.hearts(g, W, H, S.hearts, Core.START_HEARTS);
-      });
-    }
-
+    var sig = S.day + '|' + total + '|' + S.rent + '|' + S.hearts + '|' + S.sales + '|' + S.tips;
+    if (hudLast.sig !== sig) { hudLast.sig = sig; paintHud(); }
     syncClock();
   }
 
   /*
    * The shift clock, kept out of syncHud's change-detection because it moves
    * every frame by nature - so it does its own, on the whole second rather than
-   * on the raw number. Rewriting a text node sixty times a second for a display
-   * that only changes once is exactly what made the phone stutter before.
+   * on the raw number.
+   *
+   * It also still owns `no-clock`, which is what hands the kitchen the slack
+   * the storefront sign was holding. That has nothing to do with the clock's
+   * appearance and everything to do with the layout, so it stays here.
    */
   function syncClock() {
-    if (!el.clockText) return;
+    if (!el.hudArt) return;
     var running = S.screen === 'service' && S.dayLength > 0;
     if (document.body && document.body.classList) {
       document.body.classList.toggle('no-clock', !running);
     }
-    if (!running) { hudLast.clock = null; setRush(0); return; }
+    if (!running) {
+      if (hudLast.clock !== null) { hudLast.clock = null; paintHud(); }
+      setRush(0);
+      return;
+    }
 
     var secs = Math.max(0, Math.ceil(S.timeLeft));
-    var band = secs <= 15 ? 'urgent' : (secs <= 60 ? 'warm' : '');
-    if (hudLast.clock === secs && hudLast.clockBand === band) return;
-
-    if (hudLast.clock !== secs) {
-      hudLast.clock = secs;
-      el.clockText.textContent = Core.clockText(secs);
-      if (el.clockFill) {
-        el.clockFill.style.width = clamp(S.timeLeft / S.dayLength, 0, 1) * 100 + '%';
-      }
-    }
-    if (hudLast.clockBand !== band) {
-      hudLast.clockBand = band;
-      ['warm', 'urgent'].forEach(function (c) {
-        if (el.clockBox) el.clockBox.classList.toggle(c, band === c);
-        if (el.clockFill) el.clockFill.classList.toggle(c, band === c);
-      });
-    }
+    if (hudLast.clock === secs) return;
+    hudLast.clock = secs;
+    paintHud();
   }
-
-  // Smaller than it was: the words below it do the identifying now, and the
-  // board had grown to a fifth of a phone screen at the kitchen's expense.
-  var MINI_W = 38, MINI_H = 42;
 
   /*
    * What the ticket is actually asking for, in words.
@@ -1987,10 +2002,7 @@
    * are in every order and would only be noise - unless there are two patties,
    * which is worth calling out.
    */
-  function orderList(items) {
-    var wrap = document.createElement('span');
-    wrap.className = 'order-list';
-
+  function orderRows(items) {
     var counts = {};
     items.forEach(function (id) { counts[id] = (counts[id] || 0) + 1; });
 
@@ -2001,86 +2013,132 @@
       rows.push({ id: id, n: counts[id] });
     });
 
-    if (!rows.length) {
-      var plain = document.createElement('span');
-      plain.className = 'order-row plain';
-      plain.textContent = 'PLAIN';
-      wrap.appendChild(plain);
-      return wrap;
+    if (!rows.length) return [{ n: 'PLAIN', c: '#e0cba6' }];
+
+    return rows.map(function (r) {
+      var ing = Core.byId(r.id);
+      return { n: r.n > 1 ? ing.short + ' x' + r.n : ing.short, c: ing.swatch };
+    });
+  }
+
+  /** The same list in a sentence, for a reader that cannot see the board. */
+  function orderSpoken(t) {
+    return orderRows(t.items).map(function (r) { return r.n; }).join(', ');
+  }
+
+  /*
+   * A slip on its way off the board. dropTicket used to add a class and let CSS
+   * run the leaving animation on the ticket's own node; there are no nodes now,
+   * so the ticket is kept in the drawing for the same 320ms and faded out by
+   * hand. The board keeps its beat instead of a slip vanishing between frames.
+   */
+  var leaving = [];
+  var boardLast = null;
+
+  // How long the slip has left, said in the paper palette rather than in
+  // traffic lights: the same three inks the receipt stamps and rules use.
+  var BAR_GOOD = '#3f7a2a', BAR_WARN = '#e8a021', BAR_CRIT = '#c9302c';
+
+  function holdLeaving(t) {
+    var now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    var pct = clamp(t.patience / t.max, 0, 1);
+    leaving.push({
+      t: t, at: now, rows: orderRows(t.items),
+      bar: pct < 0.12 ? BAR_CRIT : (pct < 0.28 ? BAR_WARN : BAR_GOOD)
+    });
+  }
+
+  function releaseLeaving(t) {
+    for (var i = leaving.length - 1; i >= 0; i--) if (leaving[i].t === t) leaving.splice(i, 1);
+  }
+
+  function paintBoard() {
+    // Spoken first, for the same reason the HUD's line is: it is the board to
+    // anything that cannot see one, and it must not depend on a repaint.
+    if (el.boardRead) {
+      el.boardRead.textContent = S.tickets.length
+        ? S.tickets.length + ' order' + (S.tickets.length > 1 ? 's' : '') + ': ' +
+          S.tickets.map(orderSpoken).join('; ')
+        : 'No orders waiting.';
     }
 
-    rows.forEach(function (r) {
-      var ing = Core.byId(r.id);
-      var row = document.createElement('span');
-      row.className = 'order-row';
+    if (!el.boardArt) return;
+    var W = el.boardArt.clientWidth, H = el.boardArt.clientHeight;
+    if (!W || !H) return;
 
-      // 'swatch', not 'chip' - the receipt already owns .chip for its stat
-      // tiles, and its padding was quietly inflating these into tall bars
-      var chip = document.createElement('i');
-      chip.className = 'swatch';
-      chip.style.background = ing.swatch;
-      row.appendChild(chip);
+    // Every slot the day can hold, so the slips keep their width as tickets
+    // come and go - drawOrders divides the batten by however many it is given.
+    var slots = Math.max(1, (S.cfg ? S.cfg.concurrent : 2));
+    var live = S.tickets.slice(0, slots);
+    var now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    var list = [];
 
-      var name = document.createElement('b');
-      name.textContent = r.n > 1 ? ing.short + ' x' + r.n : ing.short;
-      row.appendChild(name);
-
-      wrap.appendChild(row);
+    live.forEach(function (t) {
+      var pct = clamp(t.patience / t.max, 0, 1);
+      list.push({
+        t: t, fade: 1, pct: pct,
+        rows: orderRows(t.items),
+        bar: pct < 0.12 ? BAR_CRIT : (pct < 0.28 ? BAR_WARN : BAR_GOOD)
+      });
     });
-    return wrap;
+    leaving.forEach(function (L) {
+      if (list.length >= slots) return;
+      list.push({ t: L.t, fade: Math.max(0, 1 - (now - L.at) / 320), pct: 0, rows: L.rows, bar: L.bar });
+    });
+    while (list.length < slots) list.push(null);
+
+    paintOn(el.boardArt, W, H, function (g) {
+      Art.ui.orders(g, 0, 0, W, H, {
+        heat: rushOn ? 1 : 0,
+        tickets: list.map(function (e) {
+          return e ? { rows: e.rows, pct: e.pct, bar: e.bar, e: e } : { rows: [], pct: 0, bar: 'rgba(0,0,0,0)' };
+        }),
+        /*
+         * No customers in this build, so the slip's portrait band is empty
+         * paper. The burger takes it: drawOrders hands out an unclipped box,
+         * and the band above this one is the face's, which nothing is using.
+         */
+        food: function (gg, tk, fx, fy, fw, fh) {
+          if (!tk.e) return;
+          var shown = Core.displayStack(tk.e.t.items);
+          gg.save();
+          gg.globalAlpha = tk.e.fade;
+          Art.drawStack(gg, shown, fx + fw / 2, fy + fh,
+                        Art.fitWidth(shown, fw * 0.88, fh * 1.95));
+          gg.restore();
+        }
+      });
+    });
   }
 
   function renderBoard() {
-    el.board.innerHTML = '';
-    var dpr = Math.min(window.devicePixelRatio || 1, 3);
-
-    S.tickets.forEach(function (t) {
-      var d = document.createElement('div');
-      d.className = 'ticket' + (t.arch.id === 'rush' ? ' rush' : '');
-      d.setAttribute('data-uid', t.uid);
-
-      var c = document.createElement('canvas');
-      c.className = 'mini';
-      c.width = Math.round(MINI_W * dpr);
-      c.height = Math.round(MINI_H * dpr);
-      d.appendChild(c);
-
-      var bar = document.createElement('span');
-      bar.className = 'bar';
-      var fill = document.createElement('i');
-      bar.appendChild(fill);
-      d.appendChild(bar);
-
-      el.board.appendChild(d);
-
-      var g = c.getContext('2d');
-      g.setTransform(dpr, 0, 0, dpr, 0, 0);
-      var shown = Core.displayStack(t.items);
-      var bunW = Art.fitWidth(shown, MINI_W * 0.86, MINI_H - 3);
-      Art.drawStack(g, shown, MINI_W / 2, MINI_H - 1, bunW);
-
-      d.insertBefore(orderList(t.items), bar);
-
-      t.node = d; t.barEl = fill;
-    });
-
-    var empties = (S.cfg ? S.cfg.concurrent : 2) - S.tickets.length;
-    for (var i = 0; i < empties; i++) {
-      var e = document.createElement('div');
-      e.className = 'ticket empty';
-      el.board.appendChild(e);
-    }
-    updateBoardBars();
+    boardLast = null;      // the ticket set changed; do not let the throttle skip it
+    paintBoard();
   }
 
   function updateBoardBars() {
+    /*
+     * The patience strokes used to be a width on a DOM node, which the browser
+     * could repaint for nothing. They are pen marks on the board's canvas now,
+     * and the whole board - torn paper, hatching, hand-lettered rows - would be
+     * redrawn with them, sixty times a second, for a stroke that moves about a
+     * pixel a second on a 65px slip.
+     *
+     * So the signature is the drawn state, not the raw one: quantise each
+     * patience to a fiftieth, and repaint only when a mark would actually land
+     * somewhere else. Nothing on screen is dropped, and a full second of a
+     * quiet board costs one repaint instead of sixty.
+     */
+    var sig = '';
     for (var i = 0; i < S.tickets.length; i++) {
       var t = S.tickets[i];
-      var ratio = clamp(t.patience / t.max, 0, 1);
-      if (!t.barEl) continue;
-      t.barEl.style.width = (ratio * 100) + '%';
-      t.barEl.className = ratio < 0.12 ? 'crit' : (ratio < 0.28 ? 'warn' : '');
+      sig += t.uid + ':' + Math.round(clamp(t.patience / t.max, 0, 1) * 50) + '|';
     }
+    if (leaving.length) sig += 'x' + leaving.length;
+    sig += rushOn ? '!' : '';
+    if (sig === boardLast) return;
+    boardLast = sig;
+    paintBoard();
   }
 
   /* -------------------------------------------------------------- screens */
@@ -2165,6 +2223,19 @@
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, W, H);
     paint(g, W, H);
+  }
+
+  /*
+   * A drawn control can be any size the drawing wants; the finger cannot. The
+   * pause square comes out at 22px on a phone, which is half what a touch
+   * target should be - so the button keeps the square's centre and grows to
+   * meet the minimum. Drawn small, pressed big.
+   */
+  var MIN_TOUCH = 44;
+
+  function grow(box, min) {
+    var w = Math.max(box.w, min), h = Math.max(box.h, min);
+    return { x: box.x + (box.w - w) / 2, y: box.y + (box.h - h) / 2, w: w, h: h };
   }
 
   /** Put a control exactly on a drawn box, or park it if there is no box. */
@@ -2864,10 +2935,17 @@
       S.grill.length !== m.grill.length ||
       S.day !== m.day;
 
+    var dayChanged = S.day !== m.day;
     S.day = m.day; S.hearts = m.hearts; S.sales = m.sales; S.tips = m.tips; S.rent = m.rent;
     S.menu = m.menu;
     if (!S.cfg || S.cfg.day !== m.day) S.cfg = Core.dayConfig(m.day);
     S.cfg.concurrent = m.concurrent;
+    /*
+     * A guest never runs startDay, so nothing here used to reserve the board -
+     * it kept whatever height its OWN saved day asked for and then drew the
+     * host's orders into it. Reserve for the day it is actually being sent.
+     */
+    if (dayChanged) reserveBoard(m.day);
 
     var wasService = S.screen === 'service';
     S.screen = m.screen;
@@ -3290,8 +3368,7 @@
     cv = document.getElementById('stage');
     ctx = cv.getContext('2d');
 
-    ['dayNum', 'goalText', 'goalFill', 'hearts', 'board', 'pauseBtn',
-      'clockText', 'clockFill', 'clockBox',
+    ['hudArt', 'hudRead', 'boardArt', 'boardRead', 'pauseBtn',
       'pause', 'pauseDay', 'pauseEarned', 'pauseRent', 'pauseSoundBtn',
       'resumeBtn', 'restartBtn', 'quitBtn',
       'start', 'playBtn', 'continueBtn', 'continueDay',
@@ -3377,7 +3454,7 @@
   window.MrBurger = {
     state: S, layout: L,
     startDay: startDay, spawnTicket: spawnTicket, endDay: endDay,
-    renderBoard: renderBoard,
+    renderBoard: renderBoard, reserveBoard: reserveBoard, orderRows: orderRows,
     sendChef: sendChef, arrive: arrive, deliver: deliver,
     stationAt: stationAt, standPoint: standPoint,
     setPaused: setPaused, quitToTitle: quitToTitle,

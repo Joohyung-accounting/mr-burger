@@ -97,7 +97,7 @@ stage.getBoundingClientRect = function () {
 };
 
 var elements = { stage: stage };
-['dayNum', 'goalText', 'goalFill', 'hearts', 'board', 'pauseBtn',
+['hudArt', 'hudRead', 'boardArt', 'boardRead', 'pauseBtn',
   'pause', 'pauseDay', 'pauseEarned', 'pauseRent', 'pauseSoundBtn',
   'resumeBtn', 'restartBtn', 'quitBtn',
   'start', 'playBtn', 'continueBtn', 'continueDay',
@@ -112,7 +112,6 @@ var elements = { stage: stage };
   'shop', 'walletText', 'unlockBox', 'unlockList', 'upgradeList', 'nextRent', 'nextKitchen',
   'nextDayBtn', 'nextDayNum', 'over', 'overTitle', 'overReason', 'overDay',
   'overBest', 'retryBtn', 'retryDay', 'wipeBtn',
-  'clockText', 'clockFill', 'clockBox',
   'store', 'storeTabs', 'storeList', 'storeNote', 'storeRestore', 'storeClose',
   'shopStoreBtn'
 ].forEach(function (id) { elements[id] = makeEl('div'); });
@@ -133,10 +132,19 @@ var madeCanvases = [];
 
 global.self = global;
 global.window = global;
+// The board reserves its height by writing --order-rows on the root element,
+// so the stub has to have one for that promise to be testable at all.
+var rootProps = {};
 global.document = {
   readyState: 'complete',
   hidden: false,
   body: makeEl('body'),
+  documentElement: {
+    style: {
+      setProperty: function (k, v) { rootProps[k] = String(v); },
+      getPropertyValue: function (k) { return rootProps[k] || ''; }
+    }
+  },
   getElementById: function (id) { return elements[id] || null; },
   createElement: function (tag) {
     var e = makeEl(tag);
@@ -1080,13 +1088,17 @@ test('the shift clock counts down and shows the time left', function () {
   var full = Core.dayLength(5);
   assert.strictEqual(S.dayLength, full, 'the shift did not take its length from the day');
   assert.ok(S.timeLeft > full - 2, 'the clock did not start full: ' + S.timeLeft.toFixed(1));
-  assert.strictEqual(elements.clockText.textContent, Core.clockText(S.timeLeft),
-    'the display does not match the clock');
+  // The clock is drawn on the HUD canvas now, so the readable surface is
+  // #hudRead - the line a screen reader gets, and the only place the game
+  // still says the time in text.
+  assert.ok(elements.hudRead.textContent.indexOf(Core.clockText(S.timeLeft)) >= 0,
+    'the display does not match the clock: ' + elements.hudRead.textContent);
 
   pump(10);
   assert.ok(S.timeLeft < full - 9 && S.timeLeft > full - 12,
     'ten seconds of play took ' + (full - S.timeLeft).toFixed(1) + 's off the clock');
-  assert.strictEqual(elements.clockText.textContent, Core.clockText(S.timeLeft));
+  assert.ok(elements.hudRead.textContent.indexOf(Core.clockText(S.timeLeft)) >= 0,
+    'the display fell behind the clock: ' + elements.hudRead.textContent);
 });
 
 test('a paused shift is not a shift on the clock', function () {
@@ -1990,6 +2002,55 @@ test('the backing track schedules a groove and keeps time', function () {
     // Never leave a live interval behind - it hangs the whole test process.
     Bgm.stop();
   }
+});
+
+/*
+ * The board commits its height before the first ticket of the day exists, and
+ * everything downstream depends on that being enough: if a slip ever needs a
+ * line the reservation did not buy, the board grows under the first ticket,
+ * the kitchen loses that height in one frame, and the layout watchdog reads
+ * the jump as a rotation and relays the whole room.
+ *
+ * That used to be a CSS min-height calc and is now a canvas height, but it is
+ * the same promise, and nothing was testing it either way.
+ */
+test('the board reserves enough lines for anything the day can order', function () {
+  for (var day = 1; day <= 25; day++) {
+    MB.reserveBoard(day);
+    var reserved = parseInt(rootProps['--order-rows'], 10);
+    assert.ok(reserved >= 1, 'day ' + day + ' reserved nothing');
+
+    // Every order this day can deal, not a sample: makeOrder draws its extras
+    // from a shuffled pool, so a few hundred seeds cover the shapes it makes.
+    var worst = 0, worstOrder = null;
+    for (var i = 0; i < 400; i++) {
+      var seed = i * 2654435761 % 4294967296;
+      var rng = function () { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+      var arch = Core.pickCustomer(day, rng);
+      var order = Core.makeOrder(day, rng, arch);
+      var rows = MB.orderRows(order.items).length;
+      if (rows > worst) { worst = rows; worstOrder = order.items.join('+'); }
+    }
+    assert.ok(worst <= reserved,
+      'day ' + day + ' reserved ' + reserved + ' lines but an order needs ' +
+      worst + ': ' + worstOrder);
+  }
+});
+
+test('a co-op guest reserves the board for the host\'s day, not its own', function () {
+  startShift(3);
+  MB.reserveBoard(3);
+  var mine = parseInt(rootProps['--order-rows'], 10);
+
+  // the host is deep into a run; the guest has only ever played day three
+  var snap = MB.snapshot();
+  snap.day = 14;
+  snap.concurrent = 5;
+  MB.applySnapshot(snap);
+  var theirs = parseInt(rootProps['--order-rows'], 10);
+
+  assert.ok(theirs > mine,
+    'the guest kept its own day-3 reservation (' + mine + ') for a day-14 board (' + theirs + ')');
 });
 
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');

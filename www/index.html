@@ -27,20 +27,15 @@
 
 <div id="app">
 
+  <!-- The HUD is a taped-up slip too: Art.ui.hud draws the paper, the pause
+       square, DAY and the clock, the takings and their thermometer, the tips
+       dashes and the hearts. The button over the drawn square is real, and
+       #hudRead carries the same facts for a screen reader, which cannot read
+       a canvas. -->
   <header id="hud">
-    <button id="pauseBtn" class="icon-btn pause-icon" aria-label="Pause"><i></i><i></i></button>
-    <div class="progress">
-      <div class="progress-top">
-        <span class="day-tag">DAY <b id="dayNum">1</b></span>
-        <span id="clockBox" class="clock" aria-label="Time left">
-          <span id="clockText">0:00</span>
-        </span>
-        <span id="goalText" class="goal-text">$0.00 / $0.00</span>
-      </div>
-      <div class="goal-bar"><div id="goalFill"></div></div>
-      <div class="clock-bar"><div id="clockFill"></div></div>
-    </div>
-    <div id="hearts" class="hearts" aria-label="Mistakes left"></div>
+    <canvas id="hudArt" class="hud-art"></canvas>
+    <button id="pauseBtn" class="hit" aria-label="Pause"></button>
+    <p id="hudRead" class="sr-only" aria-live="polite"></p>
   </header>
 
   <!-- Absorbs slack on tall screens so the whole shop sits in thumb reach,
@@ -53,10 +48,12 @@
     </div>
   </div>
 
-  <!-- the order board: every live ticket, Overcooked style -->
+  <!-- The order board: the batten and every slip clipped to it, drawn by
+       Art.ui.orders. The rail used to be a DOM strip above a row of DOM
+       tickets; it is part of the same drawing now. -->
   <div class="board-wrap">
-    <div class="board-rail"><span>ORDERS</span></div>
-    <div id="board" class="board"></div>
+    <canvas id="boardArt" class="board-art"></canvas>
+    <p id="boardRead" class="sr-only" aria-live="polite"></p>
   </div>
 
   <!-- the kitchen: crates, grill, plates, hatch and the chef -->
