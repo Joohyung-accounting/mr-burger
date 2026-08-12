@@ -220,7 +220,7 @@
     var blob = {
       day: S.day, bestDay: S.bestDay, money: S.money, levels: S.levels,
       owned: S.owned || [], skin: S.skin || 'classic',
-      muted: S.muted, lifetime: S.lifetime || 0
+      muted: S.muted, musicOff: !!S.musicOff, lifetime: S.lifetime || 0
     };
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(blob));
@@ -335,9 +335,20 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     layout();
     showCramped();
-    // The title is a canvas now, so a rotation or a resized window has to
-    // redraw it and move the controls back onto the boxes it drew.
-    if (el.start && el.start.classList.contains('show')) paintTitle();
+    // The storefront sign only shows between shifts, and only when the spacer
+    // has slack to give it - but its box changes with every relayout.
+    if (el.signArt && el.signArt.clientWidth) {
+      var sw = el.signArt.clientWidth, sh = el.signArt.clientHeight;
+      if (sh > 8) paintOn(el.signArt, sw, sh, function (g) { Art.ui.sign(g, 0, 0, sw, sh); });
+    }
+    // Every drawn screen is a canvas, so a rotation or a resized window has to
+    // redraw whichever one is up and move its controls back onto the boxes it
+    // drew. Only one is ever showing, but checking all four is a line each.
+    if (!el.start) return;
+    if (el.start.classList.contains('show')) paintTitle();
+    if (el.dayEnd && el.dayEnd.classList.contains('show')) paintDayEnd();
+    if (el.shop && el.shop.classList.contains('show')) renderShop();
+    if (el.pause && el.pause.classList.contains('show')) paintPause();
   }
 
   // A finger needs something to aim at. Below this the stations are still drawn
@@ -356,6 +367,11 @@
     S.cramped = cramped;
     if (document.body && document.body.classList) {
       document.body.classList.toggle('cramped', cramped);
+    }
+    if (cramped && el.rotateArt) {
+      var rw = el.rotate.clientWidth || window.innerWidth;
+      var rh = el.rotate.clientHeight || window.innerHeight;
+      paintOn(el.rotateArt, rw, rh, function (g) { Art.ui.rotate(g, 0, 0, rw, rh); });
     }
     // Coming back from it, the loop has been idle: don't hand it a huge dt.
     if (!cramped) last = 0;
@@ -856,22 +872,70 @@
   }
 
   /* ------------------------------------------------------------- pause menu */
+  /*
+   * The pause slip, drawn. The BACK SOON stamp used to be a canvas sitting
+   * under a DOM <h2> that said PAUSED - the same word twice, once in ink and
+   * once in a webfont. Art.ui.pause draws the stamp, the three written lines
+   * and all three buttons; the switches along the foot are the handoff's, and
+   * MUSIC is now a real setting rather than something the sound toggle
+   * silently took with it.
+   */
+  var PAUSE_TOGGLES = [
+    { id: 'sound', k: 'SOUND', btn: 'pauseSoundBtn' },
+    { id: 'music', k: 'MUSIC', btn: 'pauseMusicBtn' },
+    { id: 'board', k: 'HOW TO', btn: 'howBtn' }
+  ];
+
+  function paintPause() {
+    if (el.pauseRead) {
+      el.pauseRead.textContent = 'Paused. Day ' + S.day + ', ' +
+        Core.money(S.sales + S.tips) + ' of ' + Core.money(S.rent) + ' taken, ' +
+        Core.clockText(Math.max(0, Math.ceil(S.timeLeft))) + ' left.';
+    }
+    if (!el.pauseArt) return;
+    var W = el.pause.clientWidth, H = el.pause.clientHeight;
+    if (!W || !H) return;
+
+    paintOn(el.pauseArt, W, H, function (g) {
+      Art.ui.pause(g, 0, 0, W, H, {
+        stamp: 'BACK SOON',
+        sub: 'THE LINE IS HOLDING · NOTHING IS BURNING',
+        rows: [
+          { k: 'Day ' + S.day + ' · served', v: String(S.served) },
+          { k: 'Till so far', v: Core.money(S.sales + S.tips), col: '#3f7a2a' },
+          { k: 'Time left', v: Core.clockText(Math.max(0, Math.ceil(S.timeLeft))) }
+        ],
+        primary: 'BACK TO WORK',
+        secondary: 'RESTART THE DAY',
+        tertiary: 'CLOSE UP SHOP',
+        toggles: [
+          { id: 'sound', k: 'SOUND', on: !S.muted },
+          { id: 'music', k: 'MUSIC', on: !S.musicOff && !S.muted },
+          { id: 'board', k: 'HOW TO', on: true }
+        ],
+        glyph: function (gg, id, gx, gy, gw, gh) { Art.glyph(gg, id, gw, gh); }
+      });
+    });
+
+    var B = Art.ui.pauseBoxes(0, 0, W, H, PAUSE_TOGGLES.length);
+    overlay(el.resumeBtn, grow(B.primary, MIN_TOUCH));
+    overlay(el.restartBtn, grow(B.secondary, MIN_TOUCH));
+    overlay(el.quitBtn, grow(B.tertiary, MIN_TOUCH));
+    PAUSE_TOGGLES.forEach(function (t, i) { overlay(el[t.btn], grow(B.toggles[i], MIN_TOUCH)); });
+  }
+
   function setPaused(on) {
-    if (on) paintOn(el.pauseStamp, 180, 74, function (g, W, H) { Art.ui.pauseStamp(g, W, H, 'BACK SOON'); });
     if (S.screen !== 'service' && on) return;
     S.userPaused = !!on;
     if (S.userPaused) {
       S.chef.target = null;          // don't let a queued walk resolve later
       Bgm.stop();
-      el.pauseDay.textContent = S.day;
-      el.pauseEarned.textContent = Core.money(S.sales + S.tips);
-      el.pauseRent.textContent = Core.money(S.rent);
-      el.pauseSoundBtn.textContent = 'SOUND: ' + (S.muted ? 'OFF' : 'ON');
       showModal(el.pause);
+      paintPause();
       Sfx.tap();
     } else {
       hideModal(el.pause);
-      Bgm.start();
+      if (!S.musicOff) Bgm.start();
       last = 0;                      // don't hand the loop a huge dt
     }
   }
@@ -1042,13 +1106,23 @@
     // On anything short of great, name the worst thing wrong with it - a
     // rejected plate with no explanation just reads as the game being unfair.
     var worst = res.faults && res.faults.length ? res.faults[0] : null;
+    /*
+     * The archetype's name, not its emoji.
+     *
+     * This line is painted onto the stage with fillText, so `t.arch.emoji` put
+     * the platform's colour emoji font in the middle of an inked kitchen -
+     * several times a minute, and the one place the game's own hand dropped
+     * out mid-shift. The name says the same thing and is set in the game's
+     * own face.
+     */
+    var who = t.arch.name.toUpperCase();
     var sub;
     if (res.total > 0) {
       sub = (worst && res.verdict !== 'perfect' && res.verdict !== 'great')
-        ? t.arch.emoji + '  ' + worst.label + '  ·  ' + Core.money(res.total)
-        : t.arch.emoji + '  ' + Core.money(res.pay) + ' + ' + Core.money(res.tip) + ' tip';
+        ? who + '  ·  ' + worst.label + '  ·  ' + Core.money(res.total)
+        : who + '  ·  ' + Core.money(res.pay) + ' + ' + Core.money(res.tip) + ' tip';
     } else {
-      sub = t.arch.emoji + '  ' + (worst ? worst.label : 'no sale');
+      sub = who + '  ·  ' + (worst ? worst.label : 'no sale');
     }
     banner(v.text, sub, v.color);
 
@@ -1638,9 +1712,18 @@
      * sill underneath a face - which is where it had to go when there was one.
      * Light ink, because it is sitting on the dim room rather than on the wood.
      */
-    label(ready ? '▲  S E R V E  ▲' : S.tickets.length + ' waiting',
-      h.x + h.w / 2, h.y + h.h * 0.52,
-      ready ? C.sageLift : 'rgba(249,244,237,0.58)', ready ? 10 : 8.5);
+    /*
+     * Written with the pen, not set in Figtree. The prompt used to be
+     * '▲  S E R V E  ▲' - and U+25B2 is in no font this game ships, so the two
+     * triangles came from whatever the device had. Art.ui.letters draws the
+     * word in the same hand as the room it sits in, and its own tracking does
+     * what the spaced-out capitals were reaching for.
+     */
+    Art.ui.letters(ctx, ready ? 'SERVE' : S.tickets.length + ' WAITING',
+      h.x + h.w / 2, h.y + h.h * 0.56, ready ? 11 : 9, {
+        fill: ready ? C.sageLift : 'rgba(249,244,237,0.62)',
+        weight: 0.13, track: ready ? 0.30 : 0.14, seed: 4411
+      });
     if (live) pickRing(h, 14);
 
     var b = binRect();
@@ -2161,26 +2244,60 @@
       showModal(el.over);
       return;
     }
-    el.dayEndTitle.textContent = 'DAY ' + S.day + ' CLOSED';
-    el.rSales.textContent = Core.money(S.sales);
-    el.rTips.textContent = Core.money(S.tips);
-    el.rTotal.textContent = Core.money(total);
-    el.rRent.textContent = '-' + Core.money(S.rent);
-    el.rNet.textContent = Core.money(total - S.rent);
-    // Rubber-stamped only when the rent is genuinely covered.
-    if (el.paidStamp) {
-      el.paidStamp.hidden = !passed;
-      if (passed) paintOn(el.paidStamp, 96, 48, function (g, W, H) { Art.ui.stamp(g, W, H, 'PAID'); });
-    }
-    el.rPerfect.textContent = S.perfect;
-    el.rServed.textContent = S.served;
-    el.rWalked.textContent = S.walked;
-    el.dayEndNote.textContent = S.closedBy === 'clock'
-      ? 'Closing time, and the rent still made. ' + Core.money(S.money) + ' in the till.'
-      : (S.perfect === S.served && S.served > 0
-        ? 'Every single ticket perfect. The regulars are talking.'
-        : 'Rent covered. ' + Core.money(S.money) + ' in the till.');
+    dayEndData = {
+      title: 'DAY ' + S.day + ' CLOSED',
+      lines: [
+        { k: 'Food sales', v: Core.money(S.sales) },
+        { k: 'Tips', v: Core.money(S.tips) },
+        { k: 'Took in', v: Core.money(total) },
+        { k: 'Rent', v: '-' + Core.money(S.rent), col: '#c9302c' },
+        { k: total - S.rent >= 0 ? 'Profit' : 'Short', v: Core.money(total - S.rent),
+          col: total - S.rent >= 0 ? '#3f7a2a' : '#c9302c' }
+      ],
+      chips: [
+        { v: S.perfect, k: 'PERFECT' },
+        { v: S.served, k: 'SERVED' },
+        { v: S.walked, k: 'WALKED' }
+      ],
+      // Rubber-stamped only when the rent is genuinely covered.
+      paid: passed ? 'PAID' : null,
+      note: S.closedBy === 'clock'
+        ? 'CLOSING TIME · ' + Core.money(S.money) + ' IN THE TILL'
+        : (S.perfect === S.served && S.served > 0
+          ? 'EVERY TICKET PERFECT · THE REGULARS ARE TALKING'
+          : 'RENT COVERED · ' + Core.money(S.money) + ' IN THE TILL')
+    };
     showModal(el.dayEnd);
+    paintDayEnd();
+  }
+
+  /*
+   * The receipt, drawn. Art.ui.receipt lays out the whole slip - the torn
+   * paper, the written lines with their dot leaders, the three counted boxes
+   * and the PAID stamp - and the one button sits on the box it reports.
+   *
+   * The lines are held here rather than read off S at paint time because the
+   * receipt is a snapshot of a day that has already ended: startDay() clears
+   * S.sales the moment the player taps through, and a resize would otherwise
+   * repaint the receipt with zeroes.
+   */
+  var dayEndData = null;
+
+  function paintDayEnd() {
+    if (!dayEndData) return;
+    var d = dayEndData;
+    if (el.dayEndRead) {
+      el.dayEndRead.textContent = d.title + '. ' +
+        d.lines.map(function (l) { return l.k + ' ' + l.v; }).join(', ') + '. ' +
+        d.chips.map(function (c) { return c.v + ' ' + c.k.toLowerCase(); }).join(', ') + '.';
+    }
+    if (!el.dayEndArt) return;
+    var W = el.dayEnd.clientWidth, H = el.dayEnd.clientHeight;
+    if (!W || !H) return;
+    paintOn(el.dayEndArt, W, H, function (g) {
+      Art.ui.receipt(g, 0, 0, W, H, d);
+    });
+    overlay(el.dayEndBtn, grow(Art.ui.receiptBoxes(0, 0, W, H).primary, MIN_TOUCH));
   }
 
   /*
@@ -2311,60 +2428,23 @@
     Art.drawUpgrade(g, id, size, size);
   }
 
-  function renderShop() {
-    el.walletText.textContent = Core.money(S.money);
-    paintOn(el.tillArt, 40, 30, function (g, W, H) { Art.ui.till(g, W, H); });
-    el.nextDayNum.textContent = S.day + 1;
-    el.nextRent.textContent = Core.money(Core.dayGoal(S.day + 1));
-    var dpr = Math.min(window.devicePixelRatio || 1, 3);
-
-    // What tomorrow's kitchen and rush will actually look like, so the shop
-    // is a decision and not a guess.
-    var today = Core.effects(activeLevels(), S.day);
-    var next = Core.effects(activeLevels(), S.day + 1);
-    var cfg = Core.dayConfig(S.day + 1);
-    function grew(a, b) { return b > a ? ' <em>+1</em>' : ''; }
-    el.nextKitchen.innerHTML =
-      '<span>TOMORROW</span>' +
-      '<b>' + next.plates + '</b> plates' + grew(today.plates, next.plates) +
-      ' &nbsp;·&nbsp; <b>' + next.grillSlots + '</b> burners' + grew(today.grillSlots, next.grillSlots) +
-      ' &nbsp;·&nbsp; <b>' + cfg.concurrent + '</b> orders up' +
-      ' &nbsp;·&nbsp; <b>' + Core.dayMenu(S.day + 1).length + '</b> crates';
-
-    var news = Core.unlockedOn(S.day + 1);
-    el.unlockBox.hidden = news.length === 0;
-    if (news.length) {
-      el.unlockList.innerHTML = '';
-      /*
-       * In a bun, not on its own. drawIcon draws a layer at the height that
-       * layer really has, and a sauce is two pixels of it - so the sauces, the
-       * ones a player is least able to picture, arrived as an empty box with a
-       * word under it. Between two bun halves every unlock is the same size and
-       * reads as "this is what you will be putting on a burger tomorrow".
-       */
-      var UW = 40, UH = 34;
-      news.forEach(function (ing) {
-        var d = document.createElement('div');
-        d.className = 'u';
-        var c = document.createElement('canvas');
-        c.width = Math.round(UW * dpr);
-        c.height = Math.round(UH * dpr);
-        d.appendChild(c);
-        var n = document.createElement('span');
-        n.className = 'n';
-        n.textContent = ing.name;
-        d.appendChild(n);
-        el.unlockList.appendChild(d);
-        var g = c.getContext('2d');
-        g.setTransform(dpr, 0, 0, dpr, 0, 0);
-        var shown = Core.displayStack(['bun', ing.id]);
-        Art.drawStack(g, shown, UW / 2, UH - 2, Art.fitWidth(shown, UW * 0.88, UH - 4));
-      });
-    }
-
-    el.upgradeList.innerHTML = '';
+  /*
+   * The shop, drawn. Art.ui.shop lays out the slip - the till bundle, the
+   * taped NEW ON THE MENU slip, one ruled row per upgrade with its icon, its
+   * level pips and a swing tag for the price - and reports where every price
+   * tag landed so a real <button> can sit on it.
+   *
+   * The buy buttons are built once and then only re-placed, because a shop
+   * repaint happens on every purchase and on every resize.
+   */
+  function shopModel() {
     var active = activeLevels();
-    Core.UPGRADES.forEach(function (u) {
+    var today = Core.effects(active, S.day);
+    var next = Core.effects(active, S.day + 1);
+    var cfg = Core.dayConfig(S.day + 1);
+    function grew(a2, b2) { return b2 > a2 ? '+' : ''; }
+
+    var ups = Core.UPGRADES.map(function (u) {
       var lvl = active[u.id] || 0;
       var cost = Core.upgradeCost(u.id, lvl);
       /*
@@ -2374,40 +2454,84 @@
        * installed - and this shop was happily charging for it.
        */
       var gains = Core.upgradeGains(u.id, S.day + 1, active);
-      var row = document.createElement('div');
-      row.className = 'upg';
-      var pips = '';
-      for (var i = 0; i < u.max; i++) pips += '<i class="' + (i < lvl ? 'on' : '') + '"></i>';
-      var note = (cost !== null && !gains) ? '<small>The kitchen is already full</small>' : '';
-      row.innerHTML =
-        '<span class="uicon"></span>' +
-        '<div><b>' + u.name + '</b><small>' + u.desc + '</small>' + note +
-        '<div class="pips">' + pips + '</div></div>';
-      var btn = document.createElement('button');
-      btn.className = 'ubuy' + ((cost === null || !gains) ? ' maxed' : '');
-      if (cost === null) {
-        btn.textContent = 'MAX';
-        btn.disabled = true;
-      } else if (!gains) {
-        btn.textContent = 'FULL';
-        btn.disabled = true;
-      } else {
-        btn.textContent = '';
-        btn.classList.add('tagged');
-        var tag = document.createElement('canvas');
-        btn.appendChild(tag);
-        paintOn(tag, 64, 34, (function (money) {
-          return function (g, W, H) { Art.ui.priceTag(g, W, H, money); };
-        })(Core.money(cost)));
-        btn.disabled = S.money < cost;
-        btn.addEventListener('click', function () { buyUpgrade(u.id); });
-      }
-      row.appendChild(btn);
-      el.upgradeList.appendChild(row);
-      upgradeIcon(row.querySelector('.uicon'), u.id, 28);
+      var pips = [];
+      for (var i = 0; i < u.max; i++) pips.push(i < lvl ? '#e8a021' : '#ddcdb0');
+      return {
+        id: u.id, t: u.name,
+        d: (cost !== null && !gains) ? 'The kitchen is already full' : u.desc,
+        p: cost === null ? 'MAX' : (!gains ? 'FULL' : Core.money(cost)),
+        pips: pips,
+        cost: cost, buyable: cost !== null && !!gains && S.money >= cost
+      };
     });
+
+    return {
+      title: 'THE SHOP',
+      day: 'DAY ' + S.day + ' · CLOSED',
+      till: Core.money(S.money),
+      unlocks: Core.unlockedOn(S.day + 1).map(function (ing) {
+        return { id: ing.id, name: ing.name };
+      }),
+      upgrades: ups,
+      tomorrow: 'TOMORROW · ' + next.plates + grew(today.plates, next.plates) + ' PLATES · ' +
+                next.grillSlots + grew(today.grillSlots, next.grillSlots) + ' BURNERS · ' +
+                cfg.concurrent + ' ORDERS UP · ' + Core.dayMenu(S.day + 1).length + ' CRATES',
+      link: 'CHANGE THE COOK’S OUTFIT',
+      primary: 'START DAY ' + (S.day + 1),
+      rent: 'RENT DUE TOMORROW · ' + Core.money(Core.dayGoal(S.day + 1))
+    };
   }
 
+  var shopBuyBtns = [];
+
+  function renderShop() {
+    var m = shopModel();
+
+    if (el.shopRead) {
+      el.shopRead.textContent = 'The shop. ' + m.till + ' in the till. ' +
+        m.upgrades.map(function (u) { return u.t + ', ' + u.p; }).join('. ') + '. ' + m.rent;
+    }
+    if (!el.shopArt) return;
+    var W = el.shop.clientWidth, H = el.shop.clientHeight;
+    if (!W || !H) return;
+
+    paintOn(el.shopArt, W, H, function (g) {
+      Art.ui.shop(g, 0, 0, W, H, {
+        title: m.title, day: m.day, till: m.till,
+        unlocks: m.unlocks, upgrades: m.upgrades,
+        tomorrow: m.tomorrow, link: m.link, primary: m.primary, rent: m.rent,
+        upgrade: function (gg, id, ix, iy, iw, ih) { Art.drawUpgrade(gg, id, iw, ih); },
+        /*
+         * In a bun, not on its own. drawPortrait draws a whole ingredient, but
+         * a sauce is a bottle and a player still has to picture it ON a burger.
+         * Between two bun halves every unlock is the same size and reads as
+         * 'this is what you will be putting on one tomorrow'.
+         */
+        portrait: function (gg, id, ix, iy, iw, ih) {
+          var shown = Core.displayStack(['bun', id]);
+          Art.drawStack(gg, shown, ix + iw / 2, iy + ih, Art.fitWidth(shown, iw * 0.88, ih));
+        }
+      });
+    });
+
+    var B = Art.ui.shopBoxes(0, 0, W, H, m.upgrades.length, m.unlocks.length > 0);
+    while (shopBuyBtns.length < m.upgrades.length) {
+      var btn = document.createElement('button');
+      btn.className = 'hit';
+      el.shopBuys.appendChild(btn);
+      shopBuyBtns.push(btn);
+    }
+    m.upgrades.forEach(function (u, i) {
+      var btn = shopBuyBtns[i];
+      btn.textContent = 'Buy ' + u.t + ' for ' + u.p;
+      btn.disabled = !u.buyable;
+      btn.onclick = function () { buyUpgrade(u.id); };
+      overlay(btn, grow(B.buys[i], MIN_TOUCH));
+    });
+    for (var k = m.upgrades.length; k < shopBuyBtns.length; k++) overlay(shopBuyBtns[k], null);
+    overlay(el.shopStoreBtn, grow(B.link, MIN_TOUCH));
+    overlay(el.nextDayBtn, grow(B.primary, MIN_TOUCH));
+  }
   /* ------------------------------------------------------- online screens */
   function setNetState() {
     el.netState.textContent = Net.online
@@ -2528,7 +2652,7 @@
             // first time only: a rejoin must not restart the day
             S.coopStarted = true;
             el.coopNote.textContent = 'Your friend is in. Starting…';
-            Sfx.init(); Bgm.start();
+            Sfx.init(); if (!S.musicOff) Bgm.start();
             startDay(S.day);
           } else {
             banner('FRIEND IS BACK', '', C.sage);
@@ -2670,9 +2794,13 @@
       badge.className = 'sku-badge';
       row.appendChild(badge);
       // Gear is an upgrade, so it wears that upgrade's own icon. A till top-up
-      // is not one and has no drawing, so it keeps a glyph.
+      // is not one - it used to keep a 💵, the last emoji in the shop, on the
+      // one screen that exists to take money. Art.ui.till already draws a
+      // bundle of notes with a coin leaning on it, which is exactly what the
+      // emoji was standing in for.
       if (p.kind === 'gear') upgradeIcon(badge, p.track, 34);
-      else badge.textContent = '💵';
+      else paintOn(badge.appendChild(document.createElement('canvas')), 34, 26,
+                   function (g, W, H) { Art.ui.till(g, W, H); });
     }
 
     var text = document.createElement('div');
@@ -3139,7 +3267,7 @@
 
     el.playBtn.addEventListener('click', function () {
       Sfx.init();
-      Bgm.start();
+      if (!S.musicOff) Bgm.start();
       hideModal(el.start);
       S.day = 1; S.money = 0; S.levels = {}; S.bestDay = 1;
       wipe();          // S.owned and S.skin survive on purpose - they were paid for
@@ -3147,15 +3275,18 @@
     });
     el.continueBtn.addEventListener('click', function () {
       Sfx.init();
-      Bgm.start();
+      if (!S.musicOff) Bgm.start();
       hideModal(el.start);
       startDay(S.day);
     });
     el.dayEndBtn.addEventListener('click', function () {
       hideModal(el.dayEnd);
       S.screen = 'shop';
-      renderShop();
+      // Show first, paint second: a drawn screen measures its own canvas, and
+      // a hidden modal measures zero - which silently skips the paint AND the
+      // button placement, leaving the whole slip untappable.
       showModal(el.shop);
+      renderShop();
     });
     el.nextDayBtn.addEventListener('click', function () {
       hideModal(el.shop);
@@ -3186,11 +3317,24 @@
       startDay(S.day);
     });
     el.quitBtn.addEventListener('click', quitToTitle);
+    /*
+     * The two switches on the pause slip. They used to be one: muting the
+     * sound stopped the backing track with it and there was no way to keep
+     * one without the other. The handoff draws them as separate boxes, and
+     * separate is what they should always have been.
+     */
     el.pauseSoundBtn.addEventListener('click', function () {
       S.muted = !S.muted;
       Sfx.setMuted(S.muted);
-      el.pauseSoundBtn.textContent = 'SOUND: ' + (S.muted ? 'OFF' : 'ON');
+      if (S.muted) Bgm.stop();
       save();
+      paintPause();
+    });
+    el.pauseMusicBtn.addEventListener('click', function () {
+      S.musicOff = !S.musicOff;
+      Bgm.stop();                    // the slip is up, so it starts again on resume
+      save();
+      paintPause();
     });
 
     /* --- leaderboard / account / co-op */
@@ -3290,7 +3434,7 @@
       // clock - it comes back as a burst of stacked-up notes.
       if (document.hidden) { Bgm.stop(); return; }
       last = 0;
-      if (!S.userPaused && S.screen !== 'title') Bgm.start();
+      if (!S.userPaused && S.screen !== 'title' && !S.musicOff) Bgm.start();
       // A phone drops the socket while locked; pick the room back up.
       if (coop() && S.roomCode && !Net.room) {
         S.reconnectTries = 0;
@@ -3369,21 +3513,20 @@
     ctx = cv.getContext('2d');
 
     ['hudArt', 'hudRead', 'boardArt', 'boardRead', 'pauseBtn',
-      'pause', 'pauseDay', 'pauseEarned', 'pauseRent', 'pauseSoundBtn',
+      'pause', 'pauseSoundBtn',
       'resumeBtn', 'restartBtn', 'quitBtn',
       'start', 'playBtn', 'continueBtn', 'continueDay',
-      'dayEnd', 'dayEndTitle', 'dayEndBtn', 'dayEndNote', 'rSales', 'rTips', 'rTotal',
-      'rRent', 'rNet', 'rPerfect', 'rServed', 'rWalked',
-      'titleArt', 'coopBtn', 'netState', 'boardBtn', 'accountBtn',
+      'dayEnd', 'dayEndBtn',
+      'titleArt', 'signArt', 'rotate', 'rotateArt', 'coopBtn', 'netState', 'boardBtn', 'accountBtn',
       'howBtn', 'howBtn2', 'how', 'howClose',
       'leaderboard', 'lbList', 'lbNote', 'lbClose',
       'account', 'nameInput', 'nameSave', 'makeCodeBtn', 'codeOut',
       'claimInput', 'claimBtn', 'accountNote', 'accountClose',
       'coop', 'hostBtn', 'roomOut', 'joinInput', 'joinBtn', 'coopNote', 'coopClose',
       'store', 'storeTabs', 'storeList', 'storeNote', 'storeRestore', 'storeClose',
-      'shopStoreBtn', 'tillArt', 'paidStamp', 'pauseStamp',
-      'shop', 'walletText', 'unlockBox', 'unlockList', 'upgradeList', 'nextRent', 'nextKitchen',
-      'nextDayBtn', 'nextDayNum', 'over', 'overTitle', 'overReason', 'overDay',
+      'shopStoreBtn', 'shop', 'shopArt', 'shopRead', 'shopBuys', 'nextDayBtn',
+      'dayEndArt', 'dayEndRead', 'pauseArt', 'pauseRead', 'pauseMusicBtn',
+      'over', 'overTitle', 'overReason', 'overDay',
       'overBest', 'retryBtn', 'retryDay', 'wipeBtn'
     ].forEach(function (id) { el[id] = document.getElementById(id); });
 
@@ -3396,6 +3539,7 @@
       S.owned = saved.owned || [];
       S.skin = saved.skin || 'classic';
       S.muted = !!saved.muted;
+      S.musicOff = !!saved.musicOff;
       S.lifetime = saved.lifetime || 0;
       S.fx = Core.effects(activeLevels(), S.day);
       S.saved = true;
@@ -3406,7 +3550,6 @@
     reserveBoard(S.day || 1);
     paintTitle();
     Sfx.setMuted(S.muted);
-    el.pauseSoundBtn.textContent = 'SOUND: ' + (S.muted ? 'OFF' : 'ON');
 
     S.menu = Core.dayMenu(S.day);
     S.sections = Core.menuSections(S.day);

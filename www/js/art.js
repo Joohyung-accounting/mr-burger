@@ -2215,6 +2215,12 @@
     ')': [0.34, '0.08,0.0 0.23,0.3 0.23,0.72 0.08,1.02'],
     '\'': [0.24, '0.13,0.03 0.1,0.24'],
     '&': [0.7, '0.62,1 0.24,0.55 0.14,0.34 0.22,0.1 0.42,0.08 0.47,0.26 0.3,0.48 0.11,0.68 0.14,0.9 0.34,1 0.55,0.86'],
+    // The typographic quotes, because copy gets written with them and a
+    // missing glyph is silently dropped - COOK'S came out COOKS with no
+    // warning anywhere. Same stroke as the typewriter pair.
+    '’': [0.24, '0.13,0.03 0.1,0.24'],
+    '‘': [0.24, '0.1,0.03 0.13,0.24'],
+    '…': [0.82, '0.1,0.95 0.16,0.96|0.36,0.95 0.42,0.96|0.62,0.95 0.68,0.96'],
     ' ': [0.34, '']
   };
   var PEN_CACHE = {};
@@ -3152,14 +3158,513 @@
    * Parameterised where the document hard-coded: it only ever drew five hearts
    * with three left, and only ever stamped the word PAID.
    */
+  /* ------------------------------------------------------- whole sheets
+   * The receipt, the shop and the pause slip, composed from the parts above
+   * the same way the handoff document composes them.
+   *
+   * These live in the document's own <script> rather than in its art.js, which
+   * is exactly the kind of thing a function-by-function audit of art.js misses.
+   *
+   * Each screen comes with a *Boxes() twin that reports where its controls
+   * landed, so the game can hang real buttons on them. Both read the same
+   * constants; neither can drift.
+   */
+
+  /**
+   * penLetters, shrunk until it fits inside maxW.
+   *
+   * Every written line on these sheets is a single centred line with no wrap,
+   * and the copy is written for a 600-wide mock while a phone gives the paper
+   * about 320. Rather than keep the strings short enough for the narrowest
+   * device and dull on every other one, measure and come down - the same thing
+   * drawHUD already does for the takings.
+   */
+  function fitLetters(ctx, txt, cx, baseY, size, maxW, o) {
+    o = o || {};
+    var track = o.track === undefined ? 0.055 : o.track;
+    var s = size;
+    while (s > size * 0.55 && penTextWidth(txt, s, track) > maxW) s *= 0.94;
+    return penLetters(ctx, txt, cx, baseY, s, o);
+  }
+
+  /** Run a draw-at-origin ornament at (x, y) instead. */
+  function at(ctx, x, y, fn, w, h, t) {
+    ctx.save();
+    ctx.translate(x, y);
+    var r = fn(ctx, w, h, t);
+    ctx.restore();
+    return r;
+  }
+
+  /** The dark room, the rail, and a tilted sheet clipped to it. */
+  function screenShell(ctx, x, y, w, h, o) {
+    o = o || {};
+    var railY = y + h * 0.045, railH = h * 0.020;
+    var pw = w * (o.wide === undefined ? 0.88 : o.wide), px = x + (w - pw) / 2;
+    var py = railY + railH * 0.6, ph = h * (o.tall === undefined ? 0.80 : o.tall);
+    return {
+      px: px, py: py, pw: pw, ph: ph, cx: px + pw / 2,
+      railY: railY, railH: railH,
+      tilt: o.tilt === undefined ? 0.009 : o.tilt
+    };
+  }
+
+  /** Paint that shell. Leaves the sheet's rotation ON - the caller restores. */
+  function paintShell(ctx, x, y, w, h, o) {
+    var B = screenShell(ctx, x, y, w, h, o);
+    drawScreenBack(ctx, x, y, w, h, { kitchenTop: o.kitchenTop, kitchenWash: o.kitchenWash });
+    drawRail(ctx, x, B.railY, w, B.railH, o.seed);
+    ctx.save();
+    ctx.translate(B.px + B.pw / 2, B.py + B.ph / 2);
+    ctx.rotate(B.tilt);
+    ctx.translate(-(B.px + B.pw / 2), -(B.py + B.ph / 2));
+    drawSheet(ctx, B.px, B.py, B.pw, B.ph,
+              { seed: o.seed, rules: o.rules, ringX: o.ringX, ringY: o.ringY });
+    (o.clips || [0.5]).forEach(function (f, k) {
+      drawClip(ctx, B.px + B.pw * f, B.railY - B.railH * 0.25, B.pw * 0.15, B.railH * 1.7, o.seed + 30 + k);
+    });
+    return B;
+  }
+
+  /* ---------------------------------------------------------- the receipt */
+
+  function receiptBoxes(x, y, w, h) {
+    var B = screenShell(null, x, y, w, h, { seed: 8100, tilt: 0.011 });
+    return {
+      sheet: B,
+      primary: { x: B.px + B.pw * 0.10, y: B.py + B.ph * 0.855, w: B.pw * 0.80, h: B.ph * 0.085 }
+    };
+  }
+
+  /**
+   * Art.ui.receipt(ctx, x, y, w, h, {
+   *   title, sub,            'DAY 4 CLOSED', the shop's own line
+   *   lines: [{k,v,col}],    food sales / tips / took in / rent / profit
+   *   chips: [{v,k}],        the three counted boxes
+   *   paid,                  stamp it
+   *   note, primary          the closing line and the button's label
+   * })
+   */
+  function drawReceipt(ctx, x, y, w, h, o) {
+    o = o || {};
+    var B = paintShell(ctx, x, y, w, h,
+                       { seed: 8100, kitchenTop: 0.88, kitchenWash: 0.66, tilt: 0.011, clips: [0.5] });
+    var px = B.px, py = B.py, pw = B.pw, ph = B.ph, cx = B.cx;
+    var pad = pw * 0.10, iw = pw - pad * 2, x0 = px + pad;
+
+    fitLetters(ctx, o.title || 'DAY CLOSED', cx, py + ph * 0.075, ph * 0.038, iw, {
+      fill: '#3f2a1c', line: '#8a7259', weight: 0.14, track: 0.13, seed: 8101
+    });
+    fitLetters(ctx, o.sub === undefined ? 'MR. BURGER · OPEN 24 HRS' : o.sub, cx, py + ph * 0.105, ph * 0.019, iw, {
+      fill: '#a08a6e', weight: 0.12, track: 0.22, seed: 8102
+    });
+    drawRule(ctx, x0, py + ph * 0.135, iw, { seed: 8103 });
+
+    var yy = py + ph * 0.185, rowSize = ph * 0.026;
+    (o.lines || []).forEach(function (l, i) {
+      drawRow(ctx, x0, yy, iw, l.k, l.v, { size: rowSize, valueCol: l.col, seed: 8110 + i * 3 });
+      yy += rowSize * 2.15;
+    });
+
+    drawRule(ctx, x0, yy + ph * 0.005, iw, { seed: 8104 });
+
+    var chips = o.chips || [];
+    if (chips.length) {
+      var cgap = iw * 0.05, cw = (iw - cgap * (chips.length - 1)) / chips.length;
+      var chh = ph * 0.105, cy = yy + ph * 0.030;
+      chips.forEach(function (c, i) {
+        var bxx = x0 + i * (cw + cgap);
+        ctx.save();
+        ctx.strokeStyle = '#c4ab8a';
+        ctx.lineWidth = Math.max(1.1, cw * 0.028);
+        ctx.lineJoin = 'round';
+        trace(ctx, rectPts(bxx, cy, cw, chh, cw * 0.09, cw * 0.012, 8120 + i));
+        ctx.stroke();
+        ctx.restore();
+        penLetters(ctx, String(c.v), bxx + cw / 2, cy + chh * 0.60, chh * 0.44,
+                   { fill: '#3f2a1c', weight: 0.14, track: 0.08, seed: 8130 + i });
+        penLetters(ctx, c.k, bxx + cw / 2, cy + chh * 0.88, chh * 0.155,
+                   { fill: '#a08a6e', weight: 0.12, track: 0.16, seed: 8140 + i });
+      });
+      if (o.paid) UI.stampAt(ctx, cx - pw * 0.23, cy + chh * 1.45, pw * 0.46, ph * 0.100, o.paid);
+    }
+
+    if (o.note) {
+      fitLetters(ctx, o.note, cx, py + ph * 0.790, ph * 0.019, iw,
+                 { fill: '#a08a6e', weight: 0.12, track: 0.14, seed: 8145 });
+    }
+    var P = receiptBoxes(x, y, w, h).primary;
+    drawSketchButton(ctx, P.x, P.y, P.w, P.h, o.primary || 'TO THE SHOP', { seed: 8150 });
+    ctx.restore();
+  }
+
+  /* ------------------------------------------------------------- the shop */
+
+  /*
+   * The shop's footer is measured up from the bottom of the paper, not down
+   * from the top. The handoff lays out three upgrades at ph*0.128 apiece; this
+   * shop stocks five, and pinning the closing lines to fixed fractions ran
+   * TOMORROW straight through the last row and pushed RENT off the torn edge.
+   *
+   * So: the tail is fixed, the rows get what is left, and on a day with
+   * nothing new on the menu the taped slip is skipped and the rows get its
+   * room too - which is most days, and the difference between a 47px row and
+   * a 71px one.
+   */
+  var SHOP_ROWS_END = 0.755;      // rows must have finished by here
+  var SHOP_RULE = 0.768, SHOP_TOMORROW = 0.792, SHOP_LINK = 0.822;
+  var SHOP_BTN = 0.845, SHOP_BTN_H = 0.072, SHOP_RENT = 0.958;
+
+  function shopBoxes(x, y, w, h, n, hasUnlocks) {
+    var B = screenShell(null, x, y, w, h, { seed: 8300, tilt: -0.008 });
+    var pad = B.pw * 0.085, iw = B.pw - pad * 2, x0 = B.px + pad;
+    var uyF = hasUnlocks ? 0.390 : 0.230;
+    var uy = B.py + B.ph * uyF;
+    var rowH = Math.min(B.ph * 0.128, n ? B.ph * (SHOP_ROWS_END - uyF) / n : B.ph * 0.128);
+    var buys = [];
+    for (var i = 0; i < (n || 0); i++) {
+      buys.push({ x: x0 + iw * 0.70, y: uy + i * rowH, w: iw * 0.30, h: rowH * 0.72 });
+    }
+    return {
+      sheet: B, rowH: rowH, x0: x0, iw: iw, uy: uy, unlockY: B.py + B.ph * 0.190,
+      hasUnlocks: !!hasUnlocks,
+      rowsEnd: uy + (n || 0) * rowH,
+      buys: buys,
+      link: { x: x0 + iw * 0.15, y: B.py + B.ph * (SHOP_LINK - 0.022), w: iw * 0.70, h: B.ph * 0.042 },
+      primary: { x: x0, y: B.py + B.ph * SHOP_BTN, w: iw, h: B.ph * SHOP_BTN_H }
+    };
+  }
+
+  /**
+   * Art.ui.shop(ctx, x, y, w, h, {
+   *   title, day, till,           'THE SHOP', 'DAY 4 - CLOSED', '$42.80'
+   *   unlocks: [{id,name,price}], what the menu gains
+   *   upgrades: [{id,t,d,p,pips}] pips is an array of colours, one per level
+   *   tomorrow, rent,             the two footer lines
+   *   link, primary,              labels
+   *   upgrade(ctx,id,x,y,w,h),    draws an upgrade's icon
+   *   portrait(ctx,id,x,y,w,h)    draws a newly unlocked ingredient
+   * })
+   */
+  function drawShop(ctx, x, y, w, h, o) {
+    o = o || {};
+    var ups = o.upgrades || [];
+    var unlocks = o.unlocks || [];
+    var BX = shopBoxes(x, y, w, h, ups.length, unlocks.length > 0);
+    var B = paintShell(ctx, x, y, w, h, {
+      seed: 8300, kitchenTop: 0.90, kitchenWash: 0.70, tilt: -0.008,
+      clips: [0.24, 0.76], ringX: 0.14, ringY: 0.42
+    });
+    var px = B.px, py = B.py, pw = B.pw, ph = B.ph, cx = B.cx;
+    var iw = BX.iw, x0 = BX.x0;
+
+    penLetters(ctx, o.title || 'THE SHOP', x0, py + ph * 0.055, ph * 0.032, {
+      fill: '#3f2a1c', line: '#8a7259', weight: 0.135, track: 0.12, align: 'left', seed: 8301
+    });
+    if (o.day) {
+      penLetters(ctx, o.day, x0 + iw, py + ph * 0.055, ph * 0.017, {
+        fill: '#a08a6e', weight: 0.12, track: 0.16, align: 'right', seed: 8302
+      });
+    }
+    drawRule(ctx, x0, py + ph * 0.075, iw, { seed: 8303 });
+
+    UI.tillAt(ctx, x0, py + ph * 0.090, iw * 0.22, ph * 0.075);
+    penLetters(ctx, 'IN THE TILL', x0 + iw * 0.27, py + ph * 0.115, ph * 0.017, {
+      fill: '#a08a6e', weight: 0.12, track: 0.20, align: 'left', seed: 8304
+    });
+    penLetters(ctx, o.till || '$0.00', x0 + iw * 0.27, py + ph * 0.163, ph * 0.042, {
+      fill: '#3f7a2a', line: '#22521a', weight: 0.135, track: 0.06, align: 'left', seed: 8305
+    });
+
+    // NEW ON THE MENU - a slip taped to the page, and only on a day that has
+    // something to tape there. An empty box saying NOTHING NEW TODAY is a
+    // whole band of paper spent on an absence.
+    var ny = BX.unlockY, nh = ph * 0.145;
+    if (unlocks.length) {
+    ctx.save();
+    ink(ctx, rectPts(x0, ny, iw, nh, iw * 0.012, iw * 0.004, 8310), '#f6ecd6',
+        { lw: Math.max(1, iw * 0.005), line: '#e0cba6', seed: 8310 });
+    ctx.globalAlpha = 0.62;
+    ctx.save();
+    ctx.translate(x0 + iw * 0.5, ny);
+    ctx.rotate(-0.07);
+    ink(ctx, rectPts(-iw * 0.09, -nh * 0.09, iw * 0.18, nh * 0.18, iw * 0.008, iw * 0.003, 8311),
+        '#e8dcc0', { lw: Math.max(0.9, iw * 0.004), line: '#a8907a', lineAlpha: 0.8, seed: 8311 });
+    ctx.restore();
+    ctx.restore();
+    penLetters(ctx, 'NEW ON THE MENU', x0 + iw * 0.06, ny + nh * 0.22, ph * 0.017,
+               { fill: '#b07607', weight: 0.13, track: 0.18, align: 'left', seed: 8312 });
+    unlocks.slice(0, 2).forEach(function (u, i) {
+      var ux = x0 + iw * (0.30 + i * 0.34), uw = iw * 0.20;
+      if (o.portrait) {
+        ctx.save();
+        ctx.translate(ux, ny + nh * 0.30);
+        o.portrait(ctx, u.id, 0, 0, uw, nh * 0.46);
+        ctx.restore();
+      }
+      penLetters(ctx, u.name, ux + uw / 2, ny + nh * 0.90, ph * 0.017,
+                 { fill: '#5c4432', weight: 0.12, track: 0.08, seed: 8320 + i });
+      if (u.price) {
+        penLetters(ctx, u.price, ux + uw / 2, ny + nh * 1.02, ph * 0.015,
+                   { fill: '#a08a6e', weight: 0.12, track: 0.10, seed: 8330 + i });
+      }
+    });
+    }
+
+    var rowH = BX.rowH, uy = BX.uy;
+    ups.forEach(function (up, i) {
+      var ry = uy + i * rowH;
+      drawRule(ctx, x0, ry - rowH * 0.14, iw, { seed: 8340 + i, alpha: 0.55 });
+      if (o.upgrade) {
+        ctx.save();
+        ctx.translate(x0, ry + rowH * 0.03);
+        o.upgrade(ctx, up.id, 0, 0, iw * 0.135, iw * 0.135);
+        ctx.restore();
+      }
+      penLetters(ctx, up.t, x0 + iw * 0.180, ry + rowH * 0.20, rowH * 0.205, {
+        fill: '#3f2a1c', weight: 0.125, track: 0.07, align: 'left', seed: 8350 + i
+      });
+      penLetters(ctx, up.d, x0 + iw * 0.180, ry + rowH * 0.41, rowH * 0.140, {
+        fill: '#a08a6e', weight: 0.12, track: 0.07, align: 'left', seed: 8360 + i
+      });
+      (up.pips || []).forEach(function (p, k) {
+        ctx.save();
+        ctx.strokeStyle = p;
+        ctx.lineCap = 'round';
+        ctx.lineWidth = Math.max(1.4, rowH * 0.070);
+        ctx.beginPath();
+        ctx.moveTo(x0 + iw * 0.180 + k * iw * 0.052, ry + rowH * 0.58);
+        ctx.lineTo(x0 + iw * 0.180 + k * iw * 0.052 + iw * 0.036, ry + rowH * 0.575);
+        ctx.stroke();
+        ctx.restore();
+      });
+      var b = BX.buys[i];
+      UI.priceTagAt(ctx, b.x, b.y + rowH * 0.06, b.w, b.h * 0.80, up.p);
+    });
+
+    drawRule(ctx, x0, py + ph * SHOP_RULE, iw, { seed: 8365, alpha: 0.55 });
+    if (o.tomorrow) {
+      fitLetters(ctx, o.tomorrow, cx, py + ph * SHOP_TOMORROW, ph * 0.018, iw,
+                 { fill: '#b9a48a', weight: 0.12, track: 0.10, seed: 8366 });
+    }
+    if (o.link) {
+      fitLetters(ctx, o.link, cx, py + ph * SHOP_LINK, ph * 0.019, iw,
+                 { fill: '#c0562f', weight: 0.12, track: 0.11, seed: 8367 });
+    }
+    var P = BX.primary;
+    drawSketchButton(ctx, P.x, P.y, P.w, P.h, o.primary || 'START THE DAY', { seed: 8370 });
+    if (o.rent) {
+      fitLetters(ctx, o.rent, cx, py + ph * SHOP_RENT, ph * 0.018, iw,
+                 { fill: '#a08a6e', weight: 0.12, track: 0.14, seed: 8380 });
+    }
+    ctx.restore();
+  }
+
+  /* ------------------------------------------------------------ the pause */
+
+  function pauseBoxes(x, y, w, h, n) {
+    var B = screenShell(null, x, y, w, h, { seed: 8500, tilt: 0.012, wide: 0.86, tall: 0.74 });
+    var pad = B.pw * 0.10, iw = B.pw - pad * 2, x0 = B.px + pad;
+    var out = {
+      sheet: B, x0: x0, iw: iw,
+      primary: { x: x0, y: B.py + B.ph * 0.470, w: iw, h: B.ph * 0.085 },
+      secondary: { x: x0, y: B.py + B.ph * 0.580, w: iw, h: B.ph * 0.072 },
+      tertiary: { x: x0, y: B.py + B.ph * 0.675, w: iw, h: B.ph * 0.072 },
+      toggles: []
+    };
+    n = n || 0;
+    if (n) {
+      var gap = iw * 0.05, tw = (iw - gap * (n - 1)) / n, th = B.ph * 0.135, ty = B.py + B.ph * 0.790;
+      for (var i = 0; i < n; i++) out.toggles.push({ x: x0 + i * (tw + gap), y: ty, w: tw, h: th });
+    }
+    return out;
+  }
+
+  /**
+   * Art.ui.pause(ctx, x, y, w, h, {
+   *   stamp, sub,                 the rubber stamp and the line under it
+   *   rows: [{k,v,col}],          what the shift stands at
+   *   primary/secondary/tertiary, button labels
+   *   toggles: [{id,k,on}],       the boxed switches along the bottom
+   *   glyph(ctx,id,x,y,w,h)       draws a toggle's mark
+   * })
+   */
+  function drawPause(ctx, x, y, w, h, o) {
+    o = o || {};
+    var tg = o.toggles || [];
+    var BX = pauseBoxes(x, y, w, h, tg.length);
+    var B = paintShell(ctx, x, y, w, h, {
+      seed: 8500, kitchenTop: 0.60, kitchenWash: 0.58, tilt: 0.012,
+      wide: 0.86, tall: 0.74, clips: [0.5]
+    });
+    var px = B.px, py = B.py, pw = B.pw, ph = B.ph, cx = B.cx;
+    var iw = BX.iw, x0 = BX.x0;
+
+    UI.pauseStampAt(ctx, cx - pw * 0.32, py + ph * 0.045, pw * 0.64, ph * 0.115, o.stamp);
+    if (o.sub) {
+      fitLetters(ctx, o.sub, cx, py + ph * 0.205, ph * 0.020, iw,
+                 { fill: '#a08a6e', weight: 0.12, track: 0.14, seed: 8501 });
+    }
+    drawRule(ctx, x0, py + ph * 0.245, iw, { seed: 8502 });
+
+    var yy = py + ph * 0.300, rs = ph * 0.028;
+    (o.rows || []).forEach(function (r, i) {
+      yy = drawRow(ctx, x0, yy, iw, r.k, r.v, { size: rs, valueCol: r.col, seed: 8510 + i * 3 });
+    });
+    drawRule(ctx, x0, yy - ph * 0.010, iw, { seed: 8503 });
+
+    var P = BX.primary, Q = BX.secondary, R = BX.tertiary;
+    drawSketchButton(ctx, P.x, P.y, P.w, P.h, o.primary || 'BACK TO WORK', { seed: 8520 });
+    drawSketchButton(ctx, Q.x, Q.y, Q.w, Q.h, o.secondary || 'RESTART THE DAY',
+                     { dashed: true, seed: 8530 });
+    drawSketchButton(ctx, R.x, R.y, R.w, R.h, o.tertiary || 'CLOSE UP SHOP',
+                     { dashed: true, line: '#ddcdb0', text: '#a08a6e', seed: 8540 });
+
+    tg.forEach(function (t, i) {
+      var T = BX.toggles[i];
+      ctx.save();
+      ctx.strokeStyle = t.on === false ? '#ddcdb0' : '#c4ab8a';
+      ctx.lineWidth = Math.max(1.1, T.w * 0.030);
+      ctx.lineJoin = 'round';
+      trace(ctx, rectPts(T.x, T.y, T.w, T.h, T.w * 0.10, T.w * 0.012, 8550 + i));
+      ctx.stroke();
+      ctx.restore();
+      if (o.glyph) {
+        ctx.save();
+        ctx.globalAlpha = t.on === false ? 0.42 : 1;
+        ctx.translate(T.x + T.w * 0.26, T.y + T.h * 0.12);
+        o.glyph(ctx, t.id, 0, 0, T.w * 0.48, T.h * 0.48);
+        ctx.restore();
+      }
+      penLetters(ctx, t.k, T.x + T.w / 2, T.y + T.h * 0.88, T.h * 0.155,
+                 { fill: t.on === false ? '#a08a6e' : '#5c4432', weight: 0.12, track: 0.14, seed: 8560 + i });
+      /*
+       * Off is struck through, not just faded. A switch that only goes a shade
+       * paler when it is off is a switch you have to remember the state of -
+       * and the one thing a mute button must never make you do is guess.
+       */
+      if (t.on === false) {
+        ctx.save();
+        ctx.strokeStyle = '#c0562f';
+        ctx.globalAlpha = 0.75;
+        ctx.lineCap = 'round';
+        ctx.lineWidth = Math.max(1.4, T.w * 0.045);
+        ctx.beginPath();
+        for (var c = 0; c <= 4; c++) {
+          var f = c / 4;
+          ctx.lineTo(T.x + T.w * (0.14 + 0.72 * f),
+                     T.y + T.h * (0.70 - 0.44 * f) + wob(8570 + i, c) * T.h * 0.018);
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
+    });
+    ctx.restore();
+  }
+
+  /* -------------------------------------------------- the two odd screens */
+
+  /**
+   * The storefront sign that fills the slack above the board between shifts.
+   * Art.ui.sign(ctx, x, y, w, h)
+   *
+   * The same wordmark the title inks, at a tenth of the size - it was three
+   * spans of Caprasimo, so the game carried a drawn MR. BURGER and a typeset
+   * one two screens apart.
+   */
+  function drawSign(ctx, x, y, w, h) {
+    var s = 9100;
+    var cx = x + w / 2;
+    // MR. sits ABOVE the wordmark's cap line, not on it: BURGER's caps start at
+    // (baseline - size), so the small line has to clear that or the two collide.
+    var mr = h * 0.17, big = h * 0.44, sub = h * 0.13;
+    var bigBase = y + h * 0.78;
+    penLetters(ctx, 'MR.', cx, bigBase - big - h * 0.06, mr,
+               { fill: '#c0562f', weight: 0.15, track: 0.46, seed: s, tilt: 0.05 });
+    fitLetters(ctx, 'BURGER', cx, bigBase, big, w * 0.86,
+               { fill: '#f0b429', line: '#7a3e20', weight: 0.145, track: 0.075, seed: s + 1, tilt: 0.03 });
+    // two inked beads where the sign had ◦ OPEN 24 HRS ◦ - the bullet was
+    // U+25E6, which is in no font this game ships
+    var tw = penTextWidth('OPEN 24 HRS', sub, 0.30);
+    penLetters(ctx, 'OPEN 24 HRS', cx, y + h * 0.98, sub,
+               { fill: 'rgba(253,246,230,0.50)', weight: 0.12, track: 0.30, seed: s + 2 });
+    ctx.save();
+    ctx.fillStyle = 'rgba(240,180,41,0.55)';
+    [-1, 1].forEach(function (d, i) {
+      trace(ctx, ellPts(cx + d * (tw / 2 + sub * 0.85), y + h * 0.94, sub * 0.20, sub * 0.20, 10, sub * 0.03, s + 5 + i));
+      ctx.fill();
+    });
+    ctx.restore();
+  }
+
+  /**
+   * The turn-your-phone overlay: a handset on its side and an arrow bringing
+   * it upright. Art.ui.rotate(ctx, x, y, w, h)
+   */
+  function drawRotate(ctx, x, y, w, h) {
+    var s = 9200, cx = x + w / 2, cy = y + h * 0.40;
+    var u = Math.min(w, h) * 0.20;                 // the phone's short side
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(-1.05);
+    ink(ctx, rectPts(-u * 0.92, -u * 0.52, u * 1.84, u * 1.04, u * 0.18, u * 0.02, s),
+        '#2a1a15', { lw: Math.max(1.6, u * 0.075), off: u * 0.012, line: '#e8c9a0', seed: s });
+    ink(ctx, rectPts(-u * 0.76, -u * 0.38, u * 1.52, u * 0.76, u * 0.10, u * 0.02, s + 1),
+        '#4a2f24', { lw: Math.max(1, u * 0.035), line: '#a8907a', lineAlpha: 0.7, seed: s + 1 });
+    ctx.restore();
+
+    // the arrow that turns it
+    ctx.save();
+    ctx.strokeStyle = '#f0b429';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(2, u * 0.10);
+    ctx.beginPath();
+    for (var i = 0; i <= 12; i++) {
+      var a = -2.5 + (i / 12) * 1.9;
+      var r = u * 1.45 + wob(s + 10, i) * u * 0.03;
+      ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r * 0.92);
+    }
+    ctx.stroke();
+    var ea = -0.6, er = u * 1.45;
+    var ex = cx + Math.cos(ea) * er, ey = cy + Math.sin(ea) * er * 0.92;
+    ctx.beginPath();
+    ctx.moveTo(ex - u * 0.30, ey - u * 0.20);
+    ctx.lineTo(ex, ey);
+    ctx.lineTo(ex - u * 0.06, ey - u * 0.36);
+    ctx.stroke();
+    ctx.restore();
+
+    fitLetters(ctx, 'TURN YOUR PHONE', cx, y + h * 0.68, h * 0.055, w * 0.82,
+               { fill: '#fdf6e6', line: '#8a5a30', weight: 0.14, track: 0.12, seed: s + 20 });
+    fitLetters(ctx, 'THE LINE RUNS TOP TO BOTTOM', cx, y + h * 0.745, h * 0.026, w * 0.82,
+               { fill: 'rgba(253,246,230,0.60)', weight: 0.12, track: 0.16, seed: s + 21 });
+    fitLetters(ctx, 'UPRIGHT, EVERYTHING IS BIG ENOUGH TO HIT', cx, y + h * 0.785, h * 0.026, w * 0.82,
+               { fill: 'rgba(253,246,230,0.60)', weight: 0.12, track: 0.16, seed: s + 22 });
+  }
+
   var UI = {
     /* --- the handoff kit --- */
     hud: drawHUD, title: drawTitle, orders: drawOrders, heart: drawHeart,
     text: penLetters, letters: penLetters, width: penTextWidth,
     back: drawScreenBack, rail: drawRail, clip: drawClip, sheet: drawSheet,
     button: drawSketchButton, rule: drawRule, row: drawRow, torn: tornPts,
+    shell: paintShell,
+    receipt: drawReceipt, shop: drawShop, pause: drawPause,
+    sign: drawSign, rotate: drawRotate,
     titleBoxes: titleBoxes,
     hudBoxes: hudBoxes,
+    receiptBoxes: receiptBoxes, shopBoxes: shopBoxes, pauseBoxes: pauseBoxes,
+
+    /* The ornaments again, placed rather than filling their own canvas. The
+       screens above compose them into a page; the game still paints a few of
+       them into little canvases of their own. */
+    stampAt: function (ctx, x, y, w, h, t) { return at(ctx, x, y, UI.stamp, w, h, t); },
+    pauseStampAt: function (ctx, x, y, w, h, t) { return at(ctx, x, y, UI.pauseStamp, w, h, t); },
+    tillAt: function (ctx, x, y, w, h) { return at(ctx, x, y, UI.till, w, h); },
+    priceTagAt: function (ctx, x, y, w, h, t) { return at(ctx, x, y, UI.priceTag, w, h, t); },
+
 
     /* --- ornaments --- */
 

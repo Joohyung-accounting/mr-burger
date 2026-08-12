@@ -40,12 +40,10 @@
 
   <!-- Absorbs slack on tall screens so the whole shop sits in thumb reach,
        and fills it with the storefront sign instead of dead background. -->
+  <!-- The storefront sign, drawn. It was three spans of Caprasimo, which put a
+       typeset MR. BURGER two screens away from the inked one on the title. -->
   <div id="spacer">
-    <div class="shopsign">
-      <span class="sign-mr">MR.</span>
-      <span class="sign-burger">BURGER</span>
-      <span class="sign-open">◦ OPEN 24 HRS ◦</span>
-    </div>
+    <canvas id="signArt" class="shopsign"></canvas>
   </div>
 
   <!-- The order board: the batten and every slip clipped to it, drawn by
@@ -168,47 +166,25 @@
 </div>
 
 <!-- ---------------------------------------------------------- paused --->
-<div id="pause" class="modal" hidden>
-  <div class="sheet">
-    <h2 class="sheet-title">PAUSED</h2>
-    <canvas id="pauseStamp" class="pause-art"></canvas>
-    <div class="pause-line">
-      DAY <b id="pauseDay">1</b> &nbsp;·&nbsp; <b id="pauseEarned">$0.00</b> of <span id="pauseRent">$0.00</span>
-    </div>
-    <button id="resumeBtn" class="cta">RESUME</button>
-    <button id="restartBtn" class="cta alt">RESTART THIS DAY</button>
-    <button id="pauseSoundBtn" class="cta alt">SOUND: ON</button>
-    <!-- The rules moved here off the title. On the slip they were a line of
-         DOM text lying on a drawn page; and by the time you have a shift to
-         come back to, the place to ask "how does this work again" is mid-shift,
-         not before it. A fresh install still gets HOW TO PLAY as the second
-         button on the title, where NEW SHIFT has nothing to restart. -->
-    <button id="howBtn" class="cta alt">HOW TO PLAY</button>
-    <button id="quitBtn" class="linkbtn">Quit to the title screen</button>
-  </div>
+<div id="pause" class="modal drawn" hidden>
+  <canvas id="pauseArt" class="screen-art"></canvas>
+  <button id="resumeBtn" class="hit">Back to work</button>
+  <button id="restartBtn" class="hit">Restart this day</button>
+  <button id="quitBtn" class="hit">Close up shop</button>
+  <!-- The three boxed switches along the foot. HOW TO PLAY lives here rather
+       than on the title: by the time you have a shift to come back to, the
+       place to ask "how does this work again" is mid-shift. -->
+  <button id="pauseSoundBtn" class="hit">Sound</button>
+  <button id="pauseMusicBtn" class="hit">Music</button>
+  <button id="howBtn" class="hit">How to play</button>
+  <p id="pauseRead" class="sr-only" aria-live="polite"></p>
 </div>
 
 <!-- -------------------------------------------------------- day end --->
-<div id="dayEnd" class="modal" hidden>
-  <div class="sheet">
-    <h2 id="dayEndTitle" class="sheet-title">DAY 1 CLOSED</h2>
-    <div class="receipt">
-      <div class="line"><span>Food sales</span><b id="rSales">$0.00</b></div>
-      <div class="line"><span>Tips</span><b id="rTips">$0.00</b></div>
-      <div class="line total"><span>Took in</span><b id="rTotal">$0.00</b></div>
-      <div class="line rent"><span>Rent</span><b id="rRent">$0.00</b></div>
-      <div class="line net"><span id="rNetLabel">Profit</span><b id="rNet">$0.00</b></div>
-    </div>
-    <div class="stats-row">
-      <div class="chip"><span id="rPerfect">0</span><small>PERFECT</small></div>
-      <div class="chip"><span id="rServed">0</span><small>SERVED</small></div>
-      <div class="chip"><span id="rWalked">0</span><small>WALKED</small></div>
-    </div>
-    <!-- Rubber-stamped on the receipt once the rent is covered. -->
-    <canvas id="paidStamp" class="stamp-art" hidden></canvas>
-    <p id="dayEndNote" class="note"></p>
-    <button id="dayEndBtn" class="cta">TO THE SHOP</button>
-  </div>
+<div id="dayEnd" class="modal drawn" hidden>
+  <canvas id="dayEndArt" class="screen-art"></canvas>
+  <button id="dayEndBtn" class="hit">To the shop</button>
+  <p id="dayEndRead" class="sr-only" aria-live="polite"></p>
 </div>
 
 <!-- --------------------------------------------------- turn it back --->
@@ -219,13 +195,12 @@
   reliably tappable, which is every phone held sideways. Ask for a turn
   instead of drawing a kitchen nobody can hit.
 -->
+<!-- Drawn: a phone on its side with an arrow turning it upright, and the words
+     under it in the pen. It was a 📱 and two lines of webfont. -->
 <div id="rotate">
-  <div class="rotate-inner">
-    <div class="rotate-icon">📱</div>
-    <h2>TURN YOUR PHONE</h2>
-    <p>Mr. Burger runs the line top to bottom. Upright, everything is big
-      enough to hit.</p>
-  </div>
+  <canvas id="rotateArt" class="screen-art"></canvas>
+  <p class="sr-only">Turn your phone upright. Mr. Burger runs the line top to
+    bottom, and upright everything is big enough to hit.</p>
 </div>
 
 <!-- ----------------------------------------------------- the outfitters --->
@@ -261,23 +236,15 @@
 </div>
 
 <!-- ------------------------------------------------------------ shop --->
-<div id="shop" class="modal" hidden>
-  <div class="sheet wide">
-    <h2 class="sheet-title">THE SHOP</h2>
-    <div class="wallet">
-      <span>IN THE TILL</span>
-      <span class="wallet-row"><canvas id="tillArt" class="till-art"></canvas><b id="walletText">$0.00</b></span>
-    </div>
-    <div id="unlockBox" class="unlock-box" hidden>
-      <div class="unlock-title">NEW ON THE MENU</div>
-      <div id="unlockList" class="unlock-list"></div>
-    </div>
-    <div id="upgradeList" class="upgrade-list"></div>
-    <div id="nextKitchen" class="next-kitchen"></div>
-    <div class="next-line">Tomorrow's rent <b id="nextRent">$0.00</b></div>
-    <button id="shopStoreBtn" class="linkbtn">Change the cook's outfit</button>
-    <button id="nextDayBtn" class="cta">START DAY <span id="nextDayNum">2</span></button>
-  </div>
+<div id="shop" class="modal drawn" hidden>
+  <canvas id="shopArt" class="screen-art"></canvas>
+  <!-- One buy button per upgrade, laid on the price tags Art.ui.shopBoxes
+       reports. They are created by renderShop() rather than written out here,
+       because the line the shop stocks is Core.UPGRADES, not markup. -->
+  <div id="shopBuys" class="hit-layer"></div>
+  <button id="shopStoreBtn" class="hit">Change the cook's outfit</button>
+  <button id="nextDayBtn" class="hit">Start the next day</button>
+  <p id="shopRead" class="sr-only" aria-live="polite"></p>
 </div>
 
 <!-- ------------------------------------------------------- shut down --->

@@ -274,11 +274,11 @@
 
   /* --------------------------------------------------------- customers */
   var CUSTOMERS = [
-    { id: 'regular', emoji: '🙂', name: 'Regular', patience: 1.00, tip: 1.0, weight: 5 },
-    { id: 'rush', emoji: '🧑‍💼', name: 'Rush', patience: 0.75, tip: 1.6, weight: 3 },
-    { id: 'chill', emoji: '😎', name: 'Chill', patience: 1.45, tip: 0.8, weight: 3 },
-    { id: 'foodie', emoji: '🤓', name: 'Foodie', patience: 1.05, tip: 2.2, weight: 2, strict: true },
-    { id: 'kid', emoji: '🧒', name: 'Kid', patience: 1.25, tip: 0.6, weight: 3, simple: true }
+    { id: 'regular', name: 'Regular', patience: 1.00, tip: 1.0, weight: 5 },
+    { id: 'rush', name: 'Rush', patience: 0.75, tip: 1.6, weight: 3 },
+    { id: 'chill', name: 'Chill', patience: 1.45, tip: 0.8, weight: 3 },
+    { id: 'foodie', name: 'Foodie', patience: 1.05, tip: 2.2, weight: 2, strict: true },
+    { id: 'kid', name: 'Kid', patience: 1.25, tip: 0.6, weight: 3, simple: true }
   ];
 
   function pickCustomer(day, rng) {
@@ -560,11 +560,11 @@
 
   /* ---------------------------------------------------------- upgrades */
   var UPGRADES = [
-    { id: 'shoes', name: 'Running Shoes', desc: 'The chef moves faster', icon: '👟', max: 3, base: 1600, mult: 2.0 },
-    { id: 'plate', name: 'Plating Station', desc: '+1 plate to build on', icon: '🍽️', max: 2, base: 3000, mult: 2.25 },
-    { id: 'grill', name: 'Pro Grill', desc: 'Wider perfect window', icon: '🔥', max: 3, base: 1900, mult: 2.0 },
-    { id: 'burner', name: 'Extra Burner', desc: '+1 grill slot', icon: '🍳', max: 2, base: 3200, mult: 2.3 },
-    { id: 'sign', name: 'Neon Sign', desc: 'Bigger tips', icon: '💡', max: 3, base: 2200, mult: 2.0 }
+    { id: 'shoes', name: 'Running Shoes', desc: 'The chef moves faster', max: 3, base: 1600, mult: 2.0 },
+    { id: 'plate', name: 'Plating Station', desc: '+1 plate to build on', max: 2, base: 3000, mult: 2.25 },
+    { id: 'grill', name: 'Pro Grill', desc: 'Wider perfect window', max: 3, base: 1900, mult: 2.0 },
+    { id: 'burner', name: 'Extra Burner', desc: '+1 grill slot', max: 2, base: 3200, mult: 2.3 },
+    { id: 'sign', name: 'Neon Sign', desc: 'Bigger tips', max: 3, base: 2200, mult: 2.0 }
   ];
 
   var UPGRADE_BY_ID = {};

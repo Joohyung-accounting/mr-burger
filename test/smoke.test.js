@@ -98,26 +98,25 @@ stage.getBoundingClientRect = function () {
 
 var elements = { stage: stage };
 ['hudArt', 'hudRead', 'boardArt', 'boardRead', 'pauseBtn',
-  'pause', 'pauseDay', 'pauseEarned', 'pauseRent', 'pauseSoundBtn',
+  'pause', 'pauseSoundBtn',
   'resumeBtn', 'restartBtn', 'quitBtn',
   'start', 'playBtn', 'continueBtn', 'continueDay',
-  'dayEnd', 'dayEndTitle', 'dayEndBtn', 'dayEndNote', 'rSales', 'rTips', 'rTotal',
-  'rRent', 'rNet', 'rNetLabel', 'rPerfect', 'rServed', 'rWalked',
+  'dayEnd', 'dayEndBtn',
   'titleArt', 'coopBtn', 'netState', 'boardBtn', 'accountBtn',
   'howBtn', 'howBtn2', 'how', 'howClose',
   'leaderboard', 'lbList', 'lbNote', 'lbClose',
   'account', 'nameInput', 'nameSave', 'makeCodeBtn', 'codeOut',
   'claimInput', 'claimBtn', 'accountNote', 'accountClose',
   'coop', 'hostBtn', 'roomOut', 'joinInput', 'joinBtn', 'coopNote', 'coopClose',
-  'shop', 'walletText', 'unlockBox', 'unlockList', 'upgradeList', 'nextRent', 'nextKitchen',
-  'nextDayBtn', 'nextDayNum', 'over', 'overTitle', 'overReason', 'overDay',
+  'shop', 'nextDayBtn', 'over', 'overTitle', 'overReason', 'overDay',
   'overBest', 'retryBtn', 'retryDay', 'wipeBtn',
   'store', 'storeTabs', 'storeList', 'storeNote', 'storeRestore', 'storeClose',
-  'shopStoreBtn'
+  'shopStoreBtn', 'shopArt', 'shopRead', 'shopBuys', 'dayEndArt', 'dayEndRead',
+  'pauseArt', 'pauseRead', 'pauseMusicBtn', 'signArt', 'rotate', 'rotateArt'
 ].forEach(function (id) { elements[id] = makeEl('div'); });
 
 // Mirror index.html: the flow sheets carry the `hidden` attribute.
-['dayEnd', 'shop', 'over', 'pause', 'continueBtn', 'unlockBox',
+['dayEnd', 'shop', 'over', 'pause', 'continueBtn',
   'leaderboard', 'account', 'coop', 'codeOut', 'roomOut', 'how', 'store'].forEach(function (id) {
   elements[id].hidden = true;
 });
@@ -1524,7 +1523,7 @@ test('a snapshot round-trips the whole kitchen', function () {
   assert.strictEqual(S.tips, 567);
   assert.deepStrictEqual(S.tickets.map(function (t) { return t.uid; }), before.tickets);
   assert.deepStrictEqual(S.tickets.map(function (t) { return t.items; }), before.items);
-  assert.ok(S.tickets.every(function (t) { return t.arch && t.arch.emoji; }), 'archetypes must survive');
+  assert.ok(S.tickets.every(function (t) { return t.arch && t.arch.name; }), 'archetypes must survive');
   assert.strictEqual(S.plates[0].stack.length, before.plate0);
   assert.strictEqual(S.grill[0].t, before.grillT);
   assert.strictEqual(MB.chefAt(0).holding.id, 'cheese');

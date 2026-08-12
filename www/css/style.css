@@ -207,13 +207,6 @@ button {
   height: var(--hud-h);
 }
 
-:root {
-  --icon-heart: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 21.3 4.6 14a5 5 0 0 1 7.4-6.7A5 5 0 0 1 19.4 14Z'/%3E%3C/svg%3E");
-  --icon-trophy: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9H4.5a2.5 2.5 0 0 1 0-5H6'/%3E%3Cpath d='M18 9h1.5a2.5 2.5 0 0 0 0-5H18'/%3E%3Cpath d='M4 22h16'/%3E%3Cpath d='M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22'/%3E%3Cpath d='M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22'/%3E%3Cpath d='M18 2H6v7a6 6 0 0 0 12 0V2Z'/%3E%3C/svg%3E");
-  --icon-shirt: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z'/%3E%3C/svg%3E");
-  --icon-phone: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='2' width='14' height='20' rx='2.5'/%3E%3Cpath d='M12 18h.01'/%3E%3C/svg%3E");
-}
-
 /* ------------------------------------------------------------ storefront */
 #spacer {
   flex: 1 1 0;
@@ -232,38 +225,10 @@ button {
  * grow to absorb whatever is left once the stage hits its own max-height,
  * otherwise a tall screen ends up with a hole at the bottom instead.
  */
-.shopsign { text-align: center; line-height: 1; }
+/* The sign is a drawing now; this is just the box it fills. */
+.shopsign { display: block; width: 100%; height: 100%; }
 body:not(.no-clock) .shopsign { display: none; }
 body:not(.no-clock) #stage { flex-grow: 40; }
-
-.sign-mr {
-  display: block;
-  font-family: var(--font-heading);
-  font-size: 11px;
-  letter-spacing: 0.42em;
-  text-indent: 0.42em;
-  color: var(--amber);
-}
-.sign-burger {
-  display: block;
-  font-family: var(--font-heading);
-  font-size: clamp(22px, 5.4vh, 40px);
-  letter-spacing: -0.01em;
-  color: #fff4e0;
-  text-shadow: 0 2px 0 #a83c22, 0 0 22px rgba(232, 96, 74, 0.4);
-  margin: var(--space-1) 0 var(--space-2);
-}
-.sign-open {
-  display: inline-block;
-  padding: 3px 12px;
-  border-radius: 1px;
-  color: #8ec96f;
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 0.24em;
-  text-indent: 0.24em;
-  text-shadow: 0 0 10px rgba(142, 201, 111, 0.55);
-}
 
 /* ═══════════════════════════════════════════════════ the order board
  *
@@ -321,7 +286,6 @@ body.rush .board-wrap {
   background: linear-gradient(180deg, #a3512a, #6d3116);
   box-shadow: inset 0 1px 0 var(--rail-lip), 0 3px 14px rgba(0, 0, 0, 0.5);
 }
-body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
 @keyframes sign-buzz {
   0%, 100% { color: #fff4e0; }
   50%      { color: #ffb59c; }
@@ -418,10 +382,17 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
    drawn button by nudging the whole hit box - the repaint follows it. */
 .hit:active { transform: translateY(1.5px); }
 
-/* Nothing else goes on a drawn screen. A .modal.drawn holds its canvas and the
-   invisible controls laid over it, and that is all - the moment a line of DOM
-   text sits on the paper, the screen is half drawn and half typeset. */
-.modal.drawn > :not(.screen-art):not(.hit) { display: none; }
+/* Nothing else goes on a drawn screen. A .modal.drawn holds its canvas, the
+   invisible controls laid over it, and a .hit-layer for controls a script has
+   to create - and that is all. The moment a line of DOM text sits on the
+   paper, the screen is half drawn and half typeset. */
+.modal.drawn > :not(.screen-art):not(.hit):not(.hit-layer) { display: none; }
+.hit-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;   /* only the buttons inside it take taps */
+}
+.hit-layer > .hit { pointer-events: auto; }
 
 /*
  * A slip torn off the roll and dropped on the counter - so it lands a degree
@@ -611,25 +582,6 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
 
 .note { font-size: 11.5px; line-height: 1.55; color: var(--ink-3); margin-top: var(--space-3); }
 .note.big { font-size: 13px; color: var(--ink-2); }
-
-.pause-line {
-  font-size: 12.5px;
-  color: var(--ink-3);
-  margin-bottom: var(--space-4);
-  font-variant-numeric: tabular-nums;
-}
-.pause-line b { color: var(--ink); font-weight: 700; }
-
-/* -------------------------------------------------------------- receipt */
-/* The till roll itself: no box, just ruled lines down the paper it is already
-   printed on. A panel here would be paper on paper. */
-.receipt {
-  text-align: left;
-  padding: 0;
-  border-top: 1px dashed var(--rule);
-  border-bottom: 1px dashed var(--rule);
-  margin: var(--space-2) 0 0;
-}
 .line {
   display: flex;
   justify-content: space-between;
@@ -674,123 +626,7 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
   color: var(--ink-4);
   margin-top: 2px;
 }
-
-/* ---------------------------------------------------------------- shop */
-.wallet {
-  font-size: 8.5px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--ink-4);
-  font-weight: 700;
-  margin-bottom: var(--space-3);
-}
-.wallet b {
-  display: block;
-  font-family: var(--font-heading); font-weight: 400;
-  font-size: 30px;
-  letter-spacing: 0;
-  color: var(--stamp-good);
-  margin-top: 2px;
-}
-
-.unlock-box {
-  border: 2px dashed var(--rule);
-  border-radius: var(--radius-sm);
-  padding: var(--space-2);
-  margin-bottom: var(--space-3);
-}
-.unlock-title {
-  font-size: 8px; letter-spacing: 0.2em; font-weight: 700;
-  text-transform: uppercase;
-  color: var(--amber-deep);
-}
-/* Each new ingredient is the thing itself drawn next to its name. */
-.unlock-list {
-  display: flex; flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-top: var(--space-1);
-}
-.unlock-list .u { display: flex; align-items: center; gap: 2px; }
-.unlock-list canvas { width: 40px; height: 34px; }
-.unlock-list .n { font-size: 10px; font-weight: 700; color: var(--ink-2); }
-
-/* Ruled rows down the page, the way a docket lists what it lists. */
-.upgrade-list { display: grid; }
-.upg {
-  display: grid;
-  grid-template-columns: 30px 1fr auto;
-  gap: var(--space-2);
-  align-items: center;
-  text-align: left;
-  padding: var(--space-2) 0;
-  border-top: 1px dashed var(--rule-soft);
-}
-.upgrade-list .upg:first-child { border-top: none; }
-/* Drawn, not typed: Art.drawUpgrade puts a canvas in here. */
-.upg .uicon { display: grid; place-items: center; }
-.upg .uicon canvas { display: block; }
-.upg b { display: block; font-size: 12px; font-weight: 700; color: var(--ink); }
-.upg small { display: block; font-size: 9.5px; color: var(--ink-4); margin-top: 1px; }
-.pips { display: flex; gap: 3px; margin-top: 5px; }
-.pips i { width: 12px; height: 4px; border-radius: 1px; background: var(--rule-soft); }
 .pips i.on { background: var(--amber); }
-
-.ubuy {
-  border-radius: var(--radius-sm);
-  padding: 7px 11px;
-  font-family: var(--font-heading); font-weight: 400;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--amber-ink);
-  background: var(--amber);
-  box-shadow: 0 2px 0 var(--amber-deep);
-  transition: background 0.15s, transform 0.1s, box-shadow 0.1s;
-}
-.ubuy:hover { background: var(--amber-lit); }
-.ubuy:active { background: var(--amber-deep); transform: translateY(2px); box-shadow: none; }
-.ubuy:disabled {
-  background: transparent; color: var(--ink-4);
-  box-shadow: none;
-  border: 2px dashed var(--rule-soft);
-  cursor: not-allowed;
-}
-.ubuy.maxed {
-  background: transparent;
-  color: var(--stamp-good);
-  border: 2px dashed var(--stamp-good);
-  box-shadow: none;
-}
-
-.next-kitchen {
-  margin-top: var(--space-3);
-  padding-top: var(--space-2);
-  border-top: 1px dashed var(--rule);
-  font-size: 11px;
-  line-height: 1.55;
-  color: var(--ink-3);
-}
-.next-kitchen span {
-  display: block;
-  font-size: 8px;
-  letter-spacing: 0.2em;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: var(--amber-deep);
-  margin-bottom: 3px;
-}
-.next-kitchen b { color: var(--ink); font-size: 12px; font-weight: 700; }
-.next-kitchen em {
-  font-style: normal;
-  font-weight: 700;
-  font-size: 9.5px;
-  color: var(--stamp-good);
-}
-
-.next-line {
-  font-size: 11px; color: var(--ink-4); margin-top: var(--space-2);
-  letter-spacing: 0.06em; text-transform: uppercase; font-weight: 700;
-}
-.next-line b { color: var(--alarm-deep); font-weight: 700; }
 
 /* -------------------------------------------------------- the outfitters */
 /*
@@ -885,29 +721,6 @@ body.rush .sign-burger { animation: sign-buzz 1.6s ease-in-out infinite; }
 .sku-buy.own:hover { background: rgba(63, 122, 42, 0.08); }
 .sku-buy:disabled { cursor: default; transform: none; }
 .sku-buy.busy { opacity: 0.5; }
-
-/* ---------------------------------------------------- the drawn ornaments */
-/* Canvases the interface paints into: the till bundle, the two rubber stamps,
-   and the swing tag a shop price hangs off. Sized here so the slip lays out
-   before the drawing has run. */
-.wallet .wallet-row { display: flex; align-items: center; gap: var(--space-2); margin-top: 2px; }
-.wallet .wallet-row b { display: block; }
-.till-art { width: 40px; height: 30px; display: block; flex: 0 0 auto; }
-
-.stamp-art { width: 96px; height: 48px; display: block; margin: var(--space-2) auto 0; }
-.pause-art { width: 180px; height: 74px; display: block; margin: 0 auto var(--space-2); }
-
-/* A tagged price is the tag - no stub behind it. */
-.ubuy.tagged {
-  background: transparent;
-  box-shadow: none;
-  padding: 0;
-  border-radius: 0;
-}
-.ubuy.tagged canvas { display: block; }
-.ubuy.tagged:hover { background: transparent; }
-.ubuy.tagged:active { background: transparent; transform: translate(1px, 2px); }
-.ubuy.tagged:disabled { border: none; opacity: 0.45; }
 .title-row .linkbtn { width: auto; }
 
 .net-state {
@@ -1022,55 +835,8 @@ body.cramped #rotate {
   position: fixed;
   inset: 0;
   z-index: 90;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-4);
+  display: block;
   background: radial-gradient(120% 120% at 50% 0%, #3a2216 0%, #1b0f09 70%);
-  text-align: center;
-}
-
-.rotate-inner { max-width: 380px; }
-
-.rotate-icon {
-  width: 44px; height: 44px;
-  font-size: 40px;
-  line-height: 1;
-  margin-bottom: var(--space-3);
-  display: inline-block;
-  transform: rotate(90deg);
-  animation: rotate-hint 2.4s ease-in-out infinite;
-}
-@supports (mask: url("")) or (-webkit-mask: url("")) {
-  .rotate-icon {
-    font-size: 0;
-    background: var(--amber);
-    -webkit-mask: var(--icon-phone) center / contain no-repeat;
-    mask: var(--icon-phone) center / contain no-repeat;
-  }
-}
-
-@keyframes rotate-hint {
-  0%, 45%  { transform: rotate(90deg); }
-  60%, 90% { transform: rotate(0deg); }
-  100%     { transform: rotate(90deg); }
-}
-
-#rotate h2 {
-  margin: 0 0 var(--space-2);
-  font-family: var(--font-heading);
-  font-weight: 400;
-  font-size: 24px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--amber);
-}
-
-#rotate p {
-  margin: 0;
-  font-size: 13.5px;
-  line-height: 1.55;
-  color: rgba(255, 244, 224, 0.72);
 }
 
 /* ---------------------------------------------------------- tight screens */
