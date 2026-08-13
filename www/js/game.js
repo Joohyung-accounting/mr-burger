@@ -154,6 +154,7 @@
     plates: [],    // { stack: [{id, cook}], side, drink }  - the whole tray
     grill: [],     // { id, t } | null
     fryer: [],     // { t } | null, one per well - the same clock the grill runs
+    board: null,   // { id, cut, portions, wet, juice } - the prep board
     drinkTaps: [], // the flavours the fountain is plumbed for today
     // One cook in single player, two in co-op. S.me is which one this device
     // drives; S.chef below stays a live alias to it so the rest of the game
@@ -284,6 +285,18 @@
   // the grill: at 28px wide over a 68px column they collided with each other
   // and with the burner above, and an illegible label is worse than none.
   var FRYER_H = 78, TAP_H = 54;
+  /*
+   * The board is a PREP station, not a per-order one.
+   *
+   * Chopping a tomato for every ticket that wants one would be two more
+   * station visits per vegetable per order, on top of the three the tray
+   * already added - the walking budget does not have it. A real kitchen does
+   * not work that way either: you prep a board of tomato and draw from it all
+   * service. So one vegetable yields PREP_PORTIONS, and the cost is paid when
+   * the board runs dry rather than on every plate.
+   */
+  var CHOP_TIME = 3.4;        // seconds from whole vegetable to a full board
+  var PREP_PORTIONS = 4;
   var FRY_SUPPLY = 0.36;          // the share of the box the supply row takes
 
   // The kitchen the speeds in core.js were tuned against: a 412x360 stage.
@@ -532,6 +545,12 @@
     L.fryTop = L.grillTop + gN * (L.slotH + gap);
     L.tapTop = L.plateTop + pN * (L.plateH + gap);
 
+    /*
+     * The prep board stands in the middle of the room rather than against a
+     * wall - both walls are full, and the middle was the largest empty thing
+     * in the kitchen. The cook works it from the near side, so it sits in the
+     * upper half of the floor and the cook's own body never covers it.
+     */
     // --- the walkable floor: whatever is left between the two walls
     L.floor = {
       x0: leftX + L.colW + 16,
@@ -548,6 +567,15 @@
      * twice as hard on a big screen. Scale the speed with the room so a
      * traverse costs the same wherever it is played.
      */
+    var fw = L.floor.x1 - L.floor.x0, fh2 = L.floor.y1 - L.floor.y0;
+    var bw = clamp(fw * 0.78, 96, 250);
+    L.board = S.board ? {
+      x: L.floor.x0 + (fw - bw) / 2,
+      y: L.floor.y0 + fh2 * 0.06,
+      w: bw,
+      h: bw * 0.50
+    } : null;
+
     var diag = Math.hypot(L.floor.x1 - L.floor.x0, L.floor.y1 - L.floor.y0);
     L.walkScale = clamp(diag / REF_FLOOR_DIAG, 0.6, 2.2);
     L.stride = Math.max(10, diag / STRIDES_PER_DIAG);
@@ -611,6 +639,8 @@
   function plateRect(i) {
     return { x: L.plateX, y: L.plateTop + i * (L.plateH + L.gap), w: L.colW, h: L.plateH };
   }
+
+  function boardRect() { return L.board || { x: 0, y: 0, w: 0, h: 0 }; }
 
   function fryerRect() { return { x: L.grillX, y: L.fryTop, w: L.colW, h: L.fryH }; }
 
@@ -682,6 +712,20 @@
         : t.kind === 'fryer' ? fryerRect() : tapRect();
       return { x: nearEdge(r, f, 'x'), y: clamp(r.y + r.h / 2, f.y0, f.y1) };
     }
+    /*
+     * The only station standing in open floor, so the cook has to work it from
+     * an END rather than from in front. Standing at the middle put a whole
+     * chef between the camera and the board - the vegetable, the knife and the
+     * pile of slices were all behind him, which is the one thing this station
+     * exists to show.
+     */
+    if (t.kind === 'board') {
+      r = boardRect();
+      return {
+        x: clamp(r.x - CHEF_S * (L.k || 1) * 0.42, f.x0, f.x1),
+        y: clamp(r.y + r.h * 0.92, f.y0, f.y1)
+      };
+    }
     if (t.kind === 'hatch' || t.kind === 'bin') {
       r = t.kind === 'hatch' ? hatchRect() : binRect();
       return { x: clamp(r.x + r.w / 2, f.x0, f.x1), y: nearEdge(r, f, 'y') };
@@ -704,6 +748,7 @@
     for (i = 0; i < menuLen(); i++) if (inside(crateRect(i))) return { kind: 'crate', i: i };
     for (i = 0; i < S.grill.length; i++) if (inside(slotRect(i))) return { kind: 'grill', i: i };
     for (i = 0; i < S.plates.length; i++) if (inside(plateRect(i))) return { kind: 'plate', i: i };
+    if (L.board && inside(boardRect())) return { kind: 'board' };
     if (L.fryH && inside(fryerRect())) return { kind: 'fryer', i: fryWellAt(x, y) };
     if (L.tapH && inside(tapRect())) return { kind: 'tap' };
     if (inside(hatchRect())) return { kind: 'hatch' };
@@ -917,6 +962,10 @@
     // The fry station opens on day 5 and the fountain on day 3; before that the
     // machines are not in the room at all, so the columns keep their old height.
     S.fryer = day >= Core.SIDE_DAY ? [null, null] : [];
+    // The board is in the room from the first shift: lettuce is on the line
+    // on day one, and a crate the plate refuses with no way to fix it would
+    // be a dead end rather than a step.
+    S.board = { id: null, cut: 0, portions: 0, wet: 0, juice: null };
     S.drinkTaps = Core.drinkMenu(day);
 
     // two cooks in co-op, one otherwise
@@ -1123,8 +1172,15 @@
     if (t.kind === 'plate') {
       var p = S.plates[t.i];
       if (hold && hold.kind === 'ing') {
-        if (Core.byId(hold.id).grill && hold.cook === undefined) {
+        var ping = Core.byId(hold.id);
+        if (ping && ping.grill && hold.cook === undefined) {
           nope('GRILL IT FIRST', ci);
+          return;
+        }
+        // A whole tomato is not a burger topping until it has been through
+        // the board - the same gate the grill has always had for the patty.
+        if (ping && ping.chop && !hold.prepped) {
+          nope('CHOP IT FIRST', ci);
           return;
         }
         p.stack.push({
@@ -1181,6 +1237,50 @@
         return;
       }
       nope('NOTHING ON THAT PLATE', ci);
+      return;
+    }
+
+    /*
+     * The board. Load a whole vegetable, let the knife work, then draw
+     * portions off it until it is bare.
+     *
+     * Empty hands TAKE and full hands GIVE, the same as everywhere else - the
+     * only new rule is that a vegetable has to come through here before a
+     * plate will accept it.
+     */
+    if (t.kind === 'board') {
+      var bd = S.board;
+      if (!bd) { nope('NO BOARD IN HERE', ci); return; }
+      var br = boardRect();
+
+      if (hold) {
+        var bing = hold.kind === 'ing' && Core.byId(hold.id);
+        if (!bing || !bing.chop) { nope('THAT DOESN\'T GET CHOPPED', ci); return; }
+        if (hold.prepped) { nope('ALREADY CHOPPED', ci); return; }
+        if (bd.id) { nope(bd.portions ? 'CLEAR THE BOARD FIRST' : 'ONE AT A TIME', ci); return; }
+        bd.id = hold.id;
+        bd.cut = 0;
+        bd.portions = 0;
+        bd.juice = bing.swatch;
+        me.holding = null;
+        dropOnto('board', 0, hold.id, br.x + br.w / 2, br.y + br.h * 0.60, br.w * 0.24, ci, hold);
+        Sfx.stack(1);
+        buzz(10);
+        return;
+      }
+
+      if (!bd.id) { nope('PUT A VEGETABLE ON IT', ci); return; }
+      if (!bd.portions) { nope('STILL CHOPPING', ci); return; }
+      me.holding = { kind: 'ing', id: bd.id, done: 0, char: 0, prepped: true };
+      bd.portions--;
+      if (!bd.portions) {
+        // wiped down, and the grain keeps the colour of what was on it
+        bd.wet = Math.min(1, (bd.wet || 0) + 0.34);
+        bd.id = null;
+        bd.cut = 0;
+      }
+      Sfx.lift();
+      buzz(8);
       return;
     }
 
@@ -1497,6 +1597,16 @@
 
     // A guest renders what the host sends and simulates none of it.
     if (S.role === 'guest') { updateBoardBars(); syncClock(); return; }
+
+    if (S.board && S.board.id && !S.board.portions) {
+      S.board.cut = Math.min(1, S.board.cut + dt / CHOP_TIME);
+      if (S.board.cut >= 1) {
+        S.board.portions = PREP_PORTIONS;
+        var brr = boardRect();
+        float(PREP_PORTIONS + ' READY', brr.x + brr.w / 2, brr.y, K.go, 11);
+        Sfx.stack(2);
+      }
+    }
 
     for (i = 0; i < S.fryer.length; i++) if (S.fryer[i]) S.fryer[i].t += dt;
 
@@ -1870,6 +1980,37 @@
    * "drop a basket" rather than "conjure potatoes". The cutter cranks while
    * a well is running, so the machine is visibly doing the work.
    */
+  /*
+   * The board, and whatever is happening on it. Art.scene.prep draws the slab,
+   * the vegetable, the pile of slices and the knife in one call; `cut` is how
+   * much of the vegetable is gone and `chop` is where the blade is in its
+   * swing, so the knife only rocks while there is something to cut.
+   */
+  function drawPrepBoard() {
+    if (!L.board || !S.board || !Art.scene.prep) return;
+    var r = L.board, bd = S.board;
+    var opts = {
+      board: { wood: 'maple', scars: 0.55, wet: bd.wet || 0, juice: bd.juice || '#c0392b' }
+    };
+    if (!bd.id) {
+      // bare: the slab and nothing on it
+      Art.scene.board(ctx, r.x, r.y + r.h * 0.30, r.w, r.h * 0.70, opts.board);
+      return;
+    }
+    opts.veg = bd.id;
+    opts.cut = bd.portions ? 1 : bd.cut;
+    // still to cut -> the knife rocks; done -> it rests on the board
+    opts.chop = bd.portions ? 0.06 : chopSwing(nowMs() / 1000);
+    Art.scene.prep(ctx, r.x, r.y, r.w, r.h, opts);
+    if (bd.portions) pickRing(r, 12);
+  }
+
+  /** The blade's own cycle - art-prep's chopPhase, which it does not export. */
+  function chopSwing(t) {
+    var p = (t * 1.55) % 1;
+    return p < 0.72 ? 1 - Math.pow(p / 0.72, 0.85) : Math.pow((p - 0.72) / 0.28, 0.62);
+  }
+
   function drawFryStation() {
     // art-fries-drinks.js is a separate file. If it ever fails to load, the
     // station simply is not drawn - the room should not die with it.
@@ -2231,6 +2372,7 @@
     drawRoom();
     drawCounter();
     drawCrates();
+    drawPrepBoard();
     drawGrill();
     drawFryStation();
     drawPlates();
@@ -3407,12 +3549,12 @@
   function packHold(h) {
     if (!h) return null;
     if (h.kind === 'plate') return { k: 'p', s: h.stack };
-    return { k: 'i', id: h.id, c: h.cook, d: h.done, ch: h.char, gt: h.grillT };
+    return { k: 'i', id: h.id, c: h.cook, d: h.done, ch: h.char, gt: h.grillT, pr: h.prepped ? 1 : 0 };
   }
   function unpackHold(h) {
     if (!h) return null;
     if (h.k === 'p') return { kind: 'plate', stack: h.s || [] };
-    return { kind: 'ing', id: h.id, cook: h.c, done: h.d, char: h.ch, grillT: h.gt };
+    return { kind: 'ing', id: h.id, cook: h.c, done: h.d, char: h.ch, grillT: h.gt, prepped: !!h.pr };
   }
 
   function snapshot() {
@@ -3430,6 +3572,8 @@
       }),
       grill: S.grill.map(function (g) { return g ? { id: g.id, t: g.t } : null; }),
       fryer: S.fryer.map(function (w) { return w ? { t: w.t } : null; }),
+      board: S.board ? { id: S.board.id, cut: S.board.cut, p: S.board.portions,
+                         wet: S.board.wet, j: S.board.juice } : null,
       taps: S.drinkTaps,
       tickets: S.tickets.map(function (t) {
         return { uid: t.uid, a: t.arch.id, items: t.items, sd: t.side || null,
@@ -3455,6 +3599,7 @@
       S.plates.length !== m.plates.length ||
       S.grill.length !== m.grill.length ||
       S.fryer.length !== ((m.fryer || []).length) ||
+      (!!S.board) !== (!!m.board) ||
       S.day !== m.day;
 
     var dayChanged = S.day !== m.day;
@@ -3491,6 +3636,9 @@
     S.grill = m.grill;
     S.fryer = m.fryer || [];
     S.drinkTaps = m.taps || [];
+    S.board = m.board
+      ? { id: m.board.id, cut: m.board.cut, portions: m.board.p, wet: m.board.wet, juice: m.board.j }
+      : null;
 
     // keep ticket objects (and their DOM nodes) alive across snapshots
     var byUid = {};
@@ -3959,6 +4107,10 @@
     for (var i = 0; i < S.fx.plates; i++) S.plates.push({ stack: [], side: null, drink: null });
     S.grill = new Array(S.fx.grillSlots).fill(null);
     S.fryer = S.day >= Core.SIDE_DAY ? [null, null] : [];
+    // The board is in the room from the first shift: lettuce is on the line
+    // on day one, and a crate the plate refuses with no way to fix it would
+    // be a dead end rather than a step.
+    S.board = { id: null, cut: 0, portions: 0, wet: 0, juice: null };
     S.drinkTaps = Core.drinkMenu(S.day);
     S.rent = Core.dayGoal(S.day);
     resize();
@@ -4014,6 +4166,7 @@
     crateRect: crateRect, slotRect: slotRect, plateRect: plateRect,
     hatchRect: hatchRect, binRect: binRect,
     fryerRect: fryerRect, fryWellRect: fryWellRect, tapRect: tapRect,
+    boardRect: boardRect,
     nextDrinkWanted: nextDrinkWanted,
     buyUpgrade: buyUpgrade, ticketOf: ticketOf
   };

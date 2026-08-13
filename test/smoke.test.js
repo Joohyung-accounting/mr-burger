@@ -204,6 +204,7 @@ global.Core = Core;
 require('../www/js/art.js');
 // index.html loads this straight after art.js, and the kitchen draws from it.
 require('../www/js/art-fries-drinks.js');
+require('../www/js/art-prep.js');
 require('../www/js/audio.js');
 // The real billing seam, sandbox adapter and all - so the store screen is
 // exercised against what actually ships rather than a stub of it.
@@ -250,11 +251,31 @@ function fetchCookedPatty(slot) {
   work(MB.slotRect(slot));
 }
 
-/** Build `items` onto plate `p`, grilling whatever needs grilling. */
+/**
+ * Take one portion of `id` off the board, loading and chopping a fresh
+ * vegetable first if the board has none left. This is what a player does.
+ */
+function fetchChopped(id) {
+  if (!S.board.portions || S.board.id !== id) {
+    assert.ok(!S.board.id || !S.board.portions,
+      'the board still has ' + S.board.id + ' on it');
+    work(crateOf(id));
+    work(MB.boardRect());              // whole vegetable down, knife starts
+    for (var i = 0; i < 400 && !S.board.portions; i++) pump(0.05);
+    assert.ok(S.board.portions, id + ' never finished chopping');
+  }
+  work(MB.boardRect());                // and take a portion off it
+  assert.ok(held() && held().prepped, id + ' came off the board unchopped');
+}
+
+/** Build `items` onto plate `p`, grilling and chopping whatever needs it. */
 function buildPlate(p, items) {
   items.forEach(function (id) {
-    if (Core.byId(id).grill) {
+    var ing = Core.byId(id);
+    if (ing.grill) {
       fetchCookedPatty(S.grill.indexOf(null));
+    } else if (ing.chop) {
+      fetchChopped(id);
     } else {
       work(crateOf(id));
     }
@@ -945,8 +966,7 @@ test('an empty burner gives nothing back', function () {
 test('fillings land on the plate the chef was sent to', function () {
   startShift(6);
   var topping = S.menu.filter(function (id) { return id !== 'patty' && id !== 'bun'; })[0];
-  work(crateOf(topping));
-  work(MB.plateRect(1));
+  buildPlate(1, [topping]);
   assert.deepStrictEqual(plateIds(1), [topping]);
   assert.deepStrictEqual(plateIds(0), [], 'the other plate should be untouched');
   assert.strictEqual(held(), null);
@@ -956,10 +976,8 @@ test('two plates fill independently', function () {
   startShift(8);
   var a = S.menu.filter(function (id) { return id !== 'patty' && id !== 'bun'; })[0];
   var b = S.menu.filter(function (id) { return id !== 'patty' && id !== 'bun'; })[1] || a;
-  work(crateOf(a));
-  work(MB.plateRect(0));
-  work(crateOf(b));
-  work(MB.plateRect(1));
+  buildPlate(0, [a]);
+  buildPlate(1, [b]);
   assert.deepStrictEqual(plateIds(0), [a]);
   assert.deepStrictEqual(plateIds(1), [b]);
 });
@@ -967,8 +985,7 @@ test('two plates fill independently', function () {
 test('a loaded plate can be picked up, put down, and picked up again', function () {
   startShift(6);
   var topping = S.menu.filter(function (id) { return id !== 'patty' && id !== 'bun'; })[0];
-  work(crateOf(topping));
-  work(MB.plateRect(0));
+  buildPlate(0, [topping]);
 
   work(MB.plateRect(0));
   assert.strictEqual(held().kind, 'plate', 'the chef should be carrying the plate');
@@ -982,10 +999,8 @@ test('a loaded plate can be picked up, put down, and picked up again', function 
 test('a carried plate cannot be dumped on an occupied station', function () {
   startShift(8);
   var a = S.menu.filter(function (id) { return id !== 'patty' && id !== 'bun'; })[0];
-  work(crateOf(a));
-  work(MB.plateRect(0));
-  work(crateOf(a));
-  work(MB.plateRect(1));
+  buildPlate(0, [a]);
+  buildPlate(1, [a]);
 
   work(MB.plateRect(0));                 // pick plate 0 up
   work(MB.plateRect(1));                 // plate 1 is busy
@@ -1421,18 +1436,33 @@ test('survives a long, messy run across many days without throwing', function ()
     // Play badly on purpose: skip fillings, mistime the grill, bin things.
     t.items.forEach(function (id) {
       if (Math.random() < 0.15) return;
-      if (Core.byId(id).grill) {
+      var ing = Core.byId(id);
+      if (ing.grill) {
         var slot = S.grill.indexOf(null);
         if (slot < 0) return;
         work(crateOf('patty'));
         work(MB.slotRect(slot));
+        // the put-on is refused if the cook's hands were already full
+        if (!S.grill[slot]) return;
         S.grill[slot].t = Math.random() * 14;
         work(MB.slotRect(slot));
+      } else if (ing.chop) {
+        // through the board, and sometimes abandon it half-chopped
+        if (!S.board.portions && !S.board.id) {
+          work(crateOf(id));
+          work(MB.boardRect());
+        }
+        if (S.board.id === id) {
+          for (var i = 0; i < 200 && !S.board.portions; i++) pump(0.05);
+        }
+        if (S.board.portions && S.board.id === id) work(MB.boardRect());
       } else {
         work(crateOf(id));
       }
       work(MB.plateRect(p));
     });
+    // whatever is still in the cook's hands and cannot be plated goes in the bin
+    if (held() && held().kind === 'ing') work(MB.binRect());
     if (Math.random() < 0.08) { work(MB.plateRect(p)); work(MB.binRect()); continue; }
     work(MB.plateRect(p));
     work(MB.hatchRect());
@@ -2055,6 +2085,128 @@ test('a co-op guest reserves the board for the host\'s day, not its own', functi
 
   assert.ok(theirs > mine,
     'the guest kept its own day-3 reservation (' + mine + ') for a day-14 board (' + theirs + ')');
+});
+
+/* --------------------------------------------------------- the prep board */
+
+test('every vegetable the board can slice is flagged for chopping', function () {
+  // Art.VEG_IDS is what art-prep can actually draw a cross-section for. A
+  // `chop: true` on anything else would send the player to a board that cannot
+  // show them what they are cutting.
+  var art = (global.Art && global.Art.VEG_IDS) || [];
+  assert.ok(art.length, 'art-prep never registered its vegetables');
+  var flagged = Core.INGREDIENTS.filter(function (i) { return i.chop; })
+    .map(function (i) { return i.id; }).sort();
+  assert.deepStrictEqual(flagged, art.slice().sort(),
+    'the pantry and the knife disagree about what gets chopped');
+});
+
+test('a whole vegetable is refused by the plate until it has been chopped', function () {
+  startShift(6);
+  var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; })[0];
+  assert.ok(veg, 'day 6 stocks nothing that needs chopping');
+
+  work(crateOf(veg));
+  assert.strictEqual(held().id, veg);
+  assert.ok(!held().prepped, 'it came out of the crate already chopped');
+
+  work(MB.plateRect(0));
+  assert.strictEqual(plateIds(0).length, 0, 'a whole vegetable landed on the plate');
+  assert.ok(held(), 'the cook put it down anyway');
+});
+
+test('the board turns one vegetable into several portions', function () {
+  startShift(6);
+  var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; })[0];
+  S.chef.holding = null;
+
+  work(crateOf(veg));
+  work(MB.boardRect());
+  assert.strictEqual(S.board.id, veg, 'it never went on the board');
+  assert.strictEqual(held(), null, 'the cook walked off with it');
+  assert.strictEqual(S.board.portions, 0, 'it was chopped before the knife moved');
+
+  for (var i = 0; i < 400 && !S.board.portions; i++) pump(0.05);
+  assert.ok(S.board.portions > 1, 'one vegetable yielded ' + S.board.portions + ' portions');
+
+  // and every portion comes off prepped, until the board is bare
+  var got = 0;
+  while (S.board.portions) {
+    work(MB.boardRect());
+    assert.ok(held() && held().prepped, 'portion ' + got + ' came off unchopped');
+    got++;
+    work(MB.plateRect(0));
+  }
+  assert.strictEqual(got, 4, 'took ' + got + ' portions off the board');
+  assert.strictEqual(S.board.id, null, 'the board was not cleared when it ran out');
+  assert.strictEqual(plateIds(0).length, 4);
+});
+
+test('the board takes one vegetable at a time', function () {
+  startShift(8);
+  var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; });
+  if (veg.length < 2) { S.levels = {}; return; }   // nothing to prove today
+  S.chef.holding = null;
+
+  work(crateOf(veg[0]));
+  work(MB.boardRect());
+  for (var i = 0; i < 400 && !S.board.portions; i++) pump(0.05);
+
+  work(crateOf(veg[1]));
+  work(MB.boardRect());
+  assert.strictEqual(S.board.id, veg[0], 'the second vegetable shoved the first off');
+  assert.ok(held(), 'the cook lost the vegetable he was carrying');
+});
+
+test('the knife only runs while there is something to cut', function () {
+  startShift(6);
+  S.chef.holding = null;
+  var before = S.board.cut;
+  pump(2);
+  assert.strictEqual(S.board.cut, before, 'an empty board chopped away at nothing');
+
+  var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; })[0];
+  work(crateOf(veg));
+  work(MB.boardRect());
+  pump(1);
+  assert.ok(S.board.cut > 0, 'the knife never started');
+  for (var i = 0; i < 400 && !S.board.portions; i++) pump(0.05);
+  var atRest = S.board.cut;
+  pump(2);
+  assert.strictEqual(S.board.cut, atRest, 'it kept cutting a vegetable that was done');
+});
+
+test('a co-op guest sees the board the host is working', function () {
+  startShift(6);
+  var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; })[0];
+  S.chef.holding = null;
+  work(crateOf(veg));
+  work(MB.boardRect());
+  pump(1);
+
+  var snap = MB.snapshot();
+  assert.ok(snap.board, 'the snapshot dropped the board');
+  assert.strictEqual(snap.board.id, veg);
+
+  S.board = { id: null, cut: 0, portions: 0, wet: 0, juice: null };
+  MB.applySnapshot(snap);
+  assert.strictEqual(S.board.id, veg, 'the guest never saw what was on the board');
+  assert.ok(S.board.cut > 0, 'the guest saw an uncut vegetable');
+  S.role = 'solo'; S.me = 0;
+});
+
+test('a chopped portion survives the trip over the wire', function () {
+  startShift(6);
+  var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; })[0];
+  S.chef.holding = null;
+  fetchChopped(veg);
+  assert.ok(held().prepped);
+
+  var snap = MB.snapshot();
+  MB.applySnapshot(snap);
+  assert.ok(S.chefs[0].holding && S.chefs[0].holding.prepped,
+    'the guest saw a whole vegetable in the cook\'s hands');
+  S.role = 'solo'; S.me = 0;
 });
 
 /* ------------------------------------------------- the fry line & fountain */
