@@ -5,9 +5,10 @@
   "description": "Mr. Burger - build every order exactly right, before the customer walks out.",
   "scripts": {
     "dev": "node tools/serve.js",
-    "test": "node test/core.test.js && node test/smoke.test.js",
+    "test": "node test/core.test.js && node test/smoke.test.js && node test/fries.test.js",
     "test:core": "node test/core.test.js",
     "test:smoke": "node test/smoke.test.js",
+    "test:fries": "node test/fries.test.js",
     "icons": "node tools/make-icons.js",
     "cap:add": "cap add android",
     "cap:sync": "cap sync android",

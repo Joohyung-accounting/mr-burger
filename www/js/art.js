@@ -2898,26 +2898,43 @@
       fill: '#c0562f', line: '#8a3a1c', weight: 0.15, track: 0.50, seed: s + 4, tilt: 0.06
     });
 
-    // BURGER, hand-lettered and hatched inside the strokes
-    var wmSize = pw * 0.175, wmY = py + ph * 0.200;
+    /*
+     * BURGER, hand-lettered and hatched inside the strokes.
+     *
+     * The wordmark is the one thing on the slip sized off the sheet's width;
+     * everything else is written off its height. On a short, wide screen -
+     * a desktop window, a tablet on its side - pw * 0.175 alone grew the
+     * letters until they swallowed MR. and climbed out over the rail. Cap it
+     * against the height too, at the ratio the tall layout already lands on,
+     * so the portrait slip is untouched and a wide one just gets a smaller
+     * wordmark instead of a broken one.
+     */
+    var wmSize = Math.min(pw * 0.175, ph * 0.105), wmY = py + ph * 0.200;
     hatchedLayer(ctx, px, wmY - wmSize * 1.35, pw, wmSize * 1.70, function (g) {
       penLetters(g, 'BURGER', pw / 2, wmSize * 1.35, wmSize, {
         fill: '#f0b429', line: '#3f2a1c', weight: 0.150, track: 0.085, seed: s + 5, tilt: 0.04
       });
     }, '#7a3e20', s + 5, { alpha: 0.32, gap: 0.075, lw: 0.016 });
 
-    // swash under the wordmark, drawn as two passes of the same stroke
+    /*
+     * The swash under the wordmark, drawn as two passes of the same stroke.
+     * It is underlining the letters, so it measures itself against them and
+     * not against the paper - otherwise a capped wordmark sits over a rule
+     * that still runs the full width of a wide sheet.
+     */
+    var swW = Math.min(pw * 0.60, penTextWidth('BURGER', wmSize, 0.085) * 0.73);
+    var sw0 = cx - swW / 2;
     ctx.save();
     ctx.strokeStyle = '#c0562f';
     ctx.lineCap = 'round';
     for (i = 0; i < 2; i++) {
       ctx.globalAlpha = i ? 0.45 : 0.95;
-      ctx.lineWidth = Math.max(1.2, pw * (i ? 0.011 : 0.016));
+      ctx.lineWidth = Math.max(1.2, swW * (i ? 0.0184 : 0.0267));
       ctx.beginPath();
-      ctx.moveTo(px + pw * 0.20, py + ph * 0.228 + i * ph * 0.006);
-      ctx.bezierCurveTo(px + pw * 0.40, py + ph * 0.242 + i * ph * 0.005,
-                        px + pw * 0.62, py + ph * 0.217 + i * ph * 0.005,
-                        px + pw * 0.80, py + ph * 0.232 + i * ph * 0.006);
+      ctx.moveTo(sw0, py + ph * 0.228 + i * ph * 0.006);
+      ctx.bezierCurveTo(sw0 + swW * 0.333, py + ph * 0.242 + i * ph * 0.005,
+                        sw0 + swW * 0.700, py + ph * 0.217 + i * ph * 0.005,
+                        sw0 + swW, py + ph * 0.232 + i * ph * 0.006);
       ctx.stroke();
     }
     ctx.restore();

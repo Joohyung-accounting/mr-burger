@@ -531,19 +531,13 @@ body.rush .board-wrap {
 .cta.alt:hover { background: rgba(63, 42, 28, 0.05); }
 .cta.alt:active { background: rgba(63, 42, 28, 0.1); transform: translateY(2px); box-shadow: none; }
 
-/* When there is a save, CONTINUE is the hero and NEW SHIFT steps back. */
-#continueBtn:not([hidden]) + #playBtn {
-  color: var(--ink-2);
-  background: transparent;
-  border: 2px dashed var(--rule);
-  box-shadow: none;
-  font-size: 13px;
-}
-#continueBtn:not([hidden]) + #playBtn:active {
-  background: rgba(63, 42, 28, 0.1);
-  transform: translateY(2px);
-  box-shadow: none;
-}
+/*
+ * CONTINUE is the hero and NEW SHIFT steps back - but that is now drawn, not
+ * styled: drawTitle paints the second button as a dashed outline. The rule
+ * that used to do it here typeset "New shift" in ink on top of the drawn
+ * letters, because two IDs outrank .hit's `color: transparent`. The title
+ * buttons carry no visible DOM: everything on the slip is painted.
+ */
 
 .linkbtn {
   display: block;

@@ -263,6 +263,10 @@
 
 <script src="js/core.js"></script>
 <script src="js/art.js"></script>
+<!-- The fry line and the drinks are drawn with art.js's pen, so they load after
+     it and hang themselves off the namespaces it already published. Nothing in
+     art.js knows they exist. -->
+<script src="js/art-fries-drinks.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/net.js"></script>
 <script src="js/billing.js"></script>
