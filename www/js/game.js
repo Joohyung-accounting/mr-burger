@@ -394,9 +394,20 @@
    * around 15px tall. Rather than guess at screen sizes in a media query, key
    * off the size the stations actually came out at.
    */
+  /*
+   * The one switch that stops draw(), so it has to be impossible to get stuck
+   * on. It used to return early whenever the value had not changed, which
+   * meant a stale  survived a restart: the loop kept skipping draw()
+   * and the kitchen stayed blank while the HUD and the board - which repaint
+   * on their own - carried on as if nothing were wrong. A frozen room with a
+   * running clock and no explanation on it.
+   *
+   * The class and the overlay are now written every time, and only the
+   * transition work is guarded.
+   */
   function showCramped() {
     var cramped = L.slotH < MIN_TAPPABLE || L.plateH < MIN_TAPPABLE;
-    if (cramped === S.cramped) return;
+    var changed = cramped !== S.cramped;
     S.cramped = cramped;
     if (document.body && document.body.classList) {
       document.body.classList.toggle('cramped', cramped);
@@ -407,7 +418,7 @@
       paintOn(el.rotateArt, rw, rh, function (g) { Art.ui.rotate(g, 0, 0, rw, rh); });
     }
     // Coming back from it, the loop has been idle: don't hand it a huge dt.
-    if (!cramped) last = 0;
+    if (changed && !cramped) last = 0;
   }
 
   function layout() {
@@ -993,6 +1004,9 @@
       return g && g.chop;
     }) ? { id: null, cut: 0, portions: 0, wet: 0, juice: null } : null;
     S.drinkTaps = Core.drinkMenu(day);
+    // Whatever the last shift decided about the room, this one measures it
+    // again - resize() below re-derives it from the real canvas.
+    S.cramped = false;
 
     // two cooks in co-op, one otherwise
     var want = coop() ? 2 : 1;
