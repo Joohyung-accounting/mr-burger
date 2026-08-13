@@ -74,6 +74,15 @@
   }
 
   var rushOn = false;
+  /*
+   * The cook reacts, briefly. A verdict is already a banner and a colour wash;
+   * this is the third telling, and the only one that is HIM - a small cheer for
+   * a plate that landed, a droop for one that came back.
+   */
+  function chefMood(mode, secs, who) {
+    S.chefMood = { mode: mode, at: nowMs(), until: nowMs() + secs * 1000, who: who || 0 };
+  }
+
   function setRush(heat) {
     var next = rushOn ? heat > 0.55 : heat > 0.72;
     if (next === rushOn) return;
@@ -898,6 +907,7 @@
   function walkout(t) {
     S.walked++;
     S.hearts--;
+    chefMood('sad', 1.4);
     dropTicket(t);
     banner('WALKED OUT', t.arch.name + ' gave up waiting', C.alarm);
     S.shake = 14;
@@ -1417,7 +1427,8 @@
     S.sales += res.pay;
     S.tips += res.tip;
     S.hearts -= res.heartLoss;
-    if (res.verdict === 'perfect') S.perfect++;
+    if (res.verdict === 'perfect') { S.perfect++; chefMood('cheer', 1.2); }
+    else if (res.verdict === 'bad') chefMood('sad', 1.4);
     if (res.verdict !== 'bad') S.served++;
 
     var v = VERDICT[res.verdict];
@@ -2269,8 +2280,27 @@
         ctx.stroke();
         ctx.restore();
       }
+      /*
+       * The pose comes from Art.chefPose, not from sine waves written here.
+       *
+       * `phase` is already the distance he has walked in strides, so it feeds
+       * the waddle directly - the lean, the hip shift, the rise between steps
+       * and the belly arriving late are all one number now. Standing still he
+       * breathes; a lost order leaves him drooping for a moment; a plate that
+       * landed perfectly gets a little cheer.
+       */
+      var pose;
+      if (c.target) {
+        pose = { walk: c.phase };
+      } else if (S.chefMood && S.chefMood.until > nowMs() && (i === (S.chefMood.who || 0))) {
+        pose = Art.chefPose(S.chefMood.mode, (nowMs() - S.chefMood.at) / 1000);
+      } else {
+        pose = Art.chefPose('idle', nowMs() / 1000);
+      }
       Art.drawChef(ctx, c.x, c.y, cs, {
-        face: c.face, bob: c.phase, blink: c.blink, hop: c.hop,
+        face: c.face, blink: c.blink, hop: c.hop,
+        walk: pose.walk, bob: pose.bob === undefined ? c.phase * 0 : pose.bob,
+        work: pose.work, cheer: pose.cheer, droop: pose.droop,
         // The second cook in co-op keeps the house whites, so two players are
         // still telling each other apart at 44px.
         skin: i === S.me ? S.skin : 'classic',

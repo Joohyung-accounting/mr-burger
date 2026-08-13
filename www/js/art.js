@@ -1372,8 +1372,31 @@
     }
   };
 
-  function skinOf(id) { return CHEF_SKINS[id] || CHEF_SKINS.classic; }
+  function skinOf(id) {
+    var k = CHEF_SKINS[id] || CHEF_SKINS.classic;
+    if (!k.hair) k.hair = mixHex(k.skinHatch, '#241708', 0.62);
+    return k;
+  }
 
+  /* ----------------------------------------------------------- the chef */
+  /**
+   * Draws the cook standing on (x, y) - that point is the feet, so callers can
+   * treat the chef as a dot on the kitchen floor. `s` is the full height.
+   *
+   * Deliberately chibi: the head is nearly half the body and the toque is
+   * bigger than the head. Now drawn with the same wobbling pen as the food, so
+   * the cook and the burger look like they came out of one sketchbook.
+   *
+   * opts: { face, bob, blink, hop, carry, walk, work, cheer, droop }
+   *   walk   phase in TURNS (0..1 loops) - the waddle. Weight rolls from one
+   *          foot to the other: the body leans over the planted foot, the hips
+   *          shift under it, he rises between steps and the belly lags behind.
+   *   work   0..1 hands alternate up/down (chopping, flipping)
+   *   cheer  1 = both arms up
+   *   droop  0..1 shoulders sag, moustache and eyes fall (a lost order)
+   * Art.chefPose(mode, t) builds this bag from a clock - use that instead of
+   * hand-tuning sine waves in game.js.
+   */
   function drawChef(ctx, x, y, s, opts) {
     opts = opts || {};
     var K = skinOf(opts.skin);
@@ -1381,11 +1404,24 @@
     var swing = Math.sin((opts.bob || 0) * TAU);
     var hop = opts.hop || 0;
     var blink = opts.blink || 0;
+    var droop = opts.droop || 0;
+    var work = opts.work || 0;
     var lw = Math.max(1, s * 0.018);
-    var sd = 311;
+    var sd = 311, i;
 
-    var sx = 1 + hop * 0.12, sy = 1 - hop * 0.14;
-    var cy = y - Math.abs(swing) * s * 0.045 - hop * s * 0.10;
+    // the waddle. w8 = which foot carries the weight (+1 left .. -1 right),
+    // stp = how far the legs are apart, lag = the belly arriving late
+    var wk = opts.walk === undefined ? 0 : 1;
+    var ph = (opts.walk || 0) * TAU;
+    var w8 = Math.cos(ph) * wk, stp = Math.sin(ph) * wk;
+    var lag = Math.sin(ph - 0.9) * wk;
+    var rot = -w8 * 0.095;
+    var sway = -w8 * s * 0.022;
+    var rise = -(1 - Math.abs(w8)) * s * 0.030 * wk;
+
+    var sx = (1 + hop * 0.12) * (1 + Math.abs(w8) * 0.030);
+    var sy = (1 - hop * 0.14) * (1 - Math.abs(w8) * 0.035);
+    var cy = y - Math.abs(swing) * s * 0.045 - hop * s * 0.10 + rise;
 
     // scribbled contact shadow
     ctx.save();
@@ -1394,58 +1430,103 @@
     for (var g = 0; g < 3; g++) {
       ctx.globalAlpha = 0.13;
       ctx.lineWidth = s * 0.030;
-      var ww = s * 0.26 * (1 - g * 0.18) * (1 + hop * 0.15);
+      var ww = s * 0.30 * (1 - g * 0.18) * (1 + hop * 0.15);
       ctx.beginPath();
-      ctx.moveTo(x - ww, y + g * s * 0.018);
-      ctx.quadraticCurveTo(x, y + g * s * 0.018 + s * 0.01, x + ww, y + g * s * 0.018);
+      ctx.moveTo(x - ww + sway, y + g * s * 0.018);
+      ctx.quadraticCurveTo(x + sway, y + g * s * 0.018 + s * 0.01, x + ww + sway, y + g * s * 0.018);
       ctx.stroke();
     }
     ctx.restore();
 
     ctx.save();
-    ctx.translate(x, cy);
+    ctx.translate(x + sway, cy);
+    ctx.rotate(rot);
     ctx.scale(sx, sy);
     ctx.translate(-x, -cy);
 
-    // legs
-    ink(ctx, rectPts(x - s * 0.15 + swing * s * 0.085, cy - s * 0.16, s * 0.12, s * 0.16, s * 0.05, s * 0.006, sd),
-        K.trousers, { lw: lw * 0.9, off: s * 0.006, seed: sd });
-    ink(ctx, rectPts(x + s * 0.03 - swing * s * 0.085, cy - s * 0.16, s * 0.12, s * 0.16, s * 0.05, s * 0.006, sd + 2),
-        K.trousers, { lw: lw * 0.9, off: s * 0.006, seed: sd + 2 });
+    // legs: stubby, set wide apart, one swinging forward while the other plants
+    var legW = s * 0.130, legH = s * 0.140, legY = cy - legH;
+    for (i = 0; i < 2; i++) {
+      var dir = i ? 1 : -1;
+      var fwd = stp * dir * s * 0.050;
+      var lift = Math.max(0, stp * dir) * s * 0.040;
+      var lx = x + dir * s * 0.090 - legW / 2 + fwd;
+      ink(ctx, rectPts(lx, legY - lift, legW, legH + lift * 0.5, s * 0.052, s * 0.006, sd + i * 2),
+          K.trousers, { lw: lw * 0.9, off: s * 0.006, seed: sd + i * 2 });
+      ink(ctx, ellPts(lx + legW * 0.5 + dir * s * 0.014, cy - lift, s * 0.088, s * 0.033, 14, s * 0.004, sd + 40 + i),
+          mixHex(K.trousers, "#231c2a", 0.45), { lw: lw * 0.85, off: s * 0.004, seed: sd + 40 + i });
+    }
 
-    // chef whites
-    var bw = s * 0.44, bh = s * 0.32;
-    var body = rectPts(x - bw / 2, cy - s * 0.46, bw, bh, s * 0.14, s * 0.008, sd + 4);
+    // chef whites: a pear, not a box - narrow shoulders over a heavy belly
+    var bTop = cy - s * 0.500, bH = s * 0.385, bBot = bTop + bH;
+    var prof = [[0.170, 0.00], [0.222, 0.15], [0.270, 0.35], [0.297, 0.57],
+                [0.296, 0.78], [0.256, 0.93], [0.150, 1.00]];
+    var body = [];
+    for (i = 0; i < prof.length; i++) {
+      body.push([x + prof[i][0] * s * (1 + lag * 0.045), bTop + prof[i][1] * bH]);
+    }
+    body.push([x + s * 0.012 * lag, bBot + s * 0.010]);
+    for (i = prof.length - 1; i >= 0; i--) {
+      body.push([x - prof[i][0] * s * (1 - lag * 0.045), bTop + prof[i][1] * bH]);
+    }
+    body.push([x, bTop - s * 0.014]);
+    body = jitter(body, s * 0.007, sd + 4);
     ink(ctx, body, K.whites, { lw: lw, off: s * 0.007, seed: sd + 4 });
-    hatch(ctx, body, K.whitesHatch, sd + 4, { n: 4, alpha: 0.28, gap: s * 0.035 });
+    hatch(ctx, body, K.whitesHatch, sd + 4, { n: 4, alpha: 0.26, gap: s * 0.038 });
 
-    // neckerchief
-    ink(ctx, rectPts(x - s * 0.13, cy - s * 0.475, s * 0.26, s * 0.075, s * 0.032, s * 0.005, sd + 6),
-        K.scarf, { lw: lw * 0.85, off: s * 0.005, seed: sd + 6 });
+    // the belly itself: one soft crease so the coat reads as stretched over it
+    ctx.save();
+    ctx.globalAlpha = 0.30;
+    ctx.strokeStyle = K.whitesHatch;
+    ctx.lineCap = 'round';
+    ctx.lineWidth = lw * 0.9;
+    ctx.beginPath();
+    ctx.arc(x + lag * s * 0.010, bTop + bH * 0.50, s * 0.185, 0.32 * Math.PI, 0.68 * Math.PI);
+    ctx.stroke();
+    ctx.restore();
 
-    // buttons
-    ink(ctx, ellPts(x, cy - s * 0.33, s * 0.020, s * 0.020, 8, s * 0.003, sd + 8), null, { lw: lw * 0.7, line: K.buttons, lineAlpha: 0.7 });
-    ink(ctx, ellPts(x, cy - s * 0.24, s * 0.020, s * 0.020, 8, s * 0.003, sd + 9), null, { lw: lw * 0.7, line: K.buttons, lineAlpha: 0.7 });
+    // double-breasted buttons, riding the curve of the belly
+    for (i = 0; i < 3; i++) {
+      ink(ctx, ellPts(x + lag * s * 0.008, bTop + bH * (0.20 + i * 0.24), s * 0.021, s * 0.021, 8, s * 0.003, sd + 8 + i),
+          null, { lw: lw * 0.7, line: K.buttons, lineAlpha: 0.7 });
+    }
 
-    var handSpread = bw / 2 + s * 0.01, handY = cy - s * 0.30;
+    var shoulderY = bTop + bH * 0.16;
+    var bw2 = s * 0.255;
+    var handSpread = bw2 + s * 0.045, handY = cy - s * 0.285;
+    var lhx = x - handSpread - stp * s * 0.030, rhx = x + handSpread + stp * s * 0.030;
+    var lhy = handY + stp * s * 0.022 + droop * s * 0.045;
+    var rhy = handY - stp * s * 0.022 + droop * s * 0.045;
+    if (work) { lhy -= work * s * 0.055; rhy += work * s * 0.055; }
 
     // head
-    var hy = cy - s * 0.62, hr = s * 0.215;
-    var head = blobPts(x, hy, hr, hr, 5, 0.02, 0.9, 20, s * 0.006, sd + 11);
+    var hy = cy - s * 0.655, hr = s * 0.215;
+    var head = blobPts(x, hy + hr * 0.05, hr * 1.06, hr * 1.00, 5, 0.022, 0.9, 22, s * 0.006, sd + 11);
     ink(ctx, head, K.skin, { lw: lw, off: s * 0.006, seed: sd + 11 });
     hatch(ctx, head, K.skinHatch, sd + 11, { n: 3, alpha: 0.22, gap: s * 0.030 });
 
-    // rosy cheeks
+    // jowls: a soft second chin, the fastest way to read heavy
+    ctx.save();
+    ctx.globalAlpha = 0.28;
+    ctx.strokeStyle = K.skinHatch;
+    ctx.lineCap = 'round';
+    ctx.lineWidth = lw * 0.9;
+    ctx.beginPath();
+    ctx.arc(x, hy + hr * 0.30, hr * 0.62, 0.24 * Math.PI, 0.76 * Math.PI);
+    ctx.stroke();
+    ctx.restore();
+
+    // rosy cheeks, pushed out and down on the fuller face
     ctx.save();
     ctx.globalAlpha = 0.5;
     ctx.fillStyle = K.cheek;
-    trace(ctx, ellPts(x - hr * 0.55, hy + hr * 0.28, hr * 0.24, hr * 0.16, 9, s * 0.003, sd + 13)); ctx.fill();
-    trace(ctx, ellPts(x + hr * 0.55, hy + hr * 0.28, hr * 0.24, hr * 0.16, 9, s * 0.003, sd + 14)); ctx.fill();
+    trace(ctx, ellPts(x - hr * 0.62, hy + hr * 0.34, hr * 0.27, hr * 0.18, 9, s * 0.003, sd + 13)); ctx.fill();
+    trace(ctx, ellPts(x + hr * 0.62, hy + hr * 0.34, hr * 0.27, hr * 0.18, 9, s * 0.003, sd + 14)); ctx.fill();
     ctx.restore();
 
     // eyes
-    var ex = face * hr * 0.10, eo = hr * 0.34, ey = hy - hr * 0.02;
-    var open = 1 - blink;
+    var ex = face * hr * 0.10, eo = hr * 0.34, ey = hy - hr * 0.10;
+    var open = (1 - blink) * (1 - droop * 0.45);
     ctx.save();
     ctx.strokeStyle = INK;
     ctx.fillStyle = INK;
@@ -1460,31 +1541,130 @@
       ctx.moveTo(x + ex + eo - hr * 0.09, ey); ctx.lineTo(x + ex + eo + hr * 0.09, ey);
       ctx.stroke();
     }
+    // bushy brows, to answer the moustache
+    ctx.lineWidth = Math.max(1, hr * 0.15);
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(x + ex - eo - hr * 0.17, ey - hr * (0.30 - droop * 0.10));
+    ctx.lineTo(x + ex - eo + hr * 0.15, ey - hr * (0.36 + droop * 0.14));
+    ctx.moveTo(x + ex + eo - hr * 0.15, ey - hr * (0.36 + droop * 0.14));
+    ctx.lineTo(x + ex + eo + hr * 0.17, ey - hr * (0.30 - droop * 0.10));
+    ctx.stroke();
     // smile, drawn with a slightly overshooting stroke
+    ctx.globalAlpha = 0.88;
     ctx.lineWidth = Math.max(1, hr * 0.085);
     ctx.beginPath();
-    ctx.arc(x + ex, hy + hr * 0.20, hr * 0.24, 0.22 * Math.PI, 0.80 * Math.PI);
+    if (droop > 0.5) ctx.arc(x + ex, hy + hr * 0.86, hr * 0.24, 1.20 * Math.PI, 1.80 * Math.PI);
+    else ctx.arc(x + ex, hy + hr * 0.40, hr * 0.24, 0.22 * Math.PI, 0.80 * Math.PI);
     ctx.stroke();
     ctx.restore();
 
+    // nose: a bulb, so the moustache has something to sit under
+    ink(ctx, ellPts(x + ex * 1.4, hy + hr * 0.12, hr * 0.155, hr * 0.135, 14, s * 0.003, sd + 17),
+        mixHex(K.skin, "#c07f52", 0.35), { lw: lw * 0.75, off: s * 0.003, line: K.skinHatch, seed: sd + 17 });
+
+    // the moustache: a handlebar, tips curling up (down when he is beaten)
+    drawStache(ctx, x + ex * 1.2, hy + hr * (0.36 + droop * 0.05), hr * 0.46, hr * 0.135,
+               droop, lag * 0.35, lw, sd + 19, K);
+
     // toque
-    ink(ctx, rectPts(x - hr * 0.98, hy - hr * 1.08, hr * 1.96, hr * 0.44, hr * 0.16, s * 0.006, sd + 18),
+    ink(ctx, rectPts(x - hr * 1.02, hy - hr * 1.02, hr * 2.04, hr * 0.44, hr * 0.16, s * 0.006, sd + 18),
         K.toqueBand, { lw: lw, off: s * 0.005, seed: sd + 18 });
-    var puff = blobPts(x, hy - hr * 1.42, hr * 1.10, hr * 0.62, 3, 0.16, 0.6, 22, s * 0.008, sd + 20);
+    var puff = blobPts(x + lag * s * 0.008, hy - hr * 1.36, hr * 1.16, hr * 0.64, 3, 0.16, 0.6, 22, s * 0.008, sd + 20);
     ink(ctx, puff, K.toquePuff, { lw: lw, off: s * 0.006, seed: sd + 20 });
     hatch(ctx, puff, K.toqueHatch, sd + 20, { n: 3, alpha: 0.25, gap: s * 0.030 });
 
+    // neckerchief, tucked under the chin where the head meets the coat
+    ink(ctx, rectPts(x - s * 0.145, cy - s * 0.462, s * 0.29, s * 0.080, s * 0.034, s * 0.005, sd + 6),
+        K.scarf, { lw: lw * 0.85, off: s * 0.005, seed: sd + 6 });
+
+    if (opts.cheer) {
+      lhx = x - bw2 * 0.80; rhx = x + bw2 * 0.80;
+      lhy = rhy = hy - hr * 1.05;
+    }
     if (opts.carry) {
-      var carryY = cy - s * 0.05;
-      var half = opts.carry(ctx, x, carryY, s * 0.76, s * 0.46);
-      handSpread = Math.max(s * 0.18, (half || s * 0.30) * 0.94);
-      handY = carryY - s * 0.04;
+      var carryY = cy - s * 0.275;
+      var half = opts.carry(ctx, x, carryY, s * 0.72, s * 0.42);
+      handSpread = Math.max(s * 0.20, (half || s * 0.30) * 0.94);
+      lhx = x - handSpread; rhx = x + handSpread;
+      lhy = rhy = carryY + s * 0.035;
     }
 
-    ink(ctx, ellPts(x - handSpread, handY, s * 0.062, s * 0.062, 12, s * 0.004, sd + 22), K.skin, { lw: lw * 0.9, seed: sd + 22 });
-    ink(ctx, ellPts(x + handSpread, handY, s * 0.062, s * 0.062, 12, s * 0.004, sd + 23), K.skin, { lw: lw * 0.9, seed: sd + 23 });
+    // short sleeves out to each hand: a fat cook cannot hang his arms straight
+    sleeve(ctx, x - bw2 * 0.72, shoulderY, lhx, lhy, s, lw, K);
+    sleeve(ctx, x + bw2 * 0.72, shoulderY, rhx, rhy, s, lw, K);
+    ink(ctx, ellPts(lhx, lhy, s * 0.066, s * 0.066, 12, s * 0.004, sd + 22), K.skin, { lw: lw * 0.9, seed: sd + 22 });
+    ink(ctx, ellPts(rhx, rhy, s * 0.066, s * 0.066, 12, s * 0.004, sd + 23), K.skin, { lw: lw * 0.9, seed: sd + 23 });
 
     ctx.restore();
+  }
+
+  /** One sleeve, drawn as an outlined fat stroke - no rotation maths needed. */
+  // K is the cook's palette: these are siblings of drawChef, not closures
+  // inside it, so the skin travels as an argument rather than as scope.
+  function sleeve(ctx, x0, y0, x1, y1, s, lw, K) {
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = INK;
+    ctx.globalAlpha = 0.85;
+    ctx.lineWidth = s * 0.112;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    ctx.strokeStyle = K.whites;
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = s * 0.112 - lw * 1.7;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * Handlebar moustache. `dr` 0..1 drops the tips, `sw` shifts it sideways so
+   * it can lag behind a waddle.
+   */
+  function drawStache(ctx, cx, cy, mw, mh, dr, sw, lw, seed, K) {
+    var p = [], k;
+    var up = 1 - dr * 2;
+    p.push([cx, cy - mh * 0.50]);
+    p.push([cx + mw * 0.36, cy - mh * 0.66]);
+    p.push([cx + mw * 0.72, cy - mh * 0.78 + dr * mh * 0.9]);
+    p.push([cx + mw * 1.02, cy - mh * 1.35 * up]);
+    p.push([cx + mw * 1.20, cy - mh * 0.55 * up]);
+    p.push([cx + mw * 0.98, cy - mh * 0.05 + dr * mh * 0.9]);
+    p.push([cx + mw * 0.62, cy + mh * 0.52 + dr * mh * 0.5]);
+    p.push([cx + mw * 0.30, cy + mh * 0.78]);
+    p.push([cx, cy + mh * 0.66]);
+    for (k = p.length - 2; k >= 1; k--) p.push([2 * cx - p[k][0], p[k][1]]);
+    for (k = 0; k < p.length; k++) p[k][0] += sw * mw * 0.06;
+    p = jitter(p, mh * 0.10, seed);
+    ink(ctx, p, K.hair, { lw: lw * 0.85, off: mh * 0.09, line: K.hair, seed: seed });
+    hatch(ctx, p, K.hair, seed + 1, { n: 3, alpha: 0.22, gap: mh * 0.32 });
+  }
+
+  /**
+   * Turn a clock into a pose bag for drawChef, so game.js never hand-tunes a
+   * sine wave: Art.drawChef(ctx, x, y, s, Art.chefPose('walk', t)).
+   * modes: idle | walk | carry | cook | cheer | sad
+   */
+  function chefPose(mode, t, o) {
+    o = o || {};
+    t = t || 0;
+    var p = { face: o.face === undefined ? 1 : o.face };
+    p.blink = ((t * 0.29) % 1) > 0.962 ? 1 : 0;
+    if (mode === 'walk' || mode === 'carry') {
+      p.walk = (t * (o.speed === undefined ? 1.35 : o.speed)) % 1;
+    } else if (mode === 'cook') {
+      p.bob = (t * 1.1) % 1;
+      p.work = 0.5 + 0.5 * Math.sin(t * 7.5);
+    } else if (mode === 'cheer') {
+      p.hop = Math.max(0, Math.sin(((t * 1.7) % 1) * Math.PI));
+      p.cheer = 1;
+      p.blink = 0;
+    } else if (mode === 'sad') {
+      p.droop = 1;
+      p.bob = (t * 0.42) % 1;
+    } else {
+      p.bob = (t * 0.55) % 1;
+    }
+    return p;
   }
 
   /**
@@ -3798,6 +3978,7 @@
     drawUpgrade: drawUpgrade,
     UPGRADES: UPGRADE_IDS,
     drawChef: drawChef,
+    chefPose: chefPose,
     SAUCES: SAUCES,
     has: function (id) { return !!LAYERS[id]; },
     // hand-drawn toolkit, exported so game.js can draw counters, crates and the
