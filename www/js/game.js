@@ -2531,6 +2531,7 @@
    * that changed once is what made the phone stutter.
    */
   var hudLast = {};
+  var titleFrame = 0;
 
   function paintHud() {
     var total = S.sales + S.tips;
@@ -2990,7 +2991,9 @@
     var resume = !!(S.saved && S.day > 0);
 
     paintOn(el.titleArt, W, H, function (g) {
-      Art.ui.title(g, 0, 0, W, H, {
+      Art.ui.titleHero(g, 0, 0, W, H, {
+        t: nowMs() / 1000,
+        tagline: 'RUN THE LINE',
         day: resume ? S.day : 0,
         primary: resume ? null : 'START THE SHIFT',
         secondary: resume ? 'NEW SHIFT' : 'HOW TO PLAY',
@@ -3011,7 +3014,7 @@
       });
     });
 
-    var B = Art.ui.titleBoxes(0, 0, W, H, TITLE_TILES.length);
+    var B = Art.ui.heroBoxes(0, 0, W, H, TITLE_TILES.length);
     overlay(el.continueBtn, resume ? B.primary : null);
     overlay(el.playBtn, resume ? B.secondary : B.primary);
     overlay(el.howBtn2, resume ? null : B.secondary);
@@ -4117,6 +4120,16 @@
     var dt = last ? Math.min(0.05, (ts - last) / 1000) : 0;
     last = ts;
     if (sizeSettled(ts)) resize();
+
+    /*
+     * The title is a scene now, not a still: the bulb swings, the fries
+     * steam and the cook breathes. Fifteen frames a second is plenty for
+     * all three and leaves the phone alone.
+     */
+    if (el.start && el.start.classList.contains('show') && ts - titleFrame > 66) {
+      titleFrame = ts;
+      paintTitle();
+    }
     // A paused kitchen still gets painted - the frozen frame is the backdrop
     // the pause sheet sits on. A cramped one is covered by the turn-your-phone
     // sheet, so there is nothing to paint and, more to the point, the shift

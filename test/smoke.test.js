@@ -205,6 +205,7 @@ require('../www/js/art.js');
 // index.html loads this straight after art.js, and the kitchen draws from it.
 require('../www/js/art-fries-drinks.js');
 require('../www/js/art-prep.js');
+require('../www/js/art-title.js');
 require('../www/js/audio.js');
 // The real billing seam, sandbox adapter and all - so the store screen is
 // exercised against what actually ships rather than a stub of it.
