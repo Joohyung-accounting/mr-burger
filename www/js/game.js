@@ -577,13 +577,22 @@
      * twice as hard on a big screen. Scale the speed with the room so a
      * traverse costs the same wherever it is played.
      */
+    /*
+     * The prep table: an island, tucked up under the crate shelf rather than
+     * dropped in the middle of the room. The cook crosses this floor all shift
+     * between the burners and the plates, and a table sitting in that lane
+     * read as something spilled rather than as furniture.
+     *
+     * `h` is the whole piece of furniture - the counter slab and the board
+     * standing on it. drawPrepBoard splits it.
+     */
     var fw = L.floor.x1 - L.floor.x0, fh2 = L.floor.y1 - L.floor.y0;
-    var bw = clamp(fw * 0.78, 96, 250);
+    var bw = clamp(fw * 0.80, 96, 250);
     L.board = S.board ? {
       x: L.floor.x0 + (fw - bw) / 2,
-      y: L.floor.y0 + fh2 * 0.06,
+      y: L.floor.y0 - fh2 * 0.02,
       w: bw,
-      h: bw * 0.50
+      h: Math.min(bw * 0.56, fh2 * 0.40)
     } : null;
 
     var diag = Math.hypot(L.floor.x1 - L.floor.x0, L.floor.y1 - L.floor.y0);
@@ -973,10 +982,16 @@
     // The fry station opens on day 5 and the fountain on day 3; before that the
     // machines are not in the room at all, so the columns keep their old height.
     S.fryer = day >= Core.SIDE_DAY ? [null, null] : [];
-    // The board is in the room from the first shift: lettuce is on the line
-    // on day one, and a crate the plate refuses with no way to fix it would
-    // be a dead end rather than a step.
-    S.board = { id: null, cut: 0, portions: 0, wet: 0, juice: null };
+    /*
+     * The prep table is only in the room on a day that stocks something to
+     * put on it. Day 1 has bun and patty and nothing else, so a board there is
+     * a station you cannot use standing in the middle of the walking lane -
+     * the same reason the fryer and the fountain wait for their own days.
+     */
+    S.board = (S.menu || []).some(function (id) {
+      var g = Core.byId(id);
+      return g && g.chop;
+    }) ? { id: null, cut: 0, portions: 0, wet: 0, juice: null } : null;
     S.drinkTaps = Core.drinkMenu(day);
 
     // two cooks in co-op, one otherwise
@@ -2001,19 +2016,31 @@
   function drawPrepBoard() {
     if (!L.board || !S.board || !Art.scene.prep) return;
     var r = L.board, bd = S.board;
-    var opts = {
-      board: { wood: 'maple', scars: 0.55, wet: bd.wet || 0, juice: bd.juice || '#c0392b' }
-    };
+
+    /*
+     * A board does not float. The table goes down first and the board stands
+     * on its top surface, overlapping it by a few pixels so it reads as
+     * resting rather than hovering - and the cook's knife swings into the
+     * headroom above, which is why the prep rect is taller than the board.
+     */
+    var topY = r.y + r.h * 0.56;
+    Art.scene.counter(ctx, r.x + r.w * 0.02, topY, r.w * 0.96, r.h * 0.44, r.h * 0.17, decor());
+
+    var wood = { wood: 'maple', scars: 0.55, wet: bd.wet || 0, juice: bd.juice || '#c0392b' };
+    var bx = r.x + r.w * 0.07, bw2 = r.w * 0.86;
+
     if (!bd.id) {
-      // bare: the slab and nothing on it
-      Art.scene.board(ctx, r.x, r.y + r.h * 0.30, r.w, r.h * 0.70, opts.board);
+      // bare: just the slab, sitting on the table
+      Art.scene.board(ctx, bx, r.y + r.h * 0.20, bw2, r.h * 0.44, wood);
       return;
     }
-    opts.veg = bd.id;
-    opts.cut = bd.portions ? 1 : bd.cut;
-    // still to cut -> the knife rocks; done -> it rests on the board
-    opts.chop = bd.portions ? 0.06 : chopSwing(nowMs() / 1000);
-    Art.scene.prep(ctx, r.x, r.y, r.w, r.h, opts);
+    Art.scene.prep(ctx, bx, r.y - r.h * 0.02, bw2, r.h * 0.64, {
+      board: wood,
+      veg: bd.id,
+      cut: bd.portions ? 1 : bd.cut,
+      // still to cut -> the knife rocks; done -> it rests on the board
+      chop: bd.portions ? 0.06 : chopSwing(nowMs() / 1000)
+    });
     if (bd.portions) pickRing(r, 12);
   }
 
@@ -4162,10 +4189,16 @@
     for (var i = 0; i < S.fx.plates; i++) S.plates.push({ stack: [], side: null, drink: null });
     S.grill = new Array(S.fx.grillSlots).fill(null);
     S.fryer = S.day >= Core.SIDE_DAY ? [null, null] : [];
-    // The board is in the room from the first shift: lettuce is on the line
-    // on day one, and a crate the plate refuses with no way to fix it would
-    // be a dead end rather than a step.
-    S.board = { id: null, cut: 0, portions: 0, wet: 0, juice: null };
+    /*
+     * The prep table is only in the room on a day that stocks something to
+     * put on it. Day 1 has bun and patty and nothing else, so a board there is
+     * a station you cannot use standing in the middle of the walking lane -
+     * the same reason the fryer and the fountain wait for their own days.
+     */
+    S.board = (S.menu || []).some(function (id) {
+      var g = Core.byId(id);
+      return g && g.chop;
+    }) ? { id: null, cut: 0, portions: 0, wet: 0, juice: null } : null;
     S.drinkTaps = Core.drinkMenu(S.day);
     S.rent = Core.dayGoal(S.day);
     resize();
