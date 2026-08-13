@@ -1596,12 +1596,21 @@
        * rather than as a sticker laid on top. The hand line itself does not
        * move - both numbers shift together.
        */
+      /*
+       * The box is 0.20s tall, not 0.42s. From a baseline at cy-0.302s a
+       * full-height item reached cy-0.72s - past the eyes (cy-0.705s) and
+       * almost to the toque. Every carry covered the face.
+       */
+      var boxW = s * 0.72, boxH = s * 0.205;
       var carryY = cy - s * 0.302;
-      var half = opts.carry(ctx, x, carryY, s * 0.72, s * 0.42);
-      // The floor is a minimum reach, not a minimum grip: at 0.20s the hands
-      // sat outside a bun (half 0.187s) and a whole cup, so they never closed
-      // on either. It only has to stop them crossing over each other.
-      handSpread = Math.max(s * 0.13, (half || s * 0.30) * 0.94);
+      // Measured, not drawn. The object has to be painted AFTER the sleeves,
+      // and the sleeves cannot be drawn until the hands are placed, and the
+      // hands cannot be placed until the object is measured - so the callback
+      // is asked twice: once for its half-width, once for the marks.
+      var half = opts.carry(ctx, x, carryY, boxW, boxH, true);
+      // The floor only has to stop the hands crossing. At 0.13s it was wider
+      // than a cup (0.095s) and a fry carton (0.085s), so neither was gripped.
+      handSpread = Math.max(s * 0.08, (half || s * 0.30) * 0.94);
       lhx = x - handSpread; rhx = x + handSpread;
       lhy = rhy = carryY + s * 0.062;
     }
@@ -1609,6 +1618,22 @@
     // short sleeves out to each hand: a fat cook cannot hang his arms straight
     sleeve(ctx, x - bw2 * 0.72, shoulderY, lhx, lhy, s, lw, K);
     sleeve(ctx, x + bw2 * 0.72, shoulderY, rhx, rhy, s, lw, K);
+
+    /*
+     * The carried object goes on LAST, over the arms.
+     *
+     * It used to be painted before them, and the sleeve is a 0.112s-thick
+     * stroke with a round cap running from the shoulder down to the hand - its
+     * top edge reaches 0.192s above the object's baseline, so a fat white bar
+     * was laid across the lower half of everything the cook carried. That is
+     * the forearm-carrying look, and no amount of resizing the object was ever
+     * going to fix it: the arm was simply on top.
+     *
+     * The hands then go on over the object, so the fingers still close in
+     * front of its bottom edge and it reads as gripped rather than glued on.
+     */
+    if (opts.carry) opts.carry(ctx, x, carryY, boxW, boxH, false);
+
     ink(ctx, ellPts(lhx, lhy, s * 0.066, s * 0.066, 12, s * 0.004, sd + 22), K.skin, { lw: lw * 0.9, seed: sd + 22 });
     ink(ctx, ellPts(rhx, rhy, s * 0.066, s * 0.066, 12, s * 0.004, sd + 23), K.skin, { lw: lw * 0.9, seed: sd + 23 });
 

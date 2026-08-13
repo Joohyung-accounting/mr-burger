@@ -2234,8 +2234,45 @@
    * cheese, the real seared patty, the real plated burger - rather than an icon
    * in a floating card. Returns its half-width so the hands can close on it.
    */
-  function drawCarried(g, cx, baseY, maxW, maxH, hold) {
+  /**
+   * How wide the thing in the cook's hands is, as a half-width.
+   *
+   * drawChef asks for this BEFORE it draws the arms, because the hands close
+   * on the object and the sleeves end at the hands. Kept beside the drawing
+   * rather than inside it so the two cannot disagree about a size.
+   */
+  function carriedHalf(maxW, hold) {
     if (!hold) return 0;
+    if (hold.kind === 'plate') return plateRadius(maxW);
+    if (hold.kind === 'fries') return maxW * 0.20;
+    if (hold.kind === 'cup') return maxW * 0.17;
+    if (hold.id === 'bun') return Art.layerWidth('bunBottom', bunRollWidth(maxW)) / 2;
+    return Art.layerWidth(hold.id, looseWidth(maxW, hold.id)) / 2;
+  }
+
+  /*
+   * The dish is a dish. It used to be sized off the food on it, so an empty
+   * plate was the widest thing the cook ever carried and loading it made it
+   * 42% NARROWER - a plate that shrinks as you fill it.
+   */
+  function plateRadius(maxW) { return maxW * 0.30; }
+
+  /*
+   * Every loose ingredient got the full box, and `maxW` is a BUN width - so a
+   * lettuce leaf, which deliberately overhangs its bun, painted 0.95s wide
+   * against a 0.59s belly. The roll was already cut to 0.52 for exactly this
+   * reason; the other fourteen never got the same treatment.
+   */
+  function looseWidth(maxW, id) {
+    return maxW * 0.55 / Math.max(1, Art.layerWidth(id, 1));
+  }
+  function bunRollWidth(maxW) { return Art.fitWidth(['bunBottom', 'bunTop'], maxW * 0.52, 1e9); }
+
+  function drawCarried(g, cx, baseY, maxW, maxH, hold, measure) {
+    if (!hold) return 0;
+    // The measuring pass: drawChef needs the width before it can place the
+    // hands, and the object cannot be painted until the arms are down.
+    if (measure) return carriedHalf(maxW, hold);
 
     g.save();
     g.shadowColor = 'rgba(80,50,32,0.35)';
@@ -2259,8 +2296,9 @@
 
     if (hold.kind === 'plate') {
       var shown = Core.displayStack(hold.stack);
-      var bw = Art.fitWidth(shown, maxW * 0.78, maxH - 6);
-      var pr = Math.max(bw * 0.62, maxW * 0.34);
+      var pr = plateRadius(maxW);
+      // the food fits the dish, not the other way round
+      var bw = Art.fitWidth(shown, pr * 1.55, maxH * 0.86);
       // the dish first, then the food standing on it
       g.beginPath();
       g.ellipse(cx, baseY, pr, pr * 0.26, 0, 0, Math.PI * 2);
@@ -2295,7 +2333,7 @@
        * out either side. It reads as caught on him rather than held.
        */
       var roll = ['bunBottom', 'bunTop'];
-      var rw = Art.fitWidth(roll, maxW * 0.52, maxH * 0.90);
+      var rw = bunRollWidth(maxW);
       Art.drawStack(g, roll, cx, baseY, rw);
       g.restore();
       return Art.layerWidth('bunBottom', rw) / 2;
@@ -2303,7 +2341,7 @@
 
     // The raw patty came out of the crate a shade wider than the hands holding
     // it. Everything else is drawn at the width it is given.
-    var w = maxW * (hold.id === 'patty' ? 0.84 : 1);
+    var w = looseWidth(maxW, hold.id);
     var h = Art.heightOf(hold.id, w);
     if (h > maxH) { w *= maxH / h; h = maxH; }
     Art.drawLayer(g, hold.id, cx, baseY - h, w, { done: hold.done, char: hold.char });
@@ -2356,8 +2394,8 @@
         skin: i === S.me ? S.skin : 'classic',
         // hands stay empty while the item is still in the air
         carry: (c.holding && !flying)
-          ? function (g, cx, baseY, maxW, maxH) {
-            return drawCarried(g, cx, baseY, maxW, maxH, c.holding);
+          ? function (g, cx, baseY, maxW, maxH, measure) {
+            return drawCarried(g, cx, baseY, maxW, maxH, c.holding, measure);
           }
           : null
       });
