@@ -223,7 +223,8 @@
     var blob = {
       day: S.day, bestDay: S.bestDay, money: S.money, levels: S.levels,
       owned: S.owned || [], skin: S.skin || 'classic',
-      muted: S.muted, musicOff: !!S.musicOff, lifetime: S.lifetime || 0
+      muted: S.muted, musicOff: !!S.musicOff, lifetime: S.lifetime || 0,
+      runSeed: S.runSeed || 0
     };
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(blob));
@@ -435,7 +436,7 @@
 
     // Tonight's floor plan. Worked out from the day alone so a guest lands in
     // the same kitchen as the host; see Core.dayRoom.
-    var room = Core.dayRoom(S.day || 1);
+    var room = Core.dayRoom(S.day || 1, S.runSeed);
     L.room = room;
 
     /* --- the line along the top wall: every box on one shelf, sized to fit.
@@ -873,7 +874,7 @@
 
   function spawnTicket() {
     var arch = Core.pickCustomer(S.day, Math.random);
-    var order = Core.makeOrder(S.day, Math.random, arch);
+    var order = Core.makeOrder(S.day, Math.random, arch, S.runSeed);
     var secs = S.cfg.patience * arch.patience;
     S.tickets.push({
       uid: ++uid, arch: arch, items: order.items,
@@ -945,8 +946,8 @@
     S.cfg = Core.dayConfig(day);
     S.rent = Core.dayGoal(day);
     S.fx = Core.effects(activeLevels(), day);
-    S.menu = Core.dayMenu(day);
-    S.sections = Core.menuSections(day);
+    S.menu = Core.dayMenu(day, S.runSeed);
+    S.sections = Core.menuSections(day, S.runSeed);
     reserveBoard(day);
 
     S.hearts = Core.START_HEARTS;
@@ -2222,9 +2223,26 @@
       return pr;
     }
 
-    // a loose ingredient, carried as itself. Beef carries its doneness with it,
-    // so raw / seared / burnt is readable without any badge.
-    var w = maxW;
+    /*
+     * A loose ingredient, carried as itself. Beef carries its doneness with it,
+     * so raw / seared / burnt is readable without any badge.
+     *
+     * A bun is the exception: `bun` is one crate but two layers, and drawing
+     * the layer by id gave the heel on its own - a cook walking a flat disc
+     * across the room, which reads as a plate more than as bread. Carry the
+     * whole roll, the way it comes out of the box.
+     */
+    if (hold.id === 'bun') {
+      var roll = ['bunBottom', 'bunTop'];
+      var rw = Art.fitWidth(roll, maxW * 0.92, maxH);
+      Art.drawStack(g, roll, cx, baseY, rw);
+      g.restore();
+      return Art.layerWidth('bunBottom', rw) / 2;
+    }
+
+    // The raw patty came out of the crate a shade wider than the hands holding
+    // it. Everything else is drawn at the width it is given.
+    var w = maxW * (hold.id === 'patty' ? 0.84 : 1);
     var h = Art.heightOf(hold.id, w);
     if (h > maxH) { w *= maxH / h; h = maxH; }
     Art.drawLayer(g, hold.id, cx, baseY - h, w, { done: hold.done, char: hold.char });
@@ -3575,6 +3593,7 @@
       board: S.board ? { id: S.board.id, cut: S.board.cut, p: S.board.portions,
                          wet: S.board.wet, j: S.board.juice } : null,
       taps: S.drinkTaps,
+      seed: S.runSeed || 0,
       tickets: S.tickets.map(function (t) {
         return { uid: t.uid, a: t.arch.id, items: t.items, sd: t.side || null,
                  dr: t.drink || null, p: t.patience, m: t.max };
@@ -3636,6 +3655,9 @@
     S.grill = m.grill;
     S.fryer = m.fryer || [];
     S.drinkTaps = m.taps || [];
+    // the guest only knows the day, so the run has to come down the wire or
+    // the two kitchens are laid out differently and the taps miss
+    S.runSeed = m.seed || 0;
     S.board = m.board
       ? { id: m.board.id, cut: m.board.cut, portions: m.board.p, wet: m.board.wet, juice: m.board.j }
       : null;
@@ -3821,6 +3843,7 @@
       if (!S.musicOff) Bgm.start();
       hideModal(el.start);
       S.day = 1; S.money = 0; S.levels = {}; S.bestDay = 1;
+      S.runSeed = Core.newRunSeed();   // a new run, a new kitchen
       wipe();          // S.owned and S.skin survive on purpose - they were paid for
       startDay(1);
     });
@@ -3849,7 +3872,8 @@
     });
     el.wipeBtn.addEventListener('click', function () {
       wipe();
-      S.day = 1; S.money = 0; S.levels = {}; S.bestDay = 1;   // not S.owned
+      S.day = 1; S.money = 0; S.levels = {}; S.bestDay = 1;
+      S.runSeed = Core.newRunSeed();   // a new run, a new kitchen   // not S.owned
       hideModal(el.over);
       startDay(1);
     });
@@ -4091,6 +4115,7 @@
       S.skin = saved.skin || 'classic';
       S.muted = !!saved.muted;
       S.musicOff = !!saved.musicOff;
+      S.runSeed = saved.runSeed || 0;
       S.lifetime = saved.lifetime || 0;
       S.fx = Core.effects(activeLevels(), S.day);
       S.saved = true;
@@ -4102,8 +4127,8 @@
     paintTitle();
     Sfx.setMuted(S.muted);
 
-    S.menu = Core.dayMenu(S.day);
-    S.sections = Core.menuSections(S.day);
+    S.menu = Core.dayMenu(S.day, S.runSeed);
+    S.sections = Core.menuSections(S.day, S.runSeed);
     for (var i = 0; i < S.fx.plates; i++) S.plates.push({ stack: [], side: null, drink: null });
     S.grill = new Array(S.fx.grillSlots).fill(null);
     S.fryer = S.day >= Core.SIDE_DAY ? [null, null] : [];

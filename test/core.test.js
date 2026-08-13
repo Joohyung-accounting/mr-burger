@@ -904,10 +904,18 @@ test('a nonsense save is cleaned up rather than trusted', function () {
   assert.strictEqual(wild.muted, true);
 
   var good = Core.sanitiseSave({ day: 12, bestDay: 14, money: 5000, lifetime: 90000,
-    levels: { grill: 2, shoes: 1 }, owned: ['skin_night'], skin: 'night', muted: false });
+    levels: { grill: 2, shoes: 1 }, owned: ['skin_night'], skin: 'night', muted: false,
+    runSeed: 123456 });
   assert.deepStrictEqual(good, { day: 12, bestDay: 14, money: 5000, lifetime: 90000,
-    levels: { grill: 2, shoes: 1 }, owned: ['skin_night'], skin: 'night', muted: false },
+    levels: { grill: 2, shoes: 1 }, owned: ['skin_night'], skin: 'night', muted: false,
+    runSeed: 123456 },
     'a good save should come through untouched');
+
+  // A save written before runs had their own kitchens loads as seed 0, which is
+  // the base layout - the room those players already know.
+  assert.strictEqual(Core.sanitiseSave({ day: 3 }).runSeed, 0);
+  assert.strictEqual(Core.sanitiseSave({ day: 3, runSeed: -8 }).runSeed, 0);
+  assert.strictEqual(Core.sanitiseSave({ day: 3, runSeed: 'lots' }).runSeed, 0);
 });
 
 test('a save cannot invent a purchase or wear what it does not own', function () {
@@ -1155,6 +1163,130 @@ test('an order only asks for what the day actually stocks', function () {
         assert.ok(taps.indexOf(o.drink) >= 0,
           'day ' + day + ' ordered ' + o.drink + ' but the fountain pours ' + taps.join('/'));
       }
+    }
+  }
+});
+
+/* ------------------------------------------------- a kitchen per run */
+
+test('day 1 is the same tutorial kitchen on every run', function () {
+  var base = JSON.stringify(Core.dayRoom(1, 0));
+  for (var i = 0; i < 40; i++) {
+    assert.strictEqual(JSON.stringify(Core.dayRoom(1, Core.newRunSeed())), base,
+      'day 1 moved the furniture on somebody who has never played');
+  }
+  assert.deepStrictEqual(Core.dayMenu(1, 12345), Core.dayMenu(1, 0),
+    'day 1 rotated the crates');
+});
+
+test('the room opens up a piece at a time, and day 2 is where it starts', function () {
+  var order = ['palette', 'line', 'walls', 'bin'];
+  var seen = {};
+  order.forEach(function (k) { seen[k] = null; });
+
+  for (var d = 1; d <= 12; d++) {
+    var c = Core.roomChurn(d);
+    order.forEach(function (k) {
+      if (c[k] && seen[k] === null) seen[k] = d;
+    });
+    // never takes a piece back away
+    if (d > 1) {
+      var p = Core.roomChurn(d - 1);
+      order.forEach(function (k) {
+        assert.ok(!(p[k] && !c[k]), k + ' stopped varying between day ' + (d - 1) + ' and ' + d);
+      });
+    }
+  }
+  assert.strictEqual(seen.palette, 2, 'the paint should start moving on day 2');
+  assert.strictEqual(seen.line, 2);
+  assert.ok(seen.walls > seen.line, 'the walls moved before the player could read the line');
+  assert.ok(seen.bin > seen.walls, 'everything came at once');
+  assert.strictEqual(Core.roomChurn(1).palette, false, 'day 1 is not plain');
+});
+
+test('two runs really do give different kitchens', function () {
+  // The point of the whole exercise: a player on their fifth run should not
+  // walk into day 9 already knowing where the grill is.
+  var runs = [];
+  for (var i = 0; i < 12; i++) runs.push(Core.newRunSeed());
+
+  // The ROOM has nothing to be forced by, so it must move on every day past
+  // the point its pieces unlock.
+  [4, 7, 9, 14, 20].forEach(function (day) {
+    var rooms = {};
+    runs.forEach(function (sd) { rooms[JSON.stringify(Core.dayRoom(day, sd))] = 1; });
+    assert.ok(Object.keys(rooms).length > 1,
+      'day ' + day + ' laid out identically across 12 runs');
+  });
+
+  /*
+   * The SHELF is different: whatever unlocked today goes out today, and on a
+   * day where that fills the only free slot there is honestly nothing to
+   * rotate - day 4 stocks two crates, one of them the sauce it just unlocked
+   * and the other the topping it just unlocked. So this asks for variation
+   * across the run of days rather than on every single one.
+   */
+  var varied = 0, looked = 0;
+  for (var day = 5; day <= 20; day++) {
+    var menus = {};
+    runs.forEach(function (sd) { menus[Core.dayMenu(day, sd).join(',')] = 1; });
+    looked++;
+    if (Object.keys(menus).length > 1) varied++;
+  }
+  assert.ok(varied >= looked * 0.6,
+    'only ' + varied + ' of ' + looked + ' days stocked differently between runs');
+});
+
+test('a run keeps its kitchen - a retry is a rematch, not a reroll', function () {
+  var seed = Core.newRunSeed();
+  for (var day = 1; day <= 20; day++) {
+    var a = JSON.stringify(Core.dayRoom(day, seed));
+    var b = JSON.stringify(Core.dayRoom(day, seed));
+    assert.strictEqual(a, b, 'day ' + day + ' was not stable within a run');
+    assert.deepStrictEqual(Core.dayMenu(day, seed), Core.dayMenu(day, seed));
+  }
+});
+
+test('whatever the run, the line still holds together', function () {
+  // The seeded shelf has to obey every rule the unseeded one does, or a run
+  // exists where an order asks for a crate that is not out.
+  for (var i = 0; i < 25; i++) {
+    var seed = Core.newRunSeed();
+    for (var day = 1; day <= 25; day++) {
+      var menu = Core.dayMenu(day, seed);
+      assert.ok(menu.indexOf('bun') >= 0 && menu.indexOf('patty') >= 0,
+        'run ' + seed + ' day ' + day + ' lost a base crate');
+      assert.ok(menu.length <= 8, 'run ' + seed + ' day ' + day + ' overfilled the shelf');
+      assert.strictEqual(menu.length, new Set(menu).size, 'a crate was stocked twice');
+      menu.forEach(function (id) {
+        var ing = Core.byId(id);
+        assert.ok(ing, day + ' stocked an unknown crate: ' + id);
+        assert.ok(ing.day <= day, day + ' stocked ' + id + ', unlocked on day ' + ing.day);
+      });
+
+      // and every order it deals can be built from what is out
+      var s2 = day * 31 + i;
+      var rng = function () { s2 = (s2 * 1664525 + 1013904223) % 4294967296; return s2 / 4294967296; };
+      for (var k = 0; k < 40; k++) {
+        Core.makeOrder(day, rng, Core.pickCustomer(day, rng), seed).items.forEach(function (id) {
+          assert.ok(menu.indexOf(id) >= 0,
+            'run ' + seed + ' day ' + day + ' ordered ' + id + ', which is not on the line');
+        });
+      }
+    }
+  }
+});
+
+test('rent does not move when the kitchen does', function () {
+  // The landlord is not part of the reroll: a published curve a player can
+  // learn, and a leaderboard can compare across runs.
+  var base = [];
+  for (var d = 1; d <= 25; d++) base.push(Core.dayGoal(d));
+  for (var i = 0; i < 6; i++) {
+    Core.newRunSeed();
+    for (var d2 = 1; d2 <= 25; d2++) {
+      assert.strictEqual(Core.dayGoal(d2), base[d2 - 1],
+        'day ' + d2 + ' rent changed between runs');
     }
   }
 });

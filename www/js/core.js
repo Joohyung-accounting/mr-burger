@@ -110,14 +110,14 @@
       customers: Math.min(4 + Math.floor(day * 0.7), 12),
       patience: Math.max(30, 62 - day * 1.4),          // seconds, before upgrades
       /*
-       * The gap between customers. This used to open at 9-14 seconds, which is
-       * a long time to stand in an empty kitchen waiting for something to do -
-       * the board was the pace-setter rather than the cooking. The whole curve
-       * is about a third quicker now and bottoms out lower, so the line keeps
-       * coming instead of trickling.
+       * The first days used to open at six to ten seconds between customers,
+       * which on a seventy-second clock is half the shift spent watching an
+       * empty hatch. The curve starts about a third tighter now and lands in
+       * the same place from day 8 on, so learning the job is done by cooking
+       * rather than by waiting for something to cook.
        */
-      spawnMin: Math.max(2.6, 6.2 - day * 0.26),
-      spawnMax: Math.max(4.6, 10.0 - day * 0.42),
+      spawnMin: Math.max(2.3, 5.0 - day * 0.26),
+      spawnMax: Math.max(4.0, 7.6 - day * 0.44),
       // Extras are everything past the bun and the first patty. Never fewer
       // than one once the line stocks anything, or the new crate is decoration.
       minExtras: Math.min(Math.floor(day / 5), 3, shelf),
@@ -175,9 +175,11 @@
     return seenCache[day];
   }
 
-  function dayMenu(day) {
-    if (menuCache[day]) return menuCache[day];
-    var rng = seeded(day * 2654435761 + 7);
+  function dayMenu(day, seed) {
+    var run = (day >= 2) ? (Math.floor(Number(seed) || 0) | 0) : 0;
+    var key = day + (run ? ":" + run : "");
+    if (menuCache[key]) return menuCache[key];
+    var rng = seeded(day * 2654435761 + 7 + Math.imul(run, 2654435761));
     var pool = unlockedAt(day);
     var toppings = pool.filter(function (i) { return i.group === 'topping'; });
     var sauces = pool.filter(function (i) { return i.group === 'sauce'; });
@@ -213,13 +215,13 @@
     }
 
     var menu = ['bun', 'patty'].concat(take(toppings, wantTop), take(sauces, wantSauce));
-    menuCache[day] = menu;
+    menuCache[key] = menu;
     return menu;
   }
 
   /** The day's crates split into the sections the kitchen line is drawn in. */
-  function menuSections(day) {
-    var menu = dayMenu(day);
+  function menuSections(day, seed) {
+    var menu = dayMenu(day, seed);
     return GROUPS.map(function (g) {
       return {
         id: g.id,
@@ -278,10 +280,17 @@
       .map(function (d) { return d.id; });
   }
 
-  function makeOrder(day, rng, customer) {
+  /*
+   *  is the run, and it only reaches the SHELF - sampleGoal deliberately
+   * calls this without one. Rent is a published curve that a player can learn
+   * and a leaderboard can compare; pricing it off a basket that rerolls every
+   * run would make the same day cost different money on different attempts.
+   * The run varies which crates are out, not what the landlord wants.
+   */
+  function makeOrder(day, rng, customer, seed) {
     rng = rng || Math.random;
     var cfg = dayConfig(day);
-    var extras = dayMenu(day).filter(function (id) {
+    var extras = dayMenu(day, seed).filter(function (id) {
       return id !== 'bun' && id !== 'patty';
     });
 
@@ -814,7 +823,10 @@
   function dayLength(day) {
     // The ceiling went up with the tray: 120 -> 130 is 175s -> 190s at day 25,
     // which is the 34s of headroom the burger-only shift used to have.
-    var sharp = clamp(40 + Math.max(1, Math.floor(day)) * 7.5, 45, 130);
+    // Steeper early, same ceiling. Days 1-3 lose the dead tail; day 12 on is
+    // untouched. The floor is what the first shift is really worth: below it a
+    // player cannot finish four orders however fast they walk.
+    var sharp = clamp(33 + Math.max(1, Math.floor(day)) * 8.6, 45, 130);
     return Math.round(sharp * CLOCK_SLACK / 5) * 5;
   }
 
@@ -846,25 +858,69 @@
   var LINES = ['centre', 'left', 'right', 'split'];
   var PALETTES = 6;
 
-  function dayRoom(day) {
+  /**
+   * How much of the room a given day is allowed to move.
+   *
+   * A player who has run the game five times should not be able to walk into
+   * day 9 already knowing the grill is on the left. But re-reading a whole
+   * floor plan while you are still learning to time a patty is not difficulty,
+   * it is noise - so the room opens up a piece at a time:
+   *
+   *   day 1      nothing moves. The tutorial kitchen.
+   *   day 2-3    the paint and the crate order.
+   *   day 4-6    ...and which wall the burners are on.
+   *   day 7+     ...and which end the bin is at. Everything is in play.
+   */
+  function roomChurn(d) {
+    return {
+      palette: d >= 2,
+      line: d >= 2,
+      walls: d >= 4,
+      bin: d >= 7
+    };
+  }
+
+  /**
+   * The kitchen for a day of a given run.
+   *
+   * `seed` is the RUN, not the day: it changes when somebody starts over from
+   * day 1 and never within a run. So a failed night is still a fair rematch in
+   * the same room, and the layout you learned on your last run is worth
+   * nothing on this one - which is the point. It travels in the co-op
+   * snapshot, because a guest only knows the day and both machines have to
+   * arrive at the same room.
+   */
+  function dayRoom(day, seed) {
     var d = Math.max(1, Math.floor(Number(day) || 1));
-    var rng = seeded(d * 2246822519 + 3266489917);
+    var run = Math.floor(Number(seed) || 0) | 0;
+    var rng = seeded(d * 2246822519 + 3266489917 + Math.imul(run, 40503));
     // burn one so neighbouring days do not share a first draw
     rng();
+    var churn = roomChurn(d);
     var grill = SIDES[Math.floor(rng() * SIDES.length) % SIDES.length];
     var line = LINES[Math.floor(rng() * LINES.length) % LINES.length];
     var binSide = SIDES[Math.floor(rng() * SIDES.length) % SIDES.length];
+    var palette = Math.floor(rng() * PALETTES) % PALETTES;
+    if (!churn.walls) grill = 'left';
+    if (!churn.line) line = 'centre';
+    if (!churn.bin) binSide = 'right';
+    if (!churn.palette) palette = 0;
     return {
       day: d,
       grill: grill,                                  // which wall the burners are on
       plates: grill === 'left' ? 'right' : 'left',   // plates always face them
       line: line,                                    // how the crate row is arranged
       bin: binSide,                                  // which end of the hatch the bin is
-      palette: Math.floor(rng() * PALETTES) % PALETTES,
+      palette: palette,
       // Day 1 is the tutorial: leave it in the plainest room so the first
       // shift is about learning the job, not reading a new floor plan.
       plain: d === 1
     };
+  }
+
+  /** A fresh run's seed. Kept small and integral so it survives a save. */
+  function newRunSeed(rnd) {
+    return Math.floor((rnd || Math.random)() * 0x7ffffffe) + 1;
   }
 
   /**
@@ -927,6 +983,9 @@
       bestDay: Math.floor(num(raw.bestDay, day, 0, MAX_DAY)),
       money: Math.floor(num(raw.money, 0, 0, MAX_MONEY)),
       lifetime: Math.floor(num(raw.lifetime, 0, 0, MAX_MONEY)),
+      // 0 means "a save from before runs had seeds": the base kitchen, which is
+      // exactly the room those players already know.
+      runSeed: Math.floor(num(raw.runSeed, 0, 0, 0x7fffffff)),
       levels: levels,
       owned: owned,
       skin: skin,
@@ -1025,7 +1084,7 @@
     byId: byId,
     MAX_DAY: MAX_DAY,
     sanitiseSave: sanitiseSave,
-    dayRoom: dayRoom,
+    dayRoom: dayRoom, roomChurn: roomChurn, newRunSeed: newRunSeed,
     PALETTES: PALETTES,
     dayLength: dayLength,
     clockText: clockText,
