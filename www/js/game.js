@@ -2271,8 +2271,16 @@
      * whole roll, the way it comes out of the box.
      */
     if (hold.id === 'bun') {
+      /*
+       * Half the carry box, not all of it.
+       *
+       * `maxW` is 76% of the cook's whole height - fine for a patty, which is
+       * one thin layer, but a roll is two stacked and at that width it came
+       * out as wide as his chest, sat over his body and left the arms poking
+       * out either side. It reads as caught on him rather than held.
+       */
       var roll = ['bunBottom', 'bunTop'];
-      var rw = Art.fitWidth(roll, maxW * 0.92, maxH);
+      var rw = Art.fitWidth(roll, maxW * 0.52, maxH * 0.90);
       Art.drawStack(g, roll, cx, baseY, rw);
       g.restore();
       return Art.layerWidth('bunBottom', rw) / 2;
