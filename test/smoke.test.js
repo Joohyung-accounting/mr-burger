@@ -202,6 +202,8 @@ global.Net = {
 var Core = require('../www/js/core.js');
 global.Core = Core;
 require('../www/js/art.js');
+// index.html loads this straight after art.js, and the kitchen draws from it.
+require('../www/js/art-fries-drinks.js');
 require('../www/js/audio.js');
 // The real billing seam, sandbox adapter and all - so the store screen is
 // exercised against what actually ships rather than a stub of it.
@@ -2050,6 +2052,240 @@ test('a co-op guest reserves the board for the host\'s day, not its own', functi
 
   assert.ok(theirs > mine,
     'the guest kept its own day-3 reservation (' + mine + ') for a day-14 board (' + theirs + ')');
+});
+
+/* ------------------------------------------------- the fry line & fountain */
+
+/** Put a basket in, run it to the perfect window, and take it back out. */
+function fryPerfect(well) {
+  work(MB.fryWellRect(well));
+  assert.ok(S.fryer[well], 'the basket never went in');
+  S.fryer[well].t = Core.COOK_TIME;
+  work(MB.fryWellRect(well));
+}
+
+test('the fry line opens on its own day, not before', function () {
+  startShift(1);
+  assert.strictEqual(S.fryer.length, 0, 'day 1 had a fryer');
+  assert.strictEqual(MB.layout.fryH, 0, 'day 1 reserved height for a fryer');
+  startShift(Core.SIDE_DAY);
+  assert.strictEqual(S.fryer.length, 2, 'the fry station never opened');
+  assert.ok(MB.layout.fryH > 0, 'the fry station has no height');
+});
+
+test('an empty-handed tap drops a basket; a second one lifts it out', function () {
+  startShift(8);
+  S.chef.holding = null;
+  work(MB.fryWellRect(0));
+  assert.ok(S.fryer[0], 'nothing went into the oil');
+  assert.strictEqual(held(), null, 'the cook walked off holding something');
+
+  S.fryer[0].t = Core.COOK_TIME;
+  work(MB.fryWellRect(0));
+  assert.strictEqual(S.fryer[0], null, 'the well is still full');
+  assert.strictEqual(held().kind, 'fries', 'the cook is not holding fries');
+  assert.ok(held().cook > 0.9, 'perfectly timed fries scored ' + held().cook);
+});
+
+test('the two wells run independently', function () {
+  startShift(8);
+  S.chef.holding = null;
+  work(MB.fryWellRect(0));
+  work(MB.fryWellRect(1));
+  assert.ok(S.fryer[0] && S.fryer[1], 'the second basket did not go in');
+  S.fryer[0].t = 5; S.fryer[1].t = 1;
+  pump(0.5);
+  assert.ok(S.fryer[0].t > S.fryer[1].t, 'the wells share a clock');
+});
+
+test('fries left in too long come out burnt', function () {
+  startShift(8);
+  S.chef.holding = null;
+  work(MB.fryWellRect(0));
+  S.fryer[0].t = Core.COOK_TIME * 3;
+  work(MB.fryWellRect(0));
+  assert.strictEqual(held().kind, 'fries');
+  assert.ok(held().cook < 0.5, 'burnt fries scored ' + held().cook);
+});
+
+test('the fountain pours what the front of the board is waiting for', function () {
+  startShift(8);
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].drink = S.drinkTaps[1] || S.drinkTaps[0];
+  S.chef.holding = null;
+  assert.strictEqual(MB.nextDrinkWanted(), S.tickets[0].drink);
+  work(MB.tapRect());
+  assert.strictEqual(held().kind, 'cup');
+  assert.strictEqual(held().flavor, S.tickets[0].drink, 'the wrong flavour came out');
+});
+
+test('the fountain will not pour a second cup for the same order', function () {
+  startShift(8);
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].drink = S.drinkTaps[0];
+  S.chef.holding = null;
+  var uid = S.tickets[0].uid;
+  work(MB.tapRect());
+  work(MB.plateRect(0));
+  assert.strictEqual(S.plates[0].drink, S.drinkTaps[0], 'the cup never reached the tray');
+
+  // work() runs the loop, and the loop lets new customers in - so silence
+  // everyone except the order this test is actually about.
+  S.tickets.forEach(function (t) { if (t.uid !== uid) t.drink = null; });
+  assert.strictEqual(MB.nextDrinkWanted(), null,
+    'the fountain offered a second cup for an order already covered');
+});
+
+test('fries and a cup ride on the tray, not inside the burger', function () {
+  startShift(8);
+  S.chef.holding = null;
+  S.plates.forEach(function (p) { p.stack = []; p.side = null; p.drink = null; });
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].drink = S.drinkTaps[0];
+
+  fryPerfect(0);
+  work(MB.plateRect(0));
+  work(MB.tapRect());
+  work(MB.plateRect(0));
+
+  assert.strictEqual(S.plates[0].side, 'fries');
+  assert.strictEqual(S.plates[0].drink, S.drinkTaps[0]);
+  assert.strictEqual(S.plates[0].stack.length, 0,
+    'the tray put fries or a drink into the burger stack');
+
+  // and they travel with the tray when it is picked up
+  work(MB.plateRect(0));
+  assert.strictEqual(held().kind, 'plate');
+  assert.strictEqual(held().side, 'fries', 'the fries fell off the tray');
+  assert.strictEqual(held().drink, S.drinkTaps[0], 'the drink fell off the tray');
+});
+
+test('a complete tray is paid for in full', function () {
+  startShift(8);
+  S.chef.holding = null;
+  S.plates.forEach(function (p) { p.stack = []; p.side = null; p.drink = null; });
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  var t = S.tickets[0];
+  t.items = ['bun', 'patty']; t.side = 'fries'; t.drink = S.drinkTaps[0];
+  t.patience = t.max;
+
+  fryPerfect(0);
+  work(MB.plateRect(0));
+  work(MB.tapRect());
+  work(MB.plateRect(0));
+  buildPlate(0, ['bun', 'patty']);
+
+  var before = S.sales;
+  work(MB.plateRect(0));
+  work(MB.hatchRect());
+  pump(0.1);
+
+  var burger = Core.menuPrice(['bun', 'patty']);
+  var full = burger + Core.SIDES.fries.price + Core.drinkById(S.drinkTaps[0]).price;
+  assert.strictEqual(S.sales - before, full,
+    'the till took ' + (S.sales - before) + ' for a tray worth ' + full);
+  assert.strictEqual(S.perfect, 1, 'a complete correct tray was not perfect');
+});
+
+test('forgetting the drink costs the grade, not a heart', function () {
+  startShift(8);
+  S.chef.holding = null;
+  S.plates.forEach(function (p) { p.stack = []; p.side = null; p.drink = null; });
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  var t = S.tickets[0];
+  t.items = ['bun', 'patty']; t.side = null; t.drink = S.drinkTaps[0];
+  t.patience = t.max;
+
+  buildPlate(0, ['bun', 'patty']);
+  var hearts = S.hearts, perfect = S.perfect;
+  work(MB.plateRect(0));
+  work(MB.hatchRect());
+  pump(0.1);
+
+  assert.strictEqual(S.hearts, hearts, 'a forgotten drink cost a heart');
+  assert.strictEqual(S.perfect, perfect, 'a burger with no drink still scored perfect');
+  assert.strictEqual(S.served, 1, 'the order was not counted as served');
+});
+
+test('a co-op guest gets the fry line and the fountain too', function () {
+  startShift(8);
+  S.chef.holding = null;
+  work(MB.fryWellRect(0));
+  S.plates[0].side = 'fries';
+  S.plates[0].drink = S.drinkTaps[0];
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].side = 'fries';
+  S.tickets[0].drink = S.drinkTaps[0];
+
+  var snap = MB.snapshot();
+  assert.ok(snap.fryer && snap.fryer[0], 'the snapshot dropped the fryer');
+  assert.strictEqual(snap.plates[0].sd, 'fries', 'the snapshot dropped the tray');
+  assert.strictEqual(snap.tickets[0].sd, 'fries', 'the snapshot dropped the ticket side');
+
+  // wipe the guest's kitchen, then let the host's state land on it
+  S.fryer = []; S.plates[0].side = null; S.plates[0].drink = null;
+  S.tickets[0].side = null; S.tickets[0].drink = null;
+  MB.applySnapshot(snap);
+  assert.ok(S.fryer[0], 'the guest never saw the basket');
+  assert.strictEqual(S.plates[0].side, 'fries', 'the guest never saw the fries');
+  assert.strictEqual(S.plates[0].drink, S.drinkTaps[0], 'the guest never saw the drink');
+  assert.strictEqual(S.tickets[0].side, 'fries', 'the guest saw a burger-only ticket');
+  S.role = 'solo'; S.me = 0;
+});
+
+test('the slip has a line for the fries and a line for the cup', function () {
+  var rows = MB.orderRows(['bun', 'patty', 'cheese'], 'fries', 'cola');
+  var names = rows.map(function (r) { return r.n; });
+  assert.ok(names.indexOf('FRIES') >= 0, 'no fries on the slip: ' + names.join(','));
+  assert.ok(names.indexOf('COLA') >= 0, 'no drink on the slip: ' + names.join(','));
+  rows.forEach(function (r) { assert.ok(r.c && r.n, 'a row is missing its swatch or label'); });
+
+  // a bare burger with a side is not PLAIN
+  var bare = MB.orderRows(['bun', 'patty'], 'fries', null).map(function (r) { return r.n; });
+  assert.ok(bare.indexOf('PLAIN') < 0, 'a tray with fries on it was called PLAIN');
+  assert.strictEqual(MB.orderRows(['bun', 'patty'], null, null)[0].n, 'PLAIN');
+});
+
+test('the board still reserves enough lines once the tray is on it', function () {
+  for (var day = 1; day <= 25; day++) {
+    MB.reserveBoard(day);
+    var reserved = parseInt(rootProps['--order-rows'], 10);
+    var worst = 0, worstOrder = null;
+    for (var i = 0; i < 400; i++) {
+      var seed = i * 2654435761 % 4294967296;
+      var rng = function () { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+      var arch = Core.pickCustomer(day, rng);
+      var o = Core.makeOrder(day, rng, arch);
+      var rows = MB.orderRows(o.items, o.side, o.drink).length;
+      if (rows > worst) { worst = rows; worstOrder = o.items.join('+') + '/' + o.side + '/' + o.drink; }
+    }
+    assert.ok(worst <= reserved,
+      'day ' + day + ' reserved ' + reserved + ' lines but a tray needs ' + worst + ': ' + worstOrder);
+  }
+});
+
+test('the kitchen still fits with two more machines in it', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  [[375, 560], [412, 400], [320, 480]].forEach(function (size) {
+    stage.clientWidth = size[0];
+    stage.clientHeight = size[1];
+    startShift(25);
+    pump(0.4);
+    assert.ok(!S.cramped, size.join('x') + ' went cramped with the fry line in');
+    assert.ok(MB.layout.slotH >= 22 && MB.layout.plateH >= 22,
+      size.join('x') + ' squeezed a station to ' + MB.layout.slotH + '/' + MB.layout.plateH);
+    assert.ok(MB.layout.fryH > 20 && MB.layout.tapH > 20,
+      size.join('x') + ' left no room for the machines');
+  });
+  stage.clientWidth = w0;
+  stage.clientHeight = h0;
+  pump(0.4);
 });
 
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');

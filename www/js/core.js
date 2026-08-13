@@ -99,7 +99,15 @@
     var shelf = extrasOnShelf(day);
     return {
       day: day,
-      customers: Math.min(4 + Math.floor(day * 0.9), 16),
+      /*
+       * Fewer, richer tickets. A tray with fries and a drink on it is three
+       * more station visits than a burger alone, and the shift clock did not
+       * move - at the old count day 15 needed 207s of walking against a 175s
+       * clock. Twenty-five per cent fewer customers, each worth about half
+       * again as much, lands the rent within a few dollars of where it was
+       * and hands the walking budget back.
+       */
+      customers: Math.min(4 + Math.floor(day * 0.7), 12),
       patience: Math.max(30, 62 - day * 1.4),          // seconds, before upgrades
       /*
        * The gap between customers. This used to open at 9-14 seconds, which is
@@ -114,7 +122,7 @@
       // than one once the line stocks anything, or the new crate is decoration.
       minExtras: Math.min(Math.floor(day / 5), 3, shelf),
       maxExtras: Math.min(Math.max(1, Math.floor(day / 2.2)), shelf, 4),
-      concurrent: Math.min(2 + Math.floor(day / 2.5), 5) // tickets on the board
+      concurrent: Math.min(2 + Math.floor(day / 3), 4)   // tickets on the board
     };
   }
 
@@ -223,6 +231,53 @@
 
   /* ------------------------------------------------------------ orders */
   /** A ticket: a multiset of ingredient ids. Every burger is a bun and a patty. */
+  /* ------------------------------------------------------ the other half
+   * Fries and a drink ride on the tray beside the burger. They are NOT in
+   * `items`: that array is the multiset evaluate() scores the built stack
+   * against, and anything in it that never lands on the plate counts as a
+   * missing ingredient. They get their own fields, and their own check.
+   */
+  // TRAY_SIDES, not SIDES: the room already has  for
+  // which wall the grill is on, and var hoists to function scope - so naming
+  // this SIDES silently replaced it with an array and every fries lookup
+  // became undefined. Nothing threw; the side just stopped existing.
+  var TRAY_SIDES = {
+    fries: { id: 'fries', name: 'Fries', short: 'FRIES', swatch: '#e8a021', price: 150, day: 5 }
+  };
+
+  // The six the fountain pours, in the order Art.FLAVOR_IDS draws them.
+  var DRINKS = [
+    { id: 'cola', name: 'Cola', short: 'COLA', swatch: '#4a2c1e', price: 110, day: 3 },
+    { id: 'cider', name: 'Cider', short: 'CIDER', swatch: '#d9a441', price: 110, day: 3 },
+    { id: 'orange', name: 'Orange', short: 'ORANGE', swatch: '#e2711d', price: 110, day: 3 },
+    { id: 'lemon', name: 'Lemon', short: 'LEMON', swatch: '#e8d44d', price: 110, day: 3 },
+    { id: 'root', name: 'Root Beer', short: 'ROOT', swatch: '#5b3a2b', price: 110, day: 3 },
+    { id: 'tea', name: 'Iced Tea', short: 'ICE TEA', swatch: '#a8622a', price: 110, day: 3 }
+  ];
+  var DRINK_BY_ID = {};
+  DRINKS.forEach(function (d) { DRINK_BY_ID[d.id] = d; });
+
+  var SIDE_DAY = 5, DRINK_DAY = 3;
+
+  /**
+   * How often an order asks for each, by day. It ramps rather than switching
+   * on: the shift that introduces fries should not be the shift where every
+   * ticket needs them.
+   */
+  function attachRates(day) {
+    return {
+      side: day < SIDE_DAY ? 0 : Math.min(0.70, 0.25 + (day - SIDE_DAY) * 0.045),
+      drink: day < DRINK_DAY ? 0 : Math.min(0.75, 0.30 + (day - DRINK_DAY) * 0.040)
+    };
+  }
+
+  /** Which drinks the fountain is plumbed for today - two, then all six. */
+  function drinkMenu(day) {
+    if (day < DRINK_DAY) return [];
+    return DRINKS.slice(0, clamp(2 + Math.floor((day - DRINK_DAY) / 3), 2, DRINKS.length))
+      .map(function (d) { return d.id; });
+  }
+
   function makeOrder(day, rng, customer) {
     rng = rng || Math.random;
     var cfg = dayConfig(day);
@@ -244,16 +299,63 @@
     var pool = shuffle(extras.slice(), rng);
     for (var i = 0; i < count && i < pool.length; i++) items.push(pool[i]);
 
-    return { items: items };
+    var rates = attachRates(day);
+    var side = rng() < rates.side ? 'fries' : null;
+    var taps = drinkMenu(day);
+    var drink = (taps.length && rng() < rates.drink)
+      ? taps[Math.floor(rng() * taps.length)] : null;
+
+    return { items: items, side: side, drink: drink };
   }
 
-  function menuPrice(items) {
+  /**
+   * What an order is worth. sampleGoal() runs this over real orders to set the
+   * rent, so the tray's other half has to be priced here or every day's rent
+   * would be set as though nobody ever ordered fries.
+   */
+  function menuPrice(items, side, drink) {
     var sum = 0;
     for (var i = 0; i < items.length; i++) {
       var ing = BY_ID[items[i]];
       if (ing) sum += ing.price;
     }
+    if (side && TRAY_SIDES[side]) sum += TRAY_SIDES[side].price;
+    if (drink && DRINK_BY_ID[drink]) sum += DRINK_BY_ID[drink].price;
     return sum;
+  }
+
+  /**
+   * The tray's other half, checked. evaluate() owns the burger and never sees
+   * these; this owns these and never sees the burger.
+   *   checkExtras({side, drink}, {side, drink}) -> { faults, ok, asked }
+   */
+  function checkExtras(want, got) {
+    want = want || {}; got = got || {};
+    var faults = [], asked = 0, ok = 0;
+    // Total by construction: a ticket carrying an id this build has never heard
+    // of must score as "no side asked for", not throw inside the delivery.
+    var wantSide = TRAY_SIDES[want.side] ? want.side : null;
+    var wantDrink = DRINK_BY_ID[want.drink] ? want.drink : null;
+
+    if (wantSide) {
+      asked++;
+      if (got.side === wantSide) ok++;
+      else faults.push({ kind: 'side', label: 'NO ' + TRAY_SIDES[wantSide].short });
+    } else if (got.side) {
+      faults.push({ kind: 'side', label: 'FRIES NOBODY ORDERED' });
+    }
+    if (wantDrink) {
+      asked++;
+      if (got.drink === wantDrink) ok++;
+      else if (got.drink) {
+        faults.push({ kind: 'drink', label: 'WRONG DRINK' });
+      } else {
+        faults.push({ kind: 'drink', label: 'NO ' + DRINK_BY_ID[wantDrink].short });
+      }
+    } else if (got.drink) {
+      faults.push({ kind: 'drink', label: 'A DRINK NOBODY ORDERED' });
+    }
+    return { faults: faults, ok: ok, asked: asked };
   }
 
   /**
@@ -527,7 +629,11 @@
     var sum = 0, N = 240;
     for (var i = 0; i < N; i++) {
       var c = pickCustomer(day, rng);
-      sum += menuPrice(makeOrder(day, rng, c).items);
+      var o = makeOrder(day, rng, c);
+      // The tray, not just the burger: rent is sampled from what orders really
+      // cost, so leaving the fries out here would price every day as though
+      // nobody ever asked for them.
+      sum += menuPrice(o.items, o.side, o.drink);
     }
     return Math.round(cfg.customers * (sum / N) * RENT_RATIO / 50) * 50;
   }
@@ -687,7 +793,9 @@
   var CLOCK_SLACK = 1.45;
 
   function dayLength(day) {
-    var sharp = clamp(40 + Math.max(1, Math.floor(day)) * 7.5, 45, 120);
+    // The ceiling went up with the tray: 120 -> 130 is 175s -> 190s at day 25,
+    // which is the 34s of headroom the burger-only shift used to have.
+    var sharp = clamp(40 + Math.max(1, Math.floor(day)) * 7.5, 45, 130);
     return Math.round(sharp * CLOCK_SLACK / 5) * 5;
   }
 
@@ -911,6 +1019,9 @@
     dayGoal: dayGoal,
     makeOrder: makeOrder,
     menuPrice: menuPrice,
+    SIDES: TRAY_SIDES, DRINKS: DRINKS, drinkById: function (id) { return DRINK_BY_ID[id]; },
+    drinkMenu: drinkMenu, attachRates: attachRates, checkExtras: checkExtras,
+    SIDE_DAY: SIDE_DAY, DRINK_DAY: DRINK_DAY,
     pickCustomer: pickCustomer,
     cookQuality: cookQuality,
     cookStage: cookStage,

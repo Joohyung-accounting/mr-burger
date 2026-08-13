@@ -700,6 +700,19 @@ function simulateDay(day, skill, rng, levels) {
     });
     earned += res.total;
     hearts -= res.heartLoss;
+
+    /*
+     * The rest of the tray, modelled the way deliver() actually pays it.
+     *
+     * dayGoal is sampled from menuPrice(items, side, drink), so the rent
+     * already counts the fries. If the model does not earn them back the
+     * ramp drifts as the attach rate climbs - which is exactly what it did:
+     * x1.04 on day 1 against x1.41 in the middle.
+     */
+    var gotSide = order.side && rng() < skill.accuracy ? order.side : null;
+    var gotDrink = order.drink && rng() < skill.accuracy ? order.drink : null;
+    if (gotSide) earned += Math.round(Core.SIDES[gotSide].price * (0.45 + skill.cook * 0.55));
+    if (gotDrink) earned += Core.drinkById(gotDrink).price;
   }
   return { earned: earned, hearts: hearts, goal: Core.dayGoal(day) };
 }
@@ -1017,6 +1030,102 @@ test('rent is deterministic and rises with the days', function () {
     assert.ok(Core.dayGoal(d) > 0);
   }
   assert.ok(Core.dayGoal(10) > Core.dayGoal(1));
+});
+
+/*
+ * The tray's other half.
+ *
+ * The first version of this shipped dead and said nothing: `var SIDES = {...}`
+ * collided with the room's own `var SIDES = ['left','right']`, var hoisted, and
+ * every fries lookup quietly became undefined. Orders still generated a side,
+ * the board just never drew it and the score never counted it. Nothing threw.
+ * So these tests assert the wiring end to end, not just the shapes.
+ */
+test('the tray sells fries and drinks, and they are really wired up', function () {
+  assert.ok(Core.SIDES && Core.SIDES.fries, 'Core.SIDES.fries is missing');
+  assert.strictEqual(Core.SIDES.fries.short, 'FRIES');
+  assert.ok(Core.SIDES.fries.price > 0, 'fries are free');
+  assert.strictEqual(Core.DRINKS.length, 6, 'the fountain has six taps');
+  Core.DRINKS.forEach(function (d) {
+    assert.ok(Core.drinkById(d.id) === d, d.id + ' is not findable by id');
+    assert.ok(d.short && d.swatch && d.price > 0, d.id + ' is not fully specified');
+  });
+});
+
+test('a priced order counts the fries and the cup', function () {
+  var burger = ['bun', 'patty'];
+  var base = Core.menuPrice(burger);
+  assert.strictEqual(Core.menuPrice(burger, 'fries', null), base + Core.SIDES.fries.price,
+    'the fries did not reach the till');
+  assert.strictEqual(Core.menuPrice(burger, null, 'cola'), base + Core.drinkById('cola').price,
+    'the drink did not reach the till');
+  assert.strictEqual(Core.menuPrice(burger, 'fries', 'cola'),
+    base + Core.SIDES.fries.price + Core.drinkById('cola').price);
+  // unknown ids must not silently add or throw
+  assert.strictEqual(Core.menuPrice(burger, 'onion rings', 'milkshake'), base);
+});
+
+test('the tray is judged apart from the burger', function () {
+  var both = { side: 'fries', drink: 'cola' };
+  assert.strictEqual(Core.checkExtras(both, both).faults.length, 0, 'a correct tray was faulted');
+  assert.strictEqual(Core.checkExtras(both, both).asked, 2);
+
+  assert.strictEqual(Core.checkExtras(both, { side: null, drink: 'cola' }).faults.length, 1);
+  assert.strictEqual(Core.checkExtras(both, { side: 'fries', drink: 'lemon' }).faults[0].kind, 'drink');
+  assert.strictEqual(Core.checkExtras(both, {}).faults.length, 2, 'an empty tray missed two things');
+
+  // things nobody ordered are a fault too, and asked stays 0
+  var none = Core.checkExtras({}, { side: 'fries', drink: 'cola' });
+  assert.strictEqual(none.asked, 0);
+  assert.strictEqual(none.faults.length, 2);
+
+  // total on nonsense rather than throwing - this is called inside a delivery
+  assert.doesNotThrow(function () { Core.checkExtras({ side: 'x', drink: 'y' }, { side: 'x' }); });
+  assert.strictEqual(Core.checkExtras({ side: 'x', drink: 'y' }, {}).asked, 0,
+    'an id this build has never heard of must not count as asked');
+});
+
+test('the fry line and the fountain open on their own days, and ramp', function () {
+  var rng = function () { return 0.5; };
+  for (var day = 1; day < Core.SIDE_DAY; day++) {
+    assert.strictEqual(Core.attachRates(day).side, 0, 'day ' + day + ' asked for fries too early');
+  }
+  for (var d2 = 1; d2 < Core.DRINK_DAY; d2++) {
+    assert.strictEqual(Core.drinkMenu(d2).length, 0, 'day ' + d2 + ' had taps too early');
+  }
+  assert.ok(Core.attachRates(Core.SIDE_DAY).side > 0, 'the fry line never opens');
+  assert.ok(Core.drinkMenu(Core.DRINK_DAY).length >= 2, 'the fountain opened with one tap');
+
+  // ramps up, never past its ceiling, and every tap is a real drink
+  var prev = -1;
+  for (var d = 1; d <= 30; d++) {
+    var r = Core.attachRates(d);
+    assert.ok(r.side >= prev || d === Core.SIDE_DAY, 'the fries rate went backwards on day ' + d);
+    prev = r.side;
+    assert.ok(r.side <= 0.7001 && r.drink <= 0.7501, 'day ' + d + ' attaches too hard');
+    var taps = Core.drinkMenu(d);
+    assert.ok(taps.length <= Core.DRINKS.length);
+    taps.forEach(function (id) { assert.ok(Core.drinkById(id), id + ' is not a drink'); });
+  }
+});
+
+test('an order only asks for what the day actually stocks', function () {
+  for (var day = 1; day <= 25; day++) {
+    var seed = day * 7919 + 5;
+    var rng = function () { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+    var taps = Core.drinkMenu(day);
+    for (var i = 0; i < 300; i++) {
+      var o = Core.makeOrder(day, rng, Core.pickCustomer(day, rng));
+      if (o.side) {
+        assert.ok(day >= Core.SIDE_DAY, 'day ' + day + ' ordered fries before the fryer exists');
+        assert.ok(Core.SIDES[o.side], 'day ' + day + ' ordered an unknown side: ' + o.side);
+      }
+      if (o.drink) {
+        assert.ok(taps.indexOf(o.drink) >= 0,
+          'day ' + day + ' ordered ' + o.drink + ' but the fountain pours ' + taps.join('/'));
+      }
+    }
+  }
 });
 
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');

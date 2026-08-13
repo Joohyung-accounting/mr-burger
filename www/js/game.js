@@ -151,8 +151,10 @@
     closedBy: null,              // 'clock' when the buzzer ended it
 
     tickets: [],   // { uid, arch, items, patience, max, node, barEl }
-    plates: [],    // { stack: [{id, cook}] }
+    plates: [],    // { stack: [{id, cook}], side, drink }  - the whole tray
     grill: [],     // { id, t } | null
+    fryer: [],     // { t } | null, one per well - the same clock the grill runs
+    drinkTaps: [], // the flavours the fountain is plumbed for today
     // One cook in single player, two in co-op. S.me is which one this device
     // drives; S.chef below stays a live alias to it so the rest of the game
     // reads exactly as it did before.
@@ -275,6 +277,14 @@
   // labelled rows, and the boxes get tall enough to look like boxes.
   var CRATE_MAX_W = 84, GAP = 6, HATCH_H = 46;
   var SLOT_H = 42, PLATE_H = 50, CHEF_S = 54;
+  // The fry box is deeper than a burner - it holds two wells and its supply -
+  // and the fountain is a little taller than a plate.
+  // The fry box carries its own supply above the wells, so it is deeper than a
+  // burner. Splitting it here rather than floating the sack and the cutter over
+  // the grill: at 28px wide over a 68px column they collided with each other
+  // and with the burner above, and an illegible label is worse than none.
+  var FRYER_H = 78, TAP_H = 54;
+  var FRY_SUPPLY = 0.36;          // the share of the box the supply row takes
 
   // The kitchen the speeds in core.js were tuned against: a 412x360 stage.
   // Every other screen scales its walking speed relative to this.
@@ -490,12 +500,34 @@
     L.grillX = grillLeft ? leftX : rightX;
     L.plateX = grillLeft ? rightX : leftX;
 
+    /*
+     * The two working walls, each with a machine hung under its column.
+     *
+     * The fry station goes below the grill because it IS a grill: something
+     * goes in, a timer runs, and it comes out perfect or ruined. The fountain
+     * goes below the plates because a drink is assembly, not cooking. Both
+     * columns had the room already - on a 375px phone the grill band used 155
+     * of 340px and the plate band 183, so the machines are taking slack rather
+     * than squeezing the stations that were there.
+     *
+     * They are counted into the column's own division, so when the kitchen
+     * grows to five burners the fryer loses height with everything else and
+     * showCramped still speaks for all of them.
+     */
     var midH = L.midBottom - L.midTop;
     var gN = S.grill.length || 2, pN = S.plates.length || 2;
-    L.slotH = Math.min(SLOT_H * k, (midH - gap * (gN - 1)) / gN);
-    L.plateH = Math.min(PLATE_H * k, (midH - gap * (pN - 1)) / pN);
-    L.grillTop = L.midTop + (midH - (gN * L.slotH + (gN - 1) * gap)) / 2;
-    L.plateTop = L.midTop + (midH - (pN * L.plateH + (pN - 1) * gap)) / 2;
+    var fryN = S.fryer.length ? 1 : 0;              // the fryer is one box, two wells
+    var tapN = S.drinkTaps ? 1 : 0;
+    L.slotH = Math.min(SLOT_H * k, (midH - gap * (gN + fryN - 1)) / (gN + fryN));
+    L.plateH = Math.min(PLATE_H * k, (midH - gap * (pN + tapN - 1)) / (pN + tapN));
+    L.fryH = fryN ? Math.min(FRYER_H * k, L.slotH * 1.35) : 0;
+    L.tapH = tapN ? Math.min(TAP_H * k, L.plateH * 1.10) : 0;
+    var gTotal = gN * L.slotH + (gN - 1) * gap + (fryN ? gap + L.fryH : 0);
+    var pTotal = pN * L.plateH + (pN - 1) * gap + (tapN ? gap + L.tapH : 0);
+    L.grillTop = L.midTop + (midH - gTotal) / 2;
+    L.plateTop = L.midTop + (midH - pTotal) / 2;
+    L.fryTop = L.grillTop + gN * (L.slotH + gap);
+    L.tapTop = L.plateTop + pN * (L.plateH + gap);
 
     // --- the walkable floor: whatever is left between the two walls
     L.floor = {
@@ -577,6 +609,51 @@
     return { x: L.plateX, y: L.plateTop + i * (L.plateH + L.gap), w: L.colW, h: L.plateH };
   }
 
+  function fryerRect() { return { x: L.grillX, y: L.fryTop, w: L.colW, h: L.fryH }; }
+
+  /** One well of the two, side by side inside the fry box. */
+  function fryWellRect(i) {
+    var r = fryerRect(), pad = r.w * 0.10, gap = r.w * 0.06;
+    var ww = (r.w - pad * 2 - gap) / 2;
+    var below = r.y + r.h * FRY_SUPPLY;
+    var bh = r.h * (1 - FRY_SUPPLY);
+    return { x: r.x + pad + i * (ww + gap), y: below + bh * 0.30, w: ww, h: bh * 0.44 };
+  }
+
+  /** Which well a tap landed in - the left half or the right. */
+  function fryWellAt(x) {
+    var r = fryerRect();
+    return x < r.x + r.w / 2 ? 0 : 1;
+  }
+
+  /** Is there anything on this tray at all? */
+  function trayBusy(p) { return !!(p.stack.length || p.side || p.drink); }
+
+  /*
+   * The flavour the fountain pours next: what the oldest ticket still waiting
+   * on a drink asked for, skipping any that a tray already covers. Without the
+   * skip, two cups for the same ticket is the easiest mistake in the kitchen
+   * and the least interesting one.
+   */
+  function nextDrinkWanted() {
+    var poured = {};
+    S.plates.forEach(function (p) { if (p.drink) poured[p.drink] = (poured[p.drink] || 0) + 1; });
+    S.chefs.forEach(function (c) {
+      var h = c.holding;
+      if (!h) return;
+      if (h.kind === 'cup') poured[h.flavor] = (poured[h.flavor] || 0) + 1;
+      if (h.kind === 'plate' && h.drink) poured[h.drink] = (poured[h.drink] || 0) + 1;
+    });
+    for (var i = 0; i < S.tickets.length; i++) {
+      var d = S.tickets[i].drink;
+      if (!d) continue;
+      if (poured[d]) { poured[d]--; continue; }
+      return d;
+    }
+    return null;
+  }
+  function tapRect() { return { x: L.plateX, y: L.tapTop, w: L.colW, h: L.tapH }; }
+
   function hatchRect() { return { x: L.hatchX, y: L.hatchY, w: L.hatchW, h: L.hatchH }; }
   function binRect() { return { x: L.binX, y: L.hatchY, w: L.binW, h: L.hatchH }; }
 
@@ -596,8 +673,10 @@
       r = crateRect(t.i);
       return { x: clamp(r.x + r.w / 2, f.x0, f.x1), y: nearEdge(r, f, 'y') };
     }
-    if (t.kind === 'grill' || t.kind === 'plate') {
-      r = t.kind === 'grill' ? slotRect(t.i) : plateRect(t.i);
+    if (t.kind === 'grill' || t.kind === 'plate' || t.kind === 'fryer' || t.kind === 'tap') {
+      r = t.kind === 'grill' ? slotRect(t.i)
+        : t.kind === 'plate' ? plateRect(t.i)
+        : t.kind === 'fryer' ? fryerRect() : tapRect();
       return { x: nearEdge(r, f, 'x'), y: clamp(r.y + r.h / 2, f.y0, f.y1) };
     }
     if (t.kind === 'hatch' || t.kind === 'bin') {
@@ -622,6 +701,8 @@
     for (i = 0; i < menuLen(); i++) if (inside(crateRect(i))) return { kind: 'crate', i: i };
     for (i = 0; i < S.grill.length; i++) if (inside(slotRect(i))) return { kind: 'grill', i: i };
     for (i = 0; i < S.plates.length; i++) if (inside(plateRect(i))) return { kind: 'plate', i: i };
+    if (L.fryH && inside(fryerRect())) return { kind: 'fryer', i: fryWellAt(x, y) };
+    if (L.tapH && inside(tapRect())) return { kind: 'tap' };
     if (inside(hatchRect())) return { kind: 'hatch' };
     if (inside(binRect())) return { kind: 'bin' };
     return { kind: 'floor', x: x, y: y };
@@ -748,6 +829,7 @@
     var secs = S.cfg.patience * arch.patience;
     S.tickets.push({
       uid: ++uid, arch: arch, items: order.items,
+      side: order.side, drink: order.drink,
       patience: secs, max: secs, tick: 0
     });
     S.spawned++;
@@ -796,6 +878,9 @@
   function reserveBoard(day) {
     var cfg = Core.dayConfig(day);
     var rows = cfg.maxExtras + ((day >= 8 && cfg.maxExtras >= 2) ? 1 : 0);
+    // ...plus the tray's own two lines, once the day can ask for them.
+    if (day >= Core.SIDE_DAY) rows += 1;
+    if (Core.drinkMenu(day).length) rows += 1;
     try {
       document.documentElement.style.setProperty('--order-rows', Math.max(1, rows));
     } catch (e) { /* a stubbed DOM has no style object; the board just flows */ }
@@ -824,8 +909,12 @@
     S.closedBy = null;
     S.tickets = [];
     S.plates = [];
-    for (var i = 0; i < S.fx.plates; i++) S.plates.push({ stack: [] });
+    for (var i = 0; i < S.fx.plates; i++) S.plates.push({ stack: [], side: null, drink: null });
     S.grill = new Array(S.fx.grillSlots).fill(null);
+    // The fry station opens on day 5 and the fountain on day 3; before that the
+    // machines are not in the room at all, so the columns keep their old height.
+    S.fryer = day >= Core.SIDE_DAY ? [null, null] : [];
+    S.drinkTaps = Core.drinkMenu(day);
 
     // two cooks in co-op, one otherwise
     var want = coop() ? 2 : 1;
@@ -1048,16 +1137,42 @@
         buzz(8);
         return;
       }
+      /*
+       * A carton of fries and a cup go on the tray, not into the burger. They
+       * are deliberately NOT pushed into p.stack: that array is the multiset
+       * evaluate() scores against, and a drink in it would read as a filling
+       * the customer never got.
+       */
+      if (hold && hold.kind === 'fries') {
+        if (p.side) { nope('FRIES ALREADY ON IT', ci); return; }
+        p.side = 'fries';
+        p.sideCook = hold.cook;
+        me.holding = null;
+        Sfx.stack(p.stack.length + 1);
+        buzz(8);
+        return;
+      }
+      if (hold && hold.kind === 'cup') {
+        if (p.drink) { nope('A DRINK IS ON IT', ci); return; }
+        p.drink = hold.flavor;
+        me.holding = null;
+        Sfx.tap();
+        buzz(8);
+        return;
+      }
       if (hold && hold.kind === 'plate') {
-        if (p.stack.length) { nope('PLATE IN USE', ci); return; }
+        if (trayBusy(p)) { nope('PLATE IN USE', ci); return; }
         p.stack = hold.stack;
+        p.side = hold.side || null;
+        p.sideCook = hold.sideCook;
+        p.drink = hold.drink || null;
         me.holding = null;
         Sfx.tap();
         return;
       }
-      if (!hold && p.stack.length) {
-        me.holding = { kind: 'plate', stack: p.stack };
-        p.stack = [];
+      if (!hold && trayBusy(p)) {
+        me.holding = { kind: 'plate', stack: p.stack, side: p.side, sideCook: p.sideCook, drink: p.drink };
+        p.stack = []; p.side = null; p.sideCook = undefined; p.drink = null;
         Sfx.lift();
         buzz(10);
         return;
@@ -1066,9 +1181,70 @@
       return;
     }
 
+    /*
+     * The fry station. It is the grill's mechanic with the supply built in:
+     * the sack and the cutter beside it are where the cut potatoes come from,
+     * so an empty-handed tap on an idle well drops a basket and starts the
+     * clock. Come back at the right moment and you are holding a carton; come
+     * back late and you are holding a carton of charcoal.
+     */
+    if (t.kind === 'fryer') {
+      var w = clamp(t.i || 0, 0, Math.max(0, S.fryer.length - 1));
+      var well = S.fryer[w];
+      if (hold) {
+        nope(hold.kind === 'fries' ? 'ALREADY GOT FRIES' : 'HANDS FULL', ci);
+        return;
+      }
+      if (!well) {
+        S.fryer[w] = { t: 0 };
+        var fr0 = fryWellRect(w);
+        Sfx.sizzle();
+        buzz(12);
+        float('IN THE OIL', fr0.x + fr0.w / 2, fr0.y, C.warm, 10);
+        return;
+      }
+      var fq = Core.cookQuality(well.t, S.fx.perfectWindow);
+      var fstage = Core.cookStage(well.t, S.fx.perfectWindow);
+      var flook = Core.cookLook(well.t, S.fx.perfectWindow);
+      me.holding = { kind: 'fries', cook: fq, done: flook.done, char: flook.char };
+      S.fryer[w] = null;
+      var fr = fryWellRect(w);
+      if (fstage === 'perfect') {
+        float('GOLDEN', fr.x + fr.w / 2 + 26, fr.y, K.go, 12);
+        spark(fr.x + fr.w / 2, fr.y + fr.h / 2, 10, 'rgba(240,180,41,0.95)');
+        Sfx.perfect();
+        buzz(20);
+      } else if (fstage === 'burnt') {
+        float('BURNT', fr.x + fr.w / 2 + 22, fr.y, C.alarm, 12);
+        Sfx.burnt();
+      } else {
+        float(fstage === 'raw' ? 'STILL PALE' : 'GOING DARK', fr.x + fr.w / 2 + 26, fr.y,
+          fstage === 'raw' ? '#3d7fbf' : C.warmDeep, 11);
+        Sfx.thud();
+      }
+      return;
+    }
+
+    /*
+     * The fountain. One tap, one cup - and it pours the flavour the oldest
+     * ticket still waiting on a drink asked for. The decision the player is
+     * making here is WHEN, not which: six spouts to aim at on a phone would be
+     * a memory test wearing a kitchen's clothes, and the fry timer is already
+     * carrying the skill on this side of the room.
+     */
+    if (t.kind === 'tap') {
+      if (hold) { nope('HANDS FULL', ci); return; }
+      var want = nextDrinkWanted();
+      if (!want) { nope('NOBODY WANTS A DRINK', ci); return; }
+      me.holding = { kind: 'cup', flavor: want };
+      Sfx.lift();
+      buzz(8);
+      return;
+    }
+
     if (t.kind === 'hatch') {
       if (!hold || hold.kind !== 'plate') { nope('CARRY A PLATE OVER', ci); return; }
-      deliver(hold.stack);
+      deliver(hold.stack, { side: hold.side || null, drink: hold.drink || null, sideCook: hold.sideCook });
       me.holding = null;
       return;
     }
@@ -1084,8 +1260,9 @@
   }
 
   /* --------------------------------------------------------------- serving */
-  function deliver(stack) {
+  function deliver(stack, tray) {
     if (!S.tickets.length) { nope('NO ORDERS UP'); return; }
+    tray = tray || {};
     var t = Core.bestMatch(S.tickets, stack);
 
     var res = Core.payout({
@@ -1095,6 +1272,43 @@
       customer: t.arch,
       tipMult: S.fx.tipMult
     });
+
+    /*
+     * The other half of the tray, priced and judged on its own.
+     *
+     * evaluate() owns the burger and has never heard of fries; this owns the
+     * fries and never touches the stack. What it can do is spoil a verdict:
+     * a flawless burger with the drink missing is not a perfect order, and
+     * saying so is the only way the board's third row means anything.
+     */
+    var ex = Core.checkExtras({ side: t.side, drink: t.drink }, tray);
+    if (ex.asked) {
+      var sideIng = Core.SIDES.fries;
+      if (tray.side === t.side && t.side) {
+        // Burnt fries are still fries, but nobody pays full price for them.
+        var q = tray.sideCook === undefined ? 1 : tray.sideCook;
+        res.pay += Math.round(sideIng.price * clamp(0.45 + q * 0.55, 0.45, 1));
+      }
+      if (tray.drink && tray.drink === t.drink) {
+        var dr = Core.drinkById(t.drink);
+        if (dr) res.pay += dr.price;
+      }
+    }
+    if (ex.faults.length) {
+      res.faults = (res.faults || []).concat(ex.faults);
+      /*
+       * One miss drops it a grade; both drop it two - but never past 'meh',
+       * because 'bad' is the verdict that costs a heart and sends the plate
+       * back, and a correct burger with a forgotten drink is not that.
+       *
+       * The ladder is VERDICT's own, and it stops one short of the end. Naming
+       * a grade that is not in that table put `undefined.text` on the screen.
+       */
+      var LADDER = ['perfect', 'great', 'good', 'meh'];
+      var at = LADDER.indexOf(res.verdict);
+      if (at >= 0) res.verdict = LADDER[Math.min(LADDER.length - 1, at + ex.faults.length)];
+      res.tip = Math.round(res.tip * Math.max(0, 1 - ex.faults.length * 0.5));
+    }
 
     S.sales += res.pay;
     S.tips += res.tip;
@@ -1280,6 +1494,8 @@
 
     // A guest renders what the host sends and simulates none of it.
     if (S.role === 'guest') { updateBoardBars(); syncClock(); return; }
+
+    for (i = 0; i < S.fryer.length; i++) if (S.fryer[i]) S.fryer[i].t += dt;
 
     for (i = 0; i < S.grill.length; i++) {
       if (S.grill[i]) {
@@ -1644,6 +1860,88 @@
     return p.glow || 0;
   }
 
+  /*
+   * The fry station: the sack and the cutter standing behind a two-well
+   * fryer. Only the fryer is a tap target - the other two are the supply
+   * line, and they are what makes an empty-handed tap on a cold well read as
+   * "drop a basket" rather than "conjure potatoes". The cutter cranks while
+   * a well is running, so the machine is visibly doing the work.
+   */
+  function drawFryStation() {
+    // art-fries-drinks.js is a separate file. If it ever fails to load, the
+    // station simply is not drawn - the room should not die with it.
+    if (!L.fryH || !Art.scene.fryer || !Art.item) return;
+    var r = fryerRect();
+    var busy = S.fryer.some(function (w) { return !!w; });
+    var t = nowMs() / 1000;   // the oil bubbles and the crank turn on real time
+
+    // supply across the top of the box: a sack and the cutter that feeds it
+    var supH = r.h * FRY_SUPPLY * 0.96;
+    Art.scene.sack(ctx, r.x + r.w * 0.03, r.y, r.w * 0.40, supH, { open: 1, count: 4 });
+    Art.scene.cutter(ctx, r.x + r.w * 0.50, r.y, r.w * 0.46, supH,
+      { spin: busy ? (t * 1.6) % 1 : 0, load: busy ? 1 : 0.35, out: busy ? 0.7 : 0 });
+
+    var fy = r.y + r.h * FRY_SUPPLY, fh = r.h * (1 - FRY_SUPPLY);
+    Art.scene.fryer(ctx, r.x, fy, r.w, fh, {
+      // o.temp is the TEXT on the dial, not a 0..1 heat - passing a fraction
+      // wrote "0.82°" across the machine's own name. The default reads 180°.
+      hot: 1, t: t,
+      slots: S.fryer.map(function (w) {
+        if (!w) return { down: 0, fries: 0, cooked: 0 };
+        var look = Core.cookLook(w.t, S.fx.perfectWindow);
+        return { down: 1, fries: 1, cooked: clamp(look.done, 0, 1) };
+      })
+    });
+
+    // the same yellow ring the crates use, so "this one is ready" reads the
+    // same way everywhere in the room
+    S.fryer.forEach(function (w, i) {
+      if (!w) return;
+      if (Core.cookStage(w.t, S.fx.perfectWindow) === 'perfect') pickRing(fryWellRect(i), 10);
+    });
+  }
+
+  /*
+   * The fountain. Six taps drawn across its face, and a cup under whichever
+   * one is next - so the machine answers "what would I get if I tapped this"
+   * before the cook walks over, which is the whole decision it offers.
+   */
+  function drawFountain() {
+    if (!L.tapH || !Art.item || !Art.item.cup) return;
+    var r = tapRect();
+    var next = nextDrinkWanted();
+    var taps = S.drinkTaps || [];
+
+    Art.ink(ctx, Art.rectPts(r.x, r.y, r.w, r.h, r.w * 0.10, r.w * 0.008, 5501),
+      '#cfd6da', { lw: Math.max(1.2, r.w * 0.030), off: r.w * 0.006, line: '#3f4a50', seed: 5501 });
+    Art.ink(ctx, Art.rectPts(r.x + r.w * 0.08, r.y + r.h * 0.10, r.w * 0.84, r.h * 0.34,
+      r.w * 0.06, r.w * 0.006, 5502),
+      '#2e3a40', { lw: Math.max(1, r.w * 0.020), line: '#1b2428', seed: 5502 });
+
+    // one bead per plumbed flavour, the next one lit
+    var nT = Math.max(1, taps.length);
+    for (var i = 0; i < taps.length; i++) {
+      var d = Core.drinkById(taps[i]);
+      var bx = r.x + r.w * (0.14 + 0.72 * ((i + 0.5) / nT));
+      var lit = taps[i] === next;
+      ctx.save();
+      ctx.globalAlpha = lit ? 1 : 0.42;
+      Art.ink(ctx, Art.ellPts(bx, r.y + r.h * 0.27, r.w * 0.052, r.w * 0.052, 12, r.w * 0.006, 5510 + i),
+        d ? d.swatch : '#888', { lw: Math.max(0.9, r.w * 0.016), line: '#1b2428', seed: 5510 + i });
+      ctx.restore();
+    }
+
+    if (next) {
+      Art.item.cup(ctx, r.x + r.w * 0.30, r.y + r.h * 0.48, r.w * 0.40, r.h * 0.48,
+        { flavor: next, fill: 0.85, lid: 1, straw: true });
+      pickRing(r, 8);
+    } else {
+      Art.ui.letters(ctx, taps.length ? 'NO ORDERS' : 'CLOSED',
+        r.x + r.w / 2, r.y + r.h * 0.78, r.h * 0.13,
+        { fill: 'rgba(63,74,80,0.55)', weight: 0.12, track: 0.14, seed: 5520 });
+    }
+  }
+
   function drawPlates() {
     // one plating bench with the plates sitting on it
     var n = S.plates.length;
@@ -1746,6 +2044,20 @@
     g.shadowColor = 'rgba(80,50,32,0.35)';
     g.shadowBlur = 6;
     g.shadowOffsetY = 3;
+
+    if (hold.kind === 'fries') {
+      Art.item.friesBox(g, cx - maxW * 0.20, baseY - maxH * 0.92, maxW * 0.40, maxH * 0.92,
+        { fries: 1, cooked: hold.done, brand: 'FRIES' });
+      g.restore();
+      return maxH * 0.92;
+    }
+
+    if (hold.kind === 'cup') {
+      Art.item.cup(g, cx - maxW * 0.17, baseY - maxH * 0.95, maxW * 0.34, maxH * 0.95,
+        { flavor: hold.flavor, fill: 0.85, lid: 1, straw: true });
+      g.restore();
+      return maxH * 0.95;
+    }
 
     if (hold.kind === 'plate') {
       var shown = Core.displayStack(hold.stack);
@@ -1917,7 +2229,9 @@
     drawCounter();
     drawCrates();
     drawGrill();
+    drawFryStation();
     drawPlates();
+    drawFountain();
     drawChefs();
     drawFlyers();
     drawHatchAndBin();     // nearest the camera, so it draws over the cook
@@ -2085,7 +2399,7 @@
    * are in every order and would only be noise - unless there are two patties,
    * which is worth calling out.
    */
-  function orderRows(items) {
+  function orderRows(items, side, drink) {
     var counts = {};
     items.forEach(function (id) { counts[id] = (counts[id] || 0) + 1; });
 
@@ -2096,17 +2410,25 @@
       rows.push({ id: id, n: counts[id] });
     });
 
-    if (!rows.length) return [{ n: 'PLAIN', c: '#e0cba6' }];
-
-    return rows.map(function (r) {
+    var out = rows.map(function (r) {
       var ing = Core.byId(r.id);
       return { n: r.n > 1 ? ing.short + ' x' + r.n : ing.short, c: ing.swatch };
     });
+    // PLAIN only means a plain BURGER - a slip with fries on it is not blank.
+    if (!out.length && !side && !drink) return [{ n: 'PLAIN', c: '#e0cba6' }];
+    if (side && Core.SIDES[side]) {
+      out.push({ n: Core.SIDES[side].short, c: Core.SIDES[side].swatch });
+    }
+    if (drink) {
+      var dr = Core.drinkById(drink);
+      if (dr) out.push({ n: dr.short, c: dr.swatch });
+    }
+    return out;
   }
 
   /** The same list in a sentence, for a reader that cannot see the board. */
   function orderSpoken(t) {
-    return orderRows(t.items).map(function (r) { return r.n; }).join(', ');
+    return orderRows(t.items, t.side, t.drink).map(function (r) { return r.n; }).join(', ');
   }
 
   /*
@@ -2126,7 +2448,7 @@
     var now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     var pct = clamp(t.patience / t.max, 0, 1);
     leaving.push({
-      t: t, at: now, rows: orderRows(t.items),
+      t: t, at: now, rows: orderRows(t.items, t.side, t.drink),
       bar: pct < 0.12 ? BAR_CRIT : (pct < 0.28 ? BAR_WARN : BAR_GOOD)
     });
   }
@@ -2160,7 +2482,7 @@
       var pct = clamp(t.patience / t.max, 0, 1);
       list.push({
         t: t, fade: 1, pct: pct,
-        rows: orderRows(t.items),
+        rows: orderRows(t.items, t.side, t.drink),
         bar: pct < 0.12 ? BAR_CRIT : (pct < 0.28 ? BAR_WARN : BAR_GOOD)
       });
     });
@@ -3037,10 +3359,15 @@
       screen: S.screen, menu: S.menu, concurrent: S.cfg ? S.cfg.concurrent : 3,
       paused: !!S.userPaused,
       left: Math.round(S.timeLeft * 10) / 10, len: S.dayLength,
-      plates: S.plates.map(function (p) { return p.stack; }),
+      plates: S.plates.map(function (p) {
+        return { s: p.stack, sd: p.side || null, sc: p.sideCook, dr: p.drink || null };
+      }),
       grill: S.grill.map(function (g) { return g ? { id: g.id, t: g.t } : null; }),
+      fryer: S.fryer.map(function (w) { return w ? { t: w.t } : null; }),
+      taps: S.drinkTaps,
       tickets: S.tickets.map(function (t) {
-        return { uid: t.uid, a: t.arch.id, items: t.items, p: t.patience, m: t.max };
+        return { uid: t.uid, a: t.arch.id, items: t.items, sd: t.side || null,
+                 dr: t.drink || null, p: t.patience, m: t.max };
       }),
       chefs: S.chefs.map(function (c) {
         return {
@@ -3061,6 +3388,7 @@
       (S.menu || []).length !== (m.menu || []).length ||
       S.plates.length !== m.plates.length ||
       S.grill.length !== m.grill.length ||
+      S.fryer.length !== ((m.fryer || []).length) ||
       S.day !== m.day;
 
     var dayChanged = S.day !== m.day;
@@ -3088,8 +3416,15 @@
     if (m.len !== undefined) S.dayLength = m.len;
     if (m.left !== undefined) S.timeLeft = m.left;
 
-    S.plates = m.plates.map(function (st) { return { stack: st }; });
+    // Older hosts send a bare stack array; newer ones send the whole tray.
+    S.plates = m.plates.map(function (p) {
+      return Array.isArray(p)
+        ? { stack: p, side: null, drink: null }
+        : { stack: p.s || [], side: p.sd || null, sideCook: p.sc, drink: p.dr || null };
+    });
     S.grill = m.grill;
+    S.fryer = m.fryer || [];
+    S.drinkTaps = m.taps || [];
 
     // keep ticket objects (and their DOM nodes) alive across snapshots
     var byUid = {};
@@ -3101,6 +3436,8 @@
       var tk = old || { uid: t.uid, tick: 0 };
       tk.arch = ARCH_BY_ID[t.a] || Core.CUSTOMERS[0];
       tk.items = t.items;
+      tk.side = t.sd || null;
+      tk.drink = t.dr || null;
       tk.patience = t.p; tk.max = t.m;
       return tk;
     });
@@ -3553,8 +3890,10 @@
 
     S.menu = Core.dayMenu(S.day);
     S.sections = Core.menuSections(S.day);
-    for (var i = 0; i < S.fx.plates; i++) S.plates.push({ stack: [] });
+    for (var i = 0; i < S.fx.plates; i++) S.plates.push({ stack: [], side: null, drink: null });
     S.grill = new Array(S.fx.grillSlots).fill(null);
+    S.fryer = S.day >= Core.SIDE_DAY ? [null, null] : [];
+    S.drinkTaps = Core.drinkMenu(S.day);
     S.rent = Core.dayGoal(S.day);
     resize();
     syncHud();
@@ -3607,6 +3946,8 @@
     enterRoom: enterRoom, connectRoom: connectRoom,
     crateRect: crateRect, slotRect: slotRect, plateRect: plateRect,
     hatchRect: hatchRect, binRect: binRect,
+    fryerRect: fryerRect, fryWellRect: fryWellRect, tapRect: tapRect,
+    nextDrinkWanted: nextDrinkWanted,
     buyUpgrade: buyUpgrade, ticketOf: ticketOf
   };
 
