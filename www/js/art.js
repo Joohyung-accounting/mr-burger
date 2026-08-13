@@ -1583,11 +1583,27 @@
       lhy = rhy = hy - hr * 1.05;
     }
     if (opts.carry) {
-      var carryY = cy - s * 0.275;
+      /*
+       * The baseline has to clear the hand, not sit in it. The hand is a
+       * circle of radius 0.066s centred  below this line, so an offset
+       * under 0.066s buries the object - at the old 0.035s it was a quarter
+       * of a hand deep, and since the sleeves are painted AFTER this
+       * callback the arms closed over its bottom edge. That is the "held by
+       * the arms" read.
+       *
+       * 0.062s leaves a 0.004s bite: the hands still overlap the very
+       * bottom of it, which is what makes them read as fingers curled under
+       * rather than as a sticker laid on top. The hand line itself does not
+       * move - both numbers shift together.
+       */
+      var carryY = cy - s * 0.302;
       var half = opts.carry(ctx, x, carryY, s * 0.72, s * 0.42);
-      handSpread = Math.max(s * 0.20, (half || s * 0.30) * 0.94);
+      // The floor is a minimum reach, not a minimum grip: at 0.20s the hands
+      // sat outside a bun (half 0.187s) and a whole cup, so they never closed
+      // on either. It only has to stop them crossing over each other.
+      handSpread = Math.max(s * 0.13, (half || s * 0.30) * 0.94);
       lhx = x - handSpread; rhx = x + handSpread;
-      lhy = rhy = carryY + s * 0.035;
+      lhy = rhy = carryY + s * 0.062;
     }
 
     // short sleeves out to each hand: a fat cook cannot hang his arms straight

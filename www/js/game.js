@@ -2232,14 +2232,15 @@
       Art.item.friesBox(g, cx - maxW * 0.20, baseY - maxH * 0.92, maxW * 0.40, maxH * 0.92,
         { fries: 1, cooked: hold.done, brand: 'FRIES' });
       g.restore();
-      return maxH * 0.92;
+      // a HALF-WIDTH, which is what drawChef closes the hands on
+      return maxW * 0.20;
     }
 
     if (hold.kind === 'cup') {
       Art.item.cup(g, cx - maxW * 0.17, baseY - maxH * 0.95, maxW * 0.34, maxH * 0.95,
         { flavor: hold.flavor, fill: 0.85, lid: 1, straw: true });
       g.restore();
-      return maxH * 0.95;
+      return maxW * 0.17;
     }
 
     if (hold.kind === 'plate') {
