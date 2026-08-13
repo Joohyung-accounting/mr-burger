@@ -2429,6 +2429,71 @@
     return out;
   }
 
+  /*
+   * A ticket drawn as the set it actually is: the burger, and beside it the
+   * fries and the cup when they were asked for.
+   *
+   * A slip is about eighty pixels wide, so this is not three pictures sharing
+   * the space equally - the burger is what the cook builds and stays the
+   * biggest thing on the paper. The other two stand on the same line beside
+   * it, the way a combo sits on a tray, and they shrink the burger rather
+   * than crowding it.
+   *
+   * The words underneath still say WHICH drink: six flavours are six shades of
+   * brown at this size, and the slip has always named what the picture cannot.
+   */
+  function drawTraySet(g, t, x, y, w, h) {
+    var shown = Core.displayStack(t.items);
+    // Ask Core, the same way orderRows and checkExtras do. A ticket carrying an
+    // id this build has never heard of draws no carton rather than an unnamed
+    // one - the picture and the words must not disagree about what was ordered.
+    var hasFries = !!(t.side && Core.SIDES[t.side]);
+    var hasCup = !!(t.drink && Core.drinkById(t.drink));
+    var extras = (hasFries ? 1 : 0) + (hasCup ? 1 : 0);
+    var baseY = y + h;                       // everything stands on one line
+
+    if (!extras) {
+      Art.drawStack(g, shown, x + w / 2, baseY, Art.fitWidth(shown, w * 0.88, h * 1.95));
+      return;
+    }
+
+    /*
+     * Widths as a share of the box. The burger keeps more than half of it even
+     * with both extras out, because a ticket you cannot read the burger on is
+     * a ticket you have to read twice.
+     */
+    var burgerW = extras === 1 ? w * 0.62 : w * 0.54;
+    var sideW = (w - burgerW) / extras;
+    var side = Art.item && Art.item.friesBox && Art.item.cup;
+
+    // fries on the left, burger in the middle, cup on the right - the order a
+    // tray is loaded in, and it keeps the burger centred when both are out
+    var cursor = x + (hasFries ? sideW : 0);
+    Art.drawStack(g, shown, cursor + burgerW / 2, baseY,
+                  Art.fitWidth(shown, burgerW * 0.94, h * 1.55));
+
+    if (!side) return;                       // art-fries-drinks.js never loaded
+
+    /*
+     * Heights are the DRAWN heights, not the boxes'. friesBox spills its own
+     * fries about 0.16h + 0.3w above the box it is given, so asking for the
+     * full band gave a carton that towered over the burger and climbed into
+     * the clip. The cup is the honest one - its box really does contain its
+     * lid and straw - so it is the only piece here allowed to be the tallest,
+     * which is also how a combo looks on a tray.
+     */
+    if (hasFries) {
+      var cw = sideW * 0.80, ch = h * 0.80;
+      Art.item.friesBox(g, x + (sideW - cw) / 2, baseY - ch, cw, ch,
+                        { fries: 1, cooked: 0.82, brand: '' });
+    }
+    if (hasCup) {
+      var uw = sideW * 0.68, uh = h * 1.30;
+      Art.item.cup(g, x + w - sideW + (sideW - uw) / 2, baseY - uh, uw, uh,
+                   { flavor: t.drink, fill: 0.85, lid: 1, straw: true });
+    }
+  }
+
   /** The same list in a sentence, for a reader that cannot see the board. */
   function orderSpoken(t) {
     return orderRows(t.items, t.side, t.drink).map(function (r) { return r.n; }).join(', ');
@@ -2508,11 +2573,9 @@
          */
         food: function (gg, tk, fx, fy, fw, fh) {
           if (!tk.e) return;
-          var shown = Core.displayStack(tk.e.t.items);
           gg.save();
           gg.globalAlpha = tk.e.fade;
-          Art.drawStack(gg, shown, fx + fw / 2, fy + fh,
-                        Art.fitWidth(shown, fw * 0.88, fh * 1.95));
+          drawTraySet(gg, tk.e.t, fx, fy, fw, fh);
           gg.restore();
         }
       });
@@ -3940,6 +4003,7 @@
     state: S, layout: L,
     startDay: startDay, spawnTicket: spawnTicket, endDay: endDay,
     renderBoard: renderBoard, reserveBoard: reserveBoard, orderRows: orderRows,
+    drawTraySet: drawTraySet,
     sendChef: sendChef, arrive: arrive, deliver: deliver,
     stationAt: stationAt, standPoint: standPoint,
     setPaused: setPaused, quitToTitle: quitToTitle,

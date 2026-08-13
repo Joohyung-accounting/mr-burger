@@ -2258,6 +2258,73 @@ test('a co-op guest gets the fry line and the fountain too', function () {
   S.role = 'solo'; S.me = 0;
 });
 
+/*
+ * The slip shows the tray as a SET - the burger with the carton and the cup
+ * standing beside it - so a combo reads as one order at a glance rather than
+ * as a burger with two extra words under it.
+ */
+test('the slip draws the whole set, whatever the order asks for', function () {
+  var g = makeCtx();
+  var combos = [
+    { side: null, drink: null },
+    { side: null, drink: 'cola' },
+    { side: 'fries', drink: null },
+    { side: 'fries', drink: 'orange' }
+  ];
+  combos.forEach(function (c) {
+    var t = { items: ['bun', 'patty', 'cheese'], side: c.side, drink: c.drink };
+    // the real slip's food box, and a couple of sizes either side of it
+    [[59, 21], [24, 9], [180, 64]].forEach(function (box) {
+      assert.doesNotThrow(function () {
+        MB.drawTraySet(g, t, 4, 4, box[0], box[1]);
+      }, 'a ' + (c.side || '-') + '/' + (c.drink || '-') + ' tray threw at ' + box.join('x'));
+    });
+  });
+});
+
+test('the set draws more pieces as the order grows', function () {
+  // The stub context records nothing, so count the draw calls instead: a
+  // combo has to put strictly more ink down than a bare burger, or the set is
+  // not actually being composed.
+  function marks(t) {
+    var n = 0;
+    var g = makeCtx();
+    ['fill', 'stroke', 'fillText'].forEach(function (m) {
+      var real = g[m];
+      g[m] = function () { n++; return real && real.apply(g, arguments); };
+    });
+    MB.drawTraySet(g, t, 0, 0, 59, 21);
+    return n;
+  }
+  var base = { items: ['bun', 'patty'], side: null, drink: null };
+  var withCup = { items: ['bun', 'patty'], side: null, drink: 'cola' };
+  var withBoth = { items: ['bun', 'patty'], side: 'fries', drink: 'cola' };
+
+  var a = marks(base), b = marks(withCup), c = marks(withBoth);
+  assert.ok(b > a, 'adding a drink drew nothing extra (' + a + ' -> ' + b + ')');
+  assert.ok(c > b, 'adding fries drew nothing extra (' + b + ' -> ' + c + ')');
+});
+
+test('an unknown side or drink draws nothing, and never throws', function () {
+  function marks(t) {
+    var n = 0;
+    var g = makeCtx();
+    ['fill', 'stroke', 'fillText'].forEach(function (m) {
+      var real = g[m];
+      g[m] = function () { n++; return real && real.apply(g, arguments); };
+    });
+    MB.drawTraySet(g, t, 0, 0, 59, 21);
+    return n;
+  }
+  var bare = { items: ['bun', 'patty'], side: null, drink: null };
+  var junk = { items: ['bun', 'patty'], side: 'x', drink: 'milkshake' };
+  assert.doesNotThrow(function () { marks(junk); },
+    'an id this build has never heard of threw inside the board paint');
+  // the picture must agree with the words, and orderRows names neither of these
+  assert.strictEqual(marks(junk), marks(bare),
+    'an unnamed side or drink was still drawn on the slip');
+});
+
 test('the slip has a line for the fries and a line for the cup', function () {
   var rows = MB.orderRows(['bun', 'patty', 'cheese'], 'fries', 'cola');
   var names = rows.map(function (r) { return r.n; });
