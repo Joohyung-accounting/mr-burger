@@ -927,7 +927,7 @@
   function walkout(t) {
     S.walked++;
     S.hearts--;
-    chefMood('sad', 1.4);
+    chefMood('sad', 1.4, S.me || 0);
     dropTicket(t);
     banner('WALKED OUT', t.arch.name + ' gave up waiting', C.alarm);
     S.shake = 14;
@@ -1304,6 +1304,8 @@
         bd.juice = bing.swatch;
         me.holding = null;
         dropOnto('board', 0, hold.id, br.x + br.w / 2, br.y + br.h * 0.60, br.w * 0.24, ci, hold);
+        // hands alternate for as long as the knife is working
+        chefMood('cook', CHOP_TIME, ci);
         Sfx.stack(1);
         buzz(10);
         return;
@@ -1387,7 +1389,7 @@
 
     if (t.kind === 'hatch') {
       if (!hold || hold.kind !== 'plate') { nope('CARRY A PLATE OVER', ci); return; }
-      deliver(hold.stack, { side: hold.side || null, drink: hold.drink || null, sideCook: hold.sideCook });
+      deliver(hold.stack, { side: hold.side || null, drink: hold.drink || null, sideCook: hold.sideCook }, ci);
       me.holding = null;
       return;
     }
@@ -1403,7 +1405,7 @@
   }
 
   /* --------------------------------------------------------------- serving */
-  function deliver(stack, tray) {
+  function deliver(stack, tray, ci) {
     if (!S.tickets.length) { nope('NO ORDERS UP'); return; }
     tray = tray || {};
     var t = Core.bestMatch(S.tickets, stack);
@@ -1456,8 +1458,8 @@
     S.sales += res.pay;
     S.tips += res.tip;
     S.hearts -= res.heartLoss;
-    if (res.verdict === 'perfect') { S.perfect++; chefMood('cheer', 1.2); }
-    else if (res.verdict === 'bad') chefMood('sad', 1.4);
+    if (res.verdict === 'perfect') { S.perfect++; chefMood('cheer', 1.2, ci || 0); }
+    else if (res.verdict === 'bad') chefMood('sad', 1.4, ci || 0);
     if (res.verdict !== 'bad') S.served++;
 
     var v = VERDICT[res.verdict];
@@ -2377,17 +2379,35 @@
        * breathes; a lost order leaves him drooping for a moment; a plate that
        * landed perfectly gets a little cheer.
        */
+      /*
+       * Walking is decided by MOTION, not by owning a target.
+       *
+       * `c.target` is only ever set on the host, so on a guest's screen both
+       * cooks slid across the floor with their legs frozen - the waddle was
+       * computed for them and never asked for. Comparing the drawn position
+       * works the same on both sides of a co-op game.
+       */
+      var moved = Math.abs(c.x - (c.px0 === undefined ? c.x : c.px0)) +
+                  Math.abs(c.y - (c.py0 === undefined ? c.y : c.py0));
+      c.px0 = c.x; c.py0 = c.y;
+      var walking = !!c.target || moved > 0.25;
+
       var pose;
-      if (c.target) {
+      if (walking) {
         pose = { walk: c.phase };
-      } else if (S.chefMood && S.chefMood.until > nowMs() && (i === (S.chefMood.who || 0))) {
+      } else if (S.chefMood && S.chefMood.until > nowMs() && i === S.chefMood.who) {
         pose = Art.chefPose(S.chefMood.mode, (nowMs() - S.chefMood.at) / 1000);
       } else {
         pose = Art.chefPose('idle', nowMs() / 1000);
       }
       Art.drawChef(ctx, c.x, c.y, cs, {
-        face: c.face, blink: c.blink, hop: c.hop,
-        walk: pose.walk, bob: pose.bob === undefined ? c.phase * 0 : pose.bob,
+        face: c.face,
+        // chefPose decides both of these on purpose - a cheer holds its eyes
+        // open and bounces - and drawChefs used to throw them away and read
+        // the chef object instead, which made the bounce dead code.
+        blink: pose.blink === undefined ? c.blink : Math.min(c.blink || 0, pose.blink),
+        hop: Math.max(c.hop || 0, pose.hop || 0),
+        walk: pose.walk, bob: pose.bob === undefined ? 0 : pose.bob,
         work: pose.work, cheer: pose.cheer, droop: pose.droop,
         // The second cook in co-op keeps the house whites, so two players are
         // still telling each other apart at 44px.

@@ -1419,8 +1419,10 @@
     var sway = -w8 * s * 0.022;
     var rise = -(1 - Math.abs(w8)) * s * 0.030 * wk;
 
-    var sx = (1 + hop * 0.12) * (1 + Math.abs(w8) * 0.030);
-    var sy = (1 - hop * 0.14) * (1 - Math.abs(w8) * 0.035);
+    // Stretch in the air, squash on the ground - it was the other way round,
+    // so he flattened at the top of every hop.
+    var sx = (1 - hop * 0.06) * (1 + Math.abs(w8) * 0.030);
+    var sy = (1 + hop * 0.08) * (1 - Math.abs(w8) * 0.035);
     var cy = y - Math.abs(swing) * s * 0.045 - hop * s * 0.10 + rise;
 
     // scribbled contact shadow
@@ -1430,7 +1432,8 @@
     for (var g = 0; g < 3; g++) {
       ctx.globalAlpha = 0.13;
       ctx.lineWidth = s * 0.030;
-      var ww = s * 0.30 * (1 - g * 0.18) * (1 + hop * 0.15);
+      // ...and the shadow shrinks as he leaves the floor, rather than growing
+      var ww = s * 0.30 * (1 - g * 0.18) * (1 - hop * 0.22);
       ctx.beginPath();
       ctx.moveTo(x - ww + sway, y + g * s * 0.018);
       ctx.quadraticCurveTo(x + sway, y + g * s * 0.018 + s * 0.01, x + ww + sway, y + g * s * 0.018);
@@ -1611,8 +1614,23 @@
       // The floor only has to stop the hands crossing. At 0.13s it was wider
       // than a cup (0.095s) and a fry carton (0.085s), so neither was gripped.
       handSpread = Math.max(s * 0.08, (half || s * 0.30) * 0.94);
-      lhx = x - handSpread; rhx = x + handSpread;
-      lhy = rhy = carryY + s * 0.062;
+      /*
+       * Carrying is a MODIFIER, not a replacement.
+       *
+       * This block used to assign the hands outright, after every other pose
+       * had already written them - so picking anything up silently deleted the
+       * walk's hand swing, the droop of a lost order and the alternating chop.
+       * A cook carrying a plate through a walkout stood dead level with a sad
+       * face. The carry sets where the hands MEET; the poses still move them.
+       *
+       * Cheer is the one exception, and deliberately: you cannot throw both
+       * arms over your head while holding a plate.
+       */
+      var cyH = carryY + s * 0.062 + droop * s * 0.045;
+      lhx = x - handSpread - stp * s * 0.012;
+      rhx = x + handSpread + stp * s * 0.012;
+      lhy = cyH - work * s * 0.030 + stp * s * 0.010;
+      rhy = cyH + work * s * 0.030 - stp * s * 0.010;
     }
 
     // short sleeves out to each hand: a fat cook cannot hang his arms straight

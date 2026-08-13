@@ -2088,6 +2088,91 @@ test('a co-op guest reserves the board for the host\'s day, not its own', functi
     'the guest kept its own day-3 reservation (' + mine + ') for a day-14 board (' + theirs + ')');
 });
 
+/* ------------------------------------------------------- the cook's poses */
+
+/*
+ * Every bug in this block was SILENT: a pose computed every frame and thrown
+ * away, a reaction played by the wrong cook, a mode no caller ever asked for.
+ * Nothing threw and nothing looked broken enough to notice, which is exactly
+ * why they need assertions rather than eyes.
+ */
+test('chefPose answers every mode the game asks it for', function () {
+  ['idle', 'walk', 'carry', 'cook', 'cheer', 'sad'].forEach(function (m) {
+    var p = Art.chefPose(m, 1.3);
+    assert.ok(p && typeof p === 'object', m + ' returned nothing');
+    Object.keys(p).forEach(function (k) {
+      assert.ok(typeof p[k] === 'number', m + '.' + k + ' is not a number: ' + p[k]);
+      assert.ok(isFinite(p[k]), m + '.' + k + ' is not finite');
+    });
+  });
+  assert.strictEqual(Art.chefPose('cheer', 1.3).cheer, 1);
+  assert.strictEqual(Art.chefPose('sad', 1.3).droop, 1);
+  assert.ok(Art.chefPose('cook', 1.3).work > 0, 'the cook pose does not move the hands');
+  assert.ok(Art.chefPose('walk', 1.3).walk !== undefined, 'the walk pose does not walk');
+});
+
+test('a reaction is played by the cook who earned it', function () {
+  startShift(6);
+  S.chef.holding = null;
+
+  // a perfect plate from cook 0
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  var t = S.tickets[0];
+  t.items = ['bun', 'patty']; t.side = null; t.drink = null; t.patience = t.max;
+  buildPlate(0, ['bun', 'patty']);
+  work(MB.plateRect(0));
+  work(MB.hatchRect());
+  pump(0.1);
+  assert.ok(S.chefMood, 'a delivery raised no reaction at all');
+  assert.strictEqual(S.chefMood.who, 0, 'cook 0 delivered and cook ' + S.chefMood.who + ' reacted');
+
+  // and the second cook's delivery must not be worn by the first
+  MB.arrive({ kind: 'crate', i: 0 }, 1);          // ci = 1 is the guest cook
+  assert.strictEqual(S.chefMood.who, 0, 'a crate should not change who is reacting');
+  S.levels = {};
+});
+
+test('the board sets the cook chopping', function () {
+  startShift(6);
+  var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; })[0];
+  S.chef.holding = null;
+  S.chefMood = null;
+
+  work(crateOf(veg));
+  work(MB.boardRect());
+  assert.ok(S.chefMood, 'putting a vegetable on the board raised no pose');
+  assert.strictEqual(S.chefMood.mode, 'cook', 'the cook stood still while the knife worked');
+  assert.ok(S.chefMood.until > S.chefMood.at, 'the chopping pose has no duration');
+});
+
+test('carrying moves the hands together, it does not freeze them', function () {
+  // drawChef used to assign the hands outright inside the carry block, after
+  // every other pose had written them - so a carried plate deleted the walk
+  // swing, the droop and the chop. Count the marks: a droop and a chop have to
+  // change the picture even while something is being carried.
+  function marks(opts) {
+    var g = makeCtx(), pts = [];
+    var real = g.moveTo, real2 = g.lineTo;
+    g.moveTo = function (x, y) { pts.push(Math.round(y * 10)); return real && real.apply(g, arguments); };
+    g.lineTo = function (x, y) { pts.push(Math.round(y * 10)); return real2 && real2.apply(g, arguments); };
+    Art.drawChef(g, 100, 200, 100, opts);
+    return pts.join(',');
+  }
+  var carry = function (gg, cx, baseY, w, h, measure) {
+    if (measure) return w * 0.2;
+    gg.moveTo(cx, baseY); gg.lineTo(cx + w * 0.2, baseY);
+    return w * 0.2;
+  };
+  var flat = marks({ carry: carry });
+  assert.notStrictEqual(marks({ carry: carry, droop: 1 }), flat,
+    'a lost order left a cook carrying a plate perfectly level');
+  assert.notStrictEqual(marks({ carry: carry, work: 1 }), flat,
+    'the chop does not move the hands while carrying');
+  assert.notStrictEqual(marks({ carry: carry, walk: 0.25 }), flat,
+    'the waddle does not reach the hands while carrying');
+});
+
 /* --------------------------------------------------------- the prep board */
 
 test('every vegetable the board can slice is flagged for chopping', function () {
