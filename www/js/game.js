@@ -517,7 +517,10 @@
     var midH = L.midBottom - L.midTop;
     var gN = S.grill.length || 2, pN = S.plates.length || 2;
     var fryN = S.fryer.length ? 1 : 0;              // the fryer is one box, two wells
-    var tapN = S.drinkTaps ? 1 : 0;
+    // [] is truthy: without the length check the fountain stood in the room
+    // from day one with CLOSED written on it, holding column space the plates
+    // could have used, for a machine nothing could order from yet.
+    var tapN = (S.drinkTaps && S.drinkTaps.length) ? 1 : 0;
     L.slotH = Math.min(SLOT_H * k, (midH - gap * (gN + fryN - 1)) / (gN + fryN));
     L.plateH = Math.min(PLATE_H * k, (midH - gap * (pN + tapN - 1)) / (pN + tapN));
     L.fryH = fryN ? Math.min(FRYER_H * k, L.slotH * 1.35) : 0;

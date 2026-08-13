@@ -241,10 +241,41 @@ test('a half-cooked patty looks half-cooked, not raw and not seared', function (
 
 test('cook stages run raw -> perfect -> over -> burnt in order', function () {
   var w = Core.BASE_WINDOW;
+  var end = Core.COOK_TIME + w / 2;
+  // Derived, not hardcoded: this used to probe COOK_TIME + 2 for 'over', which
+  // was only 'over' while BURN_TIME happened to be 6 seconds long.
   assert.strictEqual(Core.cookStage(1, w), 'raw');
+  assert.strictEqual(Core.cookStage(Core.COOK_TIME - w / 2 - 0.01, w), 'raw');
   assert.strictEqual(Core.cookStage(Core.COOK_TIME, w), 'perfect');
-  assert.strictEqual(Core.cookStage(Core.COOK_TIME + 2, w), 'over');
-  assert.strictEqual(Core.cookStage(Core.COOK_TIME + 20, w), 'burnt');
+  assert.strictEqual(Core.cookStage(end - 0.01, w), 'perfect');
+  assert.strictEqual(Core.cookStage(end + Core.BURN_TIME * 0.25, w), 'over');
+  assert.strictEqual(Core.cookStage(end + Core.BURN_TIME, w), 'burnt');
+  assert.strictEqual(Core.cookStage(end + Core.BURN_TIME * 10, w), 'burnt');
+});
+
+/*
+ * Where the sweet spot sits is the thing a player actually feels, and it is a
+ * ratio rather than either constant on its own. It used to land at 42% of a
+ * patty's life, which read as "grab it early and then watch it die slowly".
+ */
+test('the perfect window sits three quarters of the way through the cook', function () {
+  var w = Core.BASE_WINDOW;
+  var end = Core.COOK_TIME + w / 2;
+  var life = end + Core.BURN_TIME;          // raw at 0, written off here
+  var mid = Core.COOK_TIME / life;
+  assert.ok(mid > 0.70 && mid < 0.80,
+    'the perfect moment is at ' + (mid * 100).toFixed(0) + '% of the cook, not ~75%');
+  assert.ok((Core.COOK_TIME - w / 2) / life > 0.60,
+    'the window opens too early in the cook');
+
+  // Widening it with Pro Grill may pull the ratio down, but never back to the
+  // old half-way feel - a fully upgraded grill is still a waiting game.
+  for (var lvl = 1; lvl <= 3; lvl++) {
+    var pw = Core.effects({ grill: lvl }).perfectWindow;
+    var l2 = Core.COOK_TIME + pw / 2 + Core.BURN_TIME;
+    assert.ok(Core.COOK_TIME / l2 > 0.65,
+      'Pro Grill ' + lvl + ' drags the sweet spot back to ' + ((Core.COOK_TIME / l2) * 100).toFixed(0) + '%');
+  }
 });
 
 /* --------------------------------------------------------- evaluation */

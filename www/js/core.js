@@ -401,8 +401,27 @@
   }
 
   /* --------------------------------------------------------- the grill */
-  var COOK_TIME = 5.0;   // seconds to the middle of the perfect zone
-  var BURN_TIME = 6.0;   // seconds from leaving the zone to fully ruined
+  /*
+   * Where the sweet spot sits along a patty's life.
+   *
+   * A patty runs raw -> perfect -> ruined, and the thing a player feels is not
+   * either number below but the RATIO between them: how far into the cook the
+   * window opens. It used to open at 36% and close at 49%, so the perfect
+   * moment was a little under halfway and most of a patty's life was spent
+   * slowly turning to charcoal - you learned to grab it early and the back
+   * half of the timeline taught you nothing.
+   *
+   * Now the window is three quarters of the way along. Same total life, same
+   * 1.6s of window, so the precision the game asks for has not changed: what
+   * changed is that waiting is the skill and being late is punished quickly,
+   * rather than the reverse.
+   *
+   *   raw ............................ perfect .... ruined
+   *   0s                          8.0s   8.8s  9.6s      11.8s
+   *   0%                           68%    75%   81%       100%
+   */
+  var COOK_TIME = 8.8;   // seconds to the middle of the perfect zone
+  var BURN_TIME = 2.2;   // seconds from leaving the zone to fully ruined
   var TIP_RATE = 0.70;   // tip ceiling as a fraction of the ticket
   var BASE_WINDOW = 1.6; // seconds of perfect zone before upgrades
   var EXTRA_PENALTY = 0.20; // accuracy lost per unwanted filling on the plate

@@ -867,17 +867,20 @@ test('a patty put back on the grill carries on cooking, it does not reset', func
   startShift(6);
   work(crateOf('patty'));
   work(MB.slotRect(0));
-  S.grill[0].t = 3.0;
+  // Two thirds of the way to seared - derived, because a literal 3.0 seconds
+  // only meant "part-cooked" while the window happened to open at 4.2s.
+  var partway = Math.round((Core.COOK_TIME - Core.BASE_WINDOW / 2) * 0.66 * 100) / 100;
+  S.grill[0].t = partway;
   work(MB.slotRect(0));                       // lift it off, part-cooked
   var lifted = held().done;
   assert.ok(lifted > 0.5 && lifted < 1, 'setup: should be part-cooked, got ' + lifted);
-  assert.strictEqual(held().grillT, 3.0, 'the time on the grill has to ride along');
+  assert.strictEqual(held().grillT, partway, 'the time on the grill has to ride along');
 
   // and back down on another burner. It keeps ticking from the frame it lands,
-  // so allow for that rather than demanding an exact 3.0.
+  // so allow for that rather than demanding an exact match.
   work(MB.slotRect(1));
-  assert.ok(S.grill[1].t >= 3.0 && S.grill[1].t < 3.4,
-    'the burner restarted from ' + S.grill[1].t.toFixed(2) + ' instead of 3.0');
+  assert.ok(S.grill[1].t >= partway && S.grill[1].t < partway + 0.4,
+    'the burner restarted from ' + S.grill[1].t.toFixed(2) + ' instead of ' + partway);
   assert.strictEqual(S.grill[0], null);
 
   // a moment more and it is properly seared, not raw
@@ -2071,6 +2074,22 @@ test('the fry line opens on its own day, not before', function () {
   startShift(Core.SIDE_DAY);
   assert.strictEqual(S.fryer.length, 2, 'the fry station never opened');
   assert.ok(MB.layout.fryH > 0, 'the fry station has no height');
+});
+
+test('a machine nobody can use yet takes up no room', function () {
+  // An empty tap list is still an array, and an array is truthy - so the
+  // fountain stood in the room from day one with CLOSED on it, holding column
+  // space away from the plates for something no order could ask for.
+  startShift(1);
+  assert.strictEqual(S.drinkTaps.length, 0, 'day 1 had drinks on tap');
+  assert.strictEqual(MB.layout.tapH, 0, 'day 1 gave the fountain column space');
+  var platesEarly = MB.layout.plateH;
+
+  startShift(Core.DRINK_DAY);
+  assert.ok(S.drinkTaps.length >= 2, 'the fountain never opened');
+  assert.ok(MB.layout.tapH > 0, 'the fountain has no height');
+  assert.ok(MB.layout.plateH <= platesEarly + 0.01,
+    'the plates grew when the fountain moved in');
 });
 
 test('an empty-handed tap drops a basket; a second one lifts it out', function () {
