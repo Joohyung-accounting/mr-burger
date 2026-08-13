@@ -2612,6 +2612,68 @@ test('the kitchen still fits with two more machines in it', function () {
   pump(0.4);
 });
 
+/*
+ * The clock's class is not cosmetic: `no-clock` is what hands #stage its share
+ * of the column, so the room is a different size on the title screen than it is
+ * during a shift. Measure it in the wrong one and the player watches the
+ * kitchen resize itself a moment after day one begins.
+ */
+test('day one is measured against the shift height, never the title screen height', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  stage.clientWidth = 412; stage.clientHeight = 700;
+
+  // start from the title, the way a player does
+  document.body.classList.add('no-clock');
+
+  var reads = 0, staleReads = 0, real = stage.clientHeight;
+  Object.defineProperty(stage, 'clientHeight', {
+    configurable: true,
+    get: function () {
+      reads++;
+      if (document.body.classList.contains('no-clock')) staleReads++;
+      return real;
+    }
+  });
+  try { MB.startDay(1); } finally {
+    delete stage.clientHeight;
+    stage.clientHeight = real;
+  }
+
+  assert.ok(reads > 0, 'setup: opening a day should measure the room at least once');
+  assert.strictEqual(staleReads, 0,
+    'the room was measured ' + staleReads + ' time(s) while the sheet still said ' +
+    'title - that is the shrink the player sees a beat later');
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.4);
+});
+
+test('whoever changes the kitchen height re-measures it in the same beat', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  startShift(3);
+  pump(0.4);
+
+  // a height nothing has told the game about yet
+  stage.clientWidth = 412; stage.clientHeight = 640;
+  var stale = stage.height;
+
+  // closing the shift flips `no-clock` back on, which is what moves the budget
+  S.screen = 'dayEnd';
+  MB.syncHud();
+  assert.notStrictEqual(stage.height, stale,
+    'the canvas kept its old size after the column was re-divided - the watchdog ' +
+    'would only catch this 120ms later, in front of the player');
+
+  // and a sync that changes nothing must not thrash the layout
+  var settled = stage.height;
+  MB.syncHud();
+  assert.strictEqual(stage.height, settled, 'a no-op sync should not re-lay the room out');
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  S.screen = 'service';
+  pump(0.4);
+});
+
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');
 
 

@@ -359,9 +359,13 @@
       + 10 + HATCH_H + 8;
   }
 
+  var layingOut = false;
+
   function resize() {
     var w = cv.clientWidth, h = cv.clientHeight;
     if (!w || !h) return;
+    if (layingOut) return;
+    layingOut = true;
     var dpr = Math.min(window.devicePixelRatio || 1, 3);
     cv.width = Math.round(w * dpr);
     cv.height = Math.round(h * dpr);
@@ -382,6 +386,7 @@
     if (el.dayEnd && el.dayEnd.classList.contains('show')) paintDayEnd();
     if (el.shop && el.shop.classList.contains('show')) renderShop();
     if (el.pause && el.pause.classList.contains('show')) paintPause();
+    layingOut = false;
   }
 
   // A finger needs something to aim at. Below this the stations are still drawn
@@ -1024,9 +1029,11 @@
     S.banner = null;
     S.screen = 'service';
 
+    // syncHud owns the no-clock class, which decides how much height the
+    // kitchen gets - so it runs first and resize() measures the real budget.
+    syncHud();
     resize();
     renderBoard();
-    syncHud();
     banner('DAY ' + day, 'RENT ' + Core.money(S.rent), C.warm);
   }
 
@@ -2673,7 +2680,20 @@
     if (!el.hudArt) return;
     var running = S.screen === 'service' && S.dayLength > 0;
     if (document.body && document.body.classList) {
+      /*
+       * This class is not decoration: it flips #stage from flex-grow 6 to 40
+       * and hides the storefront sign, which is about eighty pixels of the
+       * kitchen's height on a phone.
+       *
+       * Flipping it used to be all this did. Nothing re-measured the canvas,
+       * so the room stayed laid out for the budget it had a moment ago and the
+       * per-frame watchdog only caught up 120ms later - a visible shrink at
+       * the top of every first shift. Whoever changes the budget re-measures
+       * it, in the same frame.
+       */
+      var was = document.body.classList.contains('no-clock');
       document.body.classList.toggle('no-clock', !running);
+      if (was === running && !layingOut) resize();
     }
     if (!running) {
       if (hudLast.clock !== null) { hudLast.clock = null; paintHud(); }
@@ -4337,6 +4357,7 @@
     state: S, layout: L,
     startDay: startDay, spawnTicket: spawnTicket, endDay: endDay,
     renderBoard: renderBoard, reserveBoard: reserveBoard, orderRows: orderRows,
+    syncHud: syncHud, resize: resize,
     drawTraySet: drawTraySet,
     sendChef: sendChef, arrive: arrive, deliver: deliver,
     stationAt: stationAt, standPoint: standPoint,
