@@ -115,38 +115,30 @@
 </div>
 
 <!-- ----------------------------------------------------- leaderboard --->
-<div id="leaderboard" class="modal" hidden>
-  <div class="sheet">
-    <h2 class="sheet-title">LEADERBOARD</h2>
-    <div id="lbList" class="lb-list"></div>
-    <p id="lbNote" class="note"></p>
-    <button id="lbClose" class="cta">BACK</button>
-  </div>
+<div id="leaderboard" class="modal drawn" hidden>
+  <canvas id="lbArt" class="screen-art"></canvas>
+  <button id="lbClose" class="hit">Back to the title</button>
+  <p id="lbNote" class="sr-only" aria-live="polite"></p>
 </div>
 
 <!-- --------------------------------------------------------- account --->
-<div id="account" class="modal" hidden>
-  <div class="sheet">
-    <h2 class="sheet-title">YOUR COOK</h2>
-    <label class="field">
-      <span>NAME ON THE BOARD</span>
-      <input id="nameInput" type="text" maxlength="16" placeholder="Cook" autocomplete="off">
-    </label>
-    <button id="nameSave" class="cta">SAVE NAME</button>
-
-    <div class="divider">MOVE TO ANOTHER DEVICE</div>
-    <p class="note">Get a code here, then type it on the other device. It lasts 10 minutes.</p>
-    <button id="makeCodeBtn" class="cta alt">GET A TRANSFER CODE</button>
-    <div id="codeOut" class="code-out" hidden></div>
-
-    <label class="field">
-      <span>OR ENTER A CODE FROM YOUR OTHER DEVICE</span>
-      <input id="claimInput" type="text" maxlength="8" placeholder="ABCDE" autocomplete="off">
-    </label>
-    <button id="claimBtn" class="cta alt">LOAD THAT SAVE</button>
-    <p id="accountNote" class="note"></p>
-    <button id="accountClose" class="linkbtn">Back</button>
-  </div>
+<!--
+  Drawn, like the title and the shop. The two text fields stay real inputs
+  sitting invisibly on top of their drawn boxes - .hit paints them
+  transparent - so the platform keyboard, autofill and selection all still
+  work while the sheet underneath is the one the pen drew.
+-->
+<div id="account" class="modal drawn" hidden>
+  <canvas id="acctArt" class="screen-art"></canvas>
+  <input id="nameInput" class="hit" type="text" maxlength="16" autocomplete="off"
+         aria-label="Name on the board">
+  <button id="nameSave" class="hit">Save name</button>
+  <button id="makeCodeBtn" class="hit">Get a transfer code</button>
+  <input id="claimInput" class="hit" type="text" maxlength="8" autocomplete="off"
+         autocapitalize="characters" aria-label="Transfer code from your other phone">
+  <button id="claimBtn" class="hit">Load that save</button>
+  <button id="accountClose" class="hit">Back</button>
+  <p id="accountNote" class="sr-only" aria-live="polite"></p>
 </div>
 
 <!-- ------------------------------------------------------------ co-op --->

@@ -735,25 +735,6 @@ body.rush .board-wrap {
 }
 .net-state.on { color: var(--stamp-good); }
 
-.lb-list { display: grid; max-height: 46vh; overflow-y: auto; touch-action: pan-y; }
-.lb-row {
-  display: grid;
-  grid-template-columns: 26px 1fr auto auto;
-  gap: var(--space-2);
-  align-items: baseline;
-  padding: var(--space-2) 0;
-  border-top: 1px dashed var(--rule-soft);
-  font-size: 12.5px;
-  text-align: left;
-  color: var(--ink-2);
-}
-.lb-list .lb-row:first-child { border-top: none; }
-.lb-row.me { background: rgba(232, 160, 33, 0.14); }
-.lb-row .r { font-family: var(--font-heading); font-weight: 400; color: var(--ink-4); font-size: 12px; }
-.lb-row .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
-.lb-row .d { font-family: var(--font-heading); font-weight: 400; color: var(--amber-deep); }
-.lb-row .e { font-size: 11px; color: var(--ink-4); font-variant-numeric: tabular-nums; }
-.lb-gap { text-align: center; color: var(--ink-4); font-size: 13px; letter-spacing: 0.2em; }
 
 /* -------------------------------------------------------------- fields */
 /* A line to write on, not a box to type in. */

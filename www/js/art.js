@@ -3929,6 +3929,353 @@
                { fill: 'rgba(253,246,230,0.60)', weight: 0.12, track: 0.16, seed: s + 22 });
   }
 
+  /* ------------------------------------------------------- the leaderboard */
+
+  function medalOf(rank) {
+    if (rank === 1) return { f: '#f0b429', l: '#8a5a12', t: '#3f2a08' };
+    if (rank === 2) return { f: '#dcd6c8', l: '#8a8478', t: '#4a453c' };
+    if (rank === 3) return { f: '#d99a63', l: '#8a5a30', t: '#3f2a1c' };
+    return null;
+  }
+
+  var BOARD_SHELL = { seed: 9100, kitchenTop: 0.90, kitchenWash: 0.68, tilt: -0.009,
+                      clips: [0.28, 0.72], rules: false, wide: 0.90, tall: 0.855 };
+
+  function boardBoxes(x, y, w, h) {
+    var B = screenShell(null, x, y, w, h, BOARD_SHELL);
+    return {
+      sheet: B,
+      back: { x: B.px + B.pw * 0.12, y: B.py + B.ph * 0.868, w: B.pw * 0.76, h: B.ph * 0.078 }
+    };
+  }
+
+  /**
+   * One row of the board: rank, cook, day, money.
+   *
+   * The dotted leaders that used to run from the name to the day are gone -
+   * eight of them turned the list grey. The columns are right-aligned instead,
+   * so nothing wanders, and a faint band every other row is what actually ties
+   * the four columns of one row together.
+   */
+  function boardRow(ctx, x0, y, iw, r, o) {
+    var rowH = o.rowH, base = y + rowH * 0.655, seed = 9200 + r.rank * 11;
+    var med = o.medals === false ? null : medalOf(r.rank);
+    var bandX = x0 - rowH * 0.20, bandW = iw + rowH * 0.44;
+
+    if (o.band || o.me) {
+      ctx.save();
+      ctx.fillStyle = o.me ? 'rgba(192,86,47,0.10)' : 'rgba(138,98,58,0.055)';
+      trace(ctx, rectPts(bandX, y + rowH * 0.055, bandW, rowH * 0.885, rowH * 0.22, iw * 0.003, seed + 9));
+      ctx.fill();
+      ctx.restore();
+    }
+
+    var bx = x0 + rowH * 0.30, by = y + rowH * 0.44, br = rowH * 0.275;
+    if (med) {
+      ink(ctx, blobPts(bx, by, br, br * 0.97, 8, 0.05, 0.6, 24, br * 0.06, seed), med.f,
+          { lw: Math.max(1.1, br * 0.17), off: br * 0.06, line: med.l, seed: seed });
+      penLetters(ctx, String(r.rank), bx, by + br * 0.40, br * 0.90,
+                 { fill: med.t, weight: 0.17, track: 0.05, seed: seed + 1, tilt: 0.02 });
+    } else {
+      // right-aligned against the medal column's right edge, so a two-digit
+      // rank grows left into the margin instead of into the name
+      penLetters(ctx, String(r.rank), x0 + rowH * 0.50, base, rowH * 0.36,
+                 { fill: '#8f7b62', weight: 0.135, track: 0.06, align: 'right', seed: seed + 1 });
+    }
+
+    penLetters(ctx, r.name, x0 + iw * 0.145, base, rowH * (r.rank === 1 ? 0.44 : 0.415), {
+      fill: r.named ? '#3f2a1c' : '#8a7b66',
+      line: r.rank === 1 ? '#8a7259' : null,
+      weight: r.named ? 0.135 : 0.115, track: 0.07, align: 'left', seed: seed + 2
+    });
+
+    // right-aligned, so $9,999.99 can never walk into the day beside it
+    penLetters(ctx, String(r.day), o.dayX, base, rowH * 0.42,
+               { fill: '#b07607', weight: 0.14, track: 0.06, align: 'right', seed: seed + 3 });
+    penLetters(ctx, r.money, x0 + iw, base, rowH * 0.325,
+               { fill: '#7d6249', weight: 0.12, track: 0.05, align: 'right', seed: seed + 4 });
+
+    if (!o.me) return;
+
+    // one thin border, not the two red rings and slanted YOU it used to wear -
+    // a mark is meant to catch the eye, not bury the name under it
+    ctx.save();
+    ctx.strokeStyle = '#c0562f';
+    ctx.globalAlpha = 0.85;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.lineWidth = Math.max(1.2, rowH * 0.036);
+    trace(ctx, rectPts(bandX, y + rowH * 0.055, bandW, rowH * 0.885, rowH * 0.22, iw * 0.004, seed + 5));
+    ctx.stroke();
+    ctx.restore();
+    penLetters(ctx, 'YOU', o.markX, base - rowH * 0.02, rowH * 0.24,
+               { fill: '#c0562f', weight: 0.15, track: 0.05, seed: seed + 7, tilt: 0.015 });
+  }
+
+  /**
+   * Art.ui.board(ctx, x, y, w, h, {
+   *   rows:  [{ rank, name, day, money, named }]   the visible run
+   *   me:    the rank that is the player's, or null
+   *   mine:  a row shown under a gap, when the player is off the bottom
+   *   more:  how many cooks that gap swallows
+   *   note:  one line where the list would be, when there is no list
+   * })
+   *
+   * Deliberately fewer words than the sheet it replaces. That one carried TOP
+   * 20, three column heads and a MONEY BREAKS TIES footer, all hand-lettered
+   * small enough to mush together; this keeps one subtitle and lets the column
+   * ORDER - day, then money - say how ties break. Hand lettering does not
+   * survive being shrunk, so the answer is fewer words at a bigger size.
+   */
+  function drawBoardScreen(ctx, x, y, w, h, o) {
+    o = o || {};
+    var B = paintShell(ctx, x, y, w, h, BOARD_SHELL);
+    var px = B.px, py = B.py, pw = B.pw, ph = B.ph;
+    var x0 = px + pw * 0.130, iw = pw * 0.795;
+
+    penLetters(ctx, 'THE BOARD', x0, py + ph * 0.062, ph * 0.036,
+               { fill: '#3f2a1c', line: '#8a7259', weight: 0.135, track: 0.11, align: 'left', seed: 9101 });
+    penLetters(ctx, 'FURTHEST DAY WINS', x0, py + ph * 0.094, ph * 0.021,
+               { fill: '#b07607', weight: 0.13, track: 0.10, align: 'left', seed: 9103 });
+    drawRule(ctx, x0, py + ph * 0.112, iw, { seed: 9104 });
+
+    var dayX = x0 + iw * 0.660;
+    var hy = py + ph * 0.140, hs = ph * 0.0185;
+    penLetters(ctx, 'COOK', x0 + iw * 0.145, hy, hs, { fill: '#8f7b62', weight: 0.125, track: 0.18, align: 'left', seed: 9105 });
+    penLetters(ctx, 'DAY', dayX, hy, hs, { fill: '#8f7b62', weight: 0.125, track: 0.18, align: 'right', seed: 9106 });
+    penLetters(ctx, 'TOOK IN', x0 + iw, hy, hs, { fill: '#8f7b62', weight: 0.125, track: 0.18, align: 'right', seed: 9107 });
+
+    var rows = o.rows || [], rowH = ph * 0.0735, ry = py + ph * 0.158, i;
+    var opt = { rowH: rowH, dayX: dayX, markX: px + pw * 0.052 };
+
+    if (!rows.length) {
+      fitLetters(ctx, o.note || 'NOBODY HAS FINISHED A DAY YET', px + pw / 2,
+                 py + ph * 0.34, ph * 0.026, iw * 0.96,
+                 { fill: '#8f7b62', weight: 0.12, track: 0.12, seed: 9120 });
+    }
+
+    for (i = 0; i < rows.length; i++) {
+      opt.me = o.me != null && rows[i].rank === o.me;
+      opt.band = i % 2 === 0;
+      boardRow(ctx, x0, ry, iw, rows[i], opt);
+      ry += rowH;
+    }
+
+    if (o.mine) {
+      drawRule(ctx, x0, ry + rowH * 0.34, iw, { seed: 9131, alpha: 0.5 });
+      if (o.more > 0) {
+        penLetters(ctx, o.more + ' MORE COOKS', x0 + iw * 0.5, ry + rowH * 0.85, rowH * 0.30,
+                   { fill: '#8f7b62', weight: 0.12, track: 0.14, seed: 9130 });
+      }
+      ry += rowH * 1.05;
+      opt.me = true;
+      opt.band = true;
+      boardRow(ctx, x0, ry, iw, o.mine, opt);
+      ry += rowH;
+    }
+
+    drawRule(ctx, x0, ry + ph * 0.016, iw, { seed: 9108 });
+    var bb = boardBoxes(x, y, w, h);
+    drawSketchButton(ctx, bb.back.x, bb.back.y, bb.back.w, bb.back.h, 'BACK TO THE TITLE', { seed: 9110 });
+    ctx.restore();
+    return bb;
+  }
+
+  /* ----------------------------------------------------------- your cook */
+
+  var COOK_SHELL = { seed: 9500, kitchenTop: 0.88, kitchenWash: 0.66, tilt: 0.010,
+                     clips: [0.5], rules: false, ringX: 0.14, ringY: 0.895,
+                     wide: 0.90, tall: 0.855 };
+
+  /**
+   * Where every control on the cook screen is, without drawing any of it.
+   * `name` and `codeIn` are where the transparent inputs go - the drawing is
+   * a picture of a form, and the keyboard is still the platform's.
+   */
+  function cookBoxes(x, y, w, h, hasCode) {
+    var B = screenShell(null, x, y, w, h, COOK_SHELL);
+    var px = B.px, py = B.py, pw = B.pw, ph = B.ph;
+    var pad = pw * 0.090, iw = pw - pad * 2, x0 = px + pad;
+    var codeTop = hasCode ? 0.652 : 0.596;
+    var loadY = hasCode ? 0.798 : 0.744;
+    return {
+      sheet: B, x0: x0, iw: iw,
+      // the writable part of the badge, not the whole card
+      name: { x: x0 + iw * 0.290, y: py + ph * 0.140, w: iw * 0.660, h: ph * 0.070 },
+      save: { x: x0, y: py + ph * 0.292, w: iw, h: ph * 0.074 },
+      getCode: { x: x0, y: py + ph * 0.482, w: iw, h: ph * 0.072 },
+      codeIn: { x: x0, y: py + ph * (codeTop + 0.020), w: iw, h: ph * 0.088 },
+      load: { x: x0, y: py + ph * loadY, w: iw, h: ph * 0.072 },
+      back: { x: B.cx - pw * 0.16, y: py + ph * 0.878, w: pw * 0.32, h: ph * 0.056 }
+    };
+  }
+
+  /**
+   * The staff badge, stripped back: photo, name on a rule, a pen caret.
+   *
+   * The mustard band, the two bits of tape and the TAP TO WRITE A NEW ONE
+   * caption are gone. With those off, the name is the biggest thing on the
+   * screen, which is what a screen called YOUR COOK is for.
+   */
+  function nameBadge(ctx, x, y, w, h, name, seed, skin) {
+    var card = rectPts(x, y, w, h, w * 0.020, w * 0.004, seed);
+    ctx.save();
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = '#000000';
+    trace(ctx, rectPts(x + w * 0.006, y + h * 0.020, w, h, w * 0.020, w * 0.004, seed + 1));
+    ctx.fill();
+    ctx.restore();
+    ink(ctx, card, '#f6ecd6', { lw: Math.max(1.1, w * 0.005), off: w * 0.002, line: '#dcc49a', seed: seed });
+
+    var fw = w * 0.200, fh = h * 0.700, fx = x + w * 0.050, fy = y + h * 0.150;
+    var frame = rectPts(fx, fy, fw, fh, fw * 0.06, fw * 0.012, seed + 4);
+    ink(ctx, frame, '#fffdf7', { lw: Math.max(1.1, fw * 0.030), line: '#c4ab8a', seed: seed + 4 });
+    ctx.save();
+    trace(ctx, frame);
+    ctx.clip();
+    drawChef(ctx, fx + fw * 0.50, fy + fh * 0.99, fh * 1.02, { skin: skin });
+    ctx.restore();
+
+    var nx = x + w * 0.305, nBase = y + h * 0.610;
+    penLetters(ctx, 'NAME ON THE BOARD', nx, y + h * 0.235, h * 0.120,
+               { fill: '#8f7b62', weight: 0.120, track: 0.16, align: 'left', seed: seed + 3 });
+    var nw = fitLetters(ctx, name || 'Cook', nx, nBase, h * 0.270, w * 0.610,
+                        { fill: '#3f2a1c', line: '#8a7259', weight: 0.14, track: 0.07, align: 'left', seed: seed + 6 });
+    drawRule(ctx, nx, nBase + h * 0.105, w * 0.620, { seed: seed + 7 });
+    ctx.save();
+    ctx.strokeStyle = '#c0562f';
+    ctx.globalAlpha = 0.85;
+    ctx.lineCap = 'round';
+    ctx.lineWidth = Math.max(1.2, h * 0.017);
+    ctx.beginPath();
+    ctx.moveTo(nx + nw + h * 0.050, nBase - h * 0.225);
+    ctx.lineTo(nx + nw + h * 0.057, nBase + h * 0.035);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** Five drawn boxes, one per character, with a pen caret in the next empty one. */
+  function codeRow(ctx, x0, py, ph, iw, typed, topF, seed) {
+    penLetters(ctx, typed ? 'TYPE IT ON THE OTHER PHONE' : 'OR TYPE A CODE',
+               x0, py + ph * topF, ph * 0.020,
+               { fill: '#a08a6e', weight: 0.118, track: 0.10, align: 'left', seed: seed + 1 });
+    var n = 5, gap = iw * 0.038, bw = (iw - gap * (n - 1)) / n, bh = ph * 0.088;
+    var by = py + ph * (topF + 0.020);
+    for (var i = 0; i < n; i++) {
+      var bx = x0 + i * (bw + gap);
+      var box = rectPts(bx, by, bw, bh, bw * 0.14, bw * 0.02, seed + 10 + i);
+      ink(ctx, box, '#fffdf7', { lw: Math.max(1.2, bw * 0.045), off: bw * 0.02, line: '#c4ab8a', seed: seed + 10 + i });
+      if (i < typed.length) {
+        penLetters(ctx, typed[i], bx + bw / 2, by + bh * 0.74, bh * 0.54,
+                   { fill: '#3f2a1c', weight: 0.145, track: 0.05, seed: seed + 20 + i, tilt: 0.04 });
+      } else if (i === typed.length) {
+        ctx.save();
+        ctx.strokeStyle = '#c0562f';
+        ctx.globalAlpha = 0.85;
+        ctx.lineCap = 'round';
+        ctx.lineWidth = Math.max(1.2, bw * 0.05);
+        ctx.beginPath();
+        ctx.moveTo(bx + bw * 0.50, by + bh * 0.26);
+        ctx.lineTo(bx + bw * 0.52, by + bh * 0.76);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+
+  /** The issued code: a torn stub, the code lettered big enough to read out. */
+  function codeStub(ctx, x, y, w, h, code, left, seed) {
+    ctx.save();
+    ctx.translate(x + w / 2, y + h / 2);
+    ctx.rotate(-0.018);
+    ctx.translate(-(x + w / 2), -(y + h / 2));
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = '#000000';
+    trace(ctx, tornPts(x + w * 0.008, y + h * 0.035, w, h, h * 0.045, seed + 2));
+    ctx.fill();
+    ctx.restore();
+    ink(ctx, tornPts(x, y, w, h, h * 0.045, seed + 1), '#fdf6e6',
+        { lw: Math.max(1.2, w * 0.006), off: w * 0.003, line: '#8a7259', seed: seed + 1 });
+    penLetters(ctx, 'YOUR CODE', x + w * 0.075, y + h * 0.245, h * 0.125,
+               { fill: '#a08a6e', weight: 0.12, track: 0.18, align: 'left', seed: seed + 3 });
+    if (left) {
+      penLetters(ctx, left, x + w * 0.925, y + h * 0.245, h * 0.125,
+                 { fill: '#c0562f', weight: 0.125, track: 0.12, align: 'right', seed: seed + 5 });
+    }
+    fitLetters(ctx, code, x + w / 2, y + h * 0.820, h * 0.430, w * 0.86,
+               { fill: '#f0b429', line: '#8a5a12', weight: 0.15, track: 0.20, seed: seed + 4, tilt: 0.025 });
+    ctx.restore();
+  }
+
+  /**
+   * Art.ui.cook(ctx, x, y, w, h, {
+   *   name, skin,       whose cook this is
+   *   code, left,       an issued transfer code and how long it has
+   *   typed,            what has been entered on this phone so far
+   *   note              one line of feedback under the form
+   * })
+   */
+  function drawCookScreen(ctx, x, y, w, h, o) {
+    o = o || {};
+    var B = paintShell(ctx, x, y, w, h, COOK_SHELL);
+    var px = B.px, py = B.py, pw = B.pw, ph = B.ph, cx = B.cx;
+    var B2 = cookBoxes(x, y, w, h, !!o.code);
+    var x0 = B2.x0, iw = B2.iw;
+
+    penLetters(ctx, 'YOUR COOK', x0, py + ph * 0.062, ph * 0.036,
+               { fill: '#3f2a1c', line: '#8a7259', weight: 0.135, track: 0.11, align: 'left', seed: 9501 });
+    drawRule(ctx, x0, py + ph * 0.086, iw, { seed: 9503 });
+
+    nameBadge(ctx, x0, py + ph * 0.104, iw, ph * 0.160, o.name, 9510, o.skin);
+    drawSketchButton(ctx, B2.save.x, B2.save.y, B2.save.w, B2.save.h, 'SAVE NAME', { seed: 9520 });
+
+    drawRule(ctx, x0, py + ph * 0.400, iw, { seed: 9504 });
+    penLetters(ctx, 'MOVE TO ANOTHER PHONE', x0, py + ph * 0.432, ph * 0.026,
+               { fill: '#3f2a1c', weight: 0.13, track: 0.11, align: 'left', seed: 9505 });
+
+    if (!o.code) {
+      penLetters(ctx, 'A CODE LASTS 10 MINUTES', x0, py + ph * 0.462, ph * 0.020,
+                 { fill: '#a08a6e', weight: 0.118, track: 0.10, align: 'left', seed: 9506 });
+      drawSketchButton(ctx, B2.getCode.x, B2.getCode.y, B2.getCode.w, B2.getCode.h,
+                       'GET A CODE', { dashed: true, seed: 9530 });
+      codeRow(ctx, x0, py, ph, iw, o.typed || '', 0.596, 9540);
+      drawSketchButton(ctx, B2.load.x, B2.load.y, B2.load.w, B2.load.h,
+                       'LOAD THAT SAVE', { dashed: true, seed: 9550 });
+    } else {
+      codeStub(ctx, x0 + iw * 0.05, py + ph * 0.470, iw * 0.90, ph * 0.150, o.code, o.left, 9560);
+      codeRow(ctx, x0, py, ph, iw, o.typed || '', 0.652, 9570);
+      drawSketchButton(ctx, B2.load.x, B2.load.y, B2.load.w, B2.load.h, 'LOAD THAT SAVE', { seed: 9580 });
+    }
+
+    if (o.note) {
+      fitLetters(ctx, String(o.note).toUpperCase(), cx, py + ph * (o.code ? 0.878 : 0.836),
+                 ph * 0.020, iw * 0.96,
+                 { fill: '#a08a6e', weight: 0.118, track: 0.10, seed: 9508 });
+    }
+
+    // BACK, with the arrow drawn rather than typed
+    var by = py + ph * 0.912;
+    penLetters(ctx, 'BACK', cx + ph * 0.012, by, ph * 0.024,
+               { fill: '#a08a6e', weight: 0.12, track: 0.12, seed: 9509 });
+    ctx.save();
+    ctx.strokeStyle = '#a08a6e';
+    ctx.lineCap = 'round';
+    ctx.lineWidth = Math.max(1.2, ph * 0.0045);
+    ctx.globalAlpha = 0.9;
+    var ax = cx - ph * 0.052;
+    ctx.beginPath();
+    ctx.moveTo(ax + ph * 0.022, by - ph * 0.008);
+    ctx.lineTo(ax, by - ph * 0.007);
+    ctx.moveTo(ax + ph * 0.009, by - ph * 0.015);
+    ctx.lineTo(ax, by - ph * 0.007);
+    ctx.lineTo(ax + ph * 0.009, by - ph * 0.001);
+    ctx.stroke();
+    ctx.restore();
+    ctx.restore();
+    return B2;
+  }
+
   var UI = {
     /* --- the handoff kit --- */
     hud: drawHUD, title: drawTitle, orders: drawOrders, heart: drawHeart,
@@ -3938,6 +4285,8 @@
     shell: paintShell,
     receipt: drawReceipt, shop: drawShop, pause: drawPause,
     sign: drawSign, rotate: drawRotate,
+    board: drawBoardScreen, cook: drawCookScreen,
+    boardBoxes: boardBoxes, cookBoxes: cookBoxes,
     titleBoxes: titleBoxes,
     hudBoxes: hudBoxes,
     receiptBoxes: receiptBoxes, shopBoxes: shopBoxes, pauseBoxes: pauseBoxes,

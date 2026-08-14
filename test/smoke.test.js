@@ -3229,6 +3229,106 @@ test('a set is drawn as a set, on the bench and in the hands', function () {
   assert.strictEqual(bench.fries, 0, 'it drew fries nobody ordered');
 });
 
+/* --------------------------------------------- the board and your cook */
+
+var SCREEN_SIZES = [[360, 720], [412, 915], [820, 600], [320, 568]];
+
+test('the board and the cook screen draw at every size, in every state', function () {
+  var A = global.Art;
+  var rows = [
+    { rank: 1, name: 'Joowon', day: 8, money: '$378.13', named: true },
+    { rank: 2, name: 'Cook', day: 5, money: '$317.90', named: false },
+    { rank: 3, name: 'Cook', day: 5, money: '$9,999.99', named: false }
+  ];
+  var states = [
+    ['board', { rows: rows, me: 2 }],
+    ['board', { rows: rows, me: null, mine: { rank: 12, name: 'Joowon', day: 3, money: '$88.20', named: true }, more: 8 }],
+    ['board', { rows: [], note: 'YOU ARE OFFLINE' }],
+    ['cook', { name: 'Joowon', typed: '' }],
+    ['cook', { name: 'Joowon', typed: 'K4M', note: 'Saving…' }],
+    ['cook', { name: 'A Very Long Cook Name Indeed', code: 'K4M9P', left: '9:41 LEFT', typed: 'K4M9P' }]
+  ];
+
+  SCREEN_SIZES.forEach(function (sz) {
+    states.forEach(function (st, i) {
+      var depth = 0, worst = 0;
+      var g = makeCtx();
+      g.save = function () { depth++; };
+      g.restore = function () { depth--; if (depth < worst) worst = depth; };
+      A.ui[st[0]](g, 0, 0, sz[0], sz[1], st[1]);
+      var at = sz.join('x') + ' ' + st[0] + '#' + i + ': ';
+      assert.strictEqual(depth, 0, at + 'left the context ' + depth + ' save(s) deep');
+      assert.strictEqual(worst, 0, at + 'restored more than it saved');
+    });
+  });
+});
+
+test('every control on the two drawn screens sits on the sheet and can be hit', function () {
+  var A = global.Art;
+  SCREEN_SIZES.forEach(function (sz) {
+    var W = sz[0], H = sz[1];
+    [['board', A.ui.boardBoxes(0, 0, W, H), ['back']],
+     ['cook', A.ui.cookBoxes(0, 0, W, H, false), ['name', 'save', 'getCode', 'codeIn', 'load', 'back']],
+     ['cook+code', A.ui.cookBoxes(0, 0, W, H, true), ['name', 'save', 'codeIn', 'load', 'back']]
+    ].forEach(function (set) {
+      var B = set[1];
+      set[2].forEach(function (k) {
+        var r = B[k], at = sz.join('x') + ' ' + set[0] + '.' + k + ': ';
+        assert.ok(r && isFinite(r.x) && isFinite(r.y) && r.w > 0 && r.h > 0,
+          at + 'is not a box: ' + JSON.stringify(r));
+        assert.ok(r.x >= 0 && r.y >= 0 && r.x + r.w <= W + 0.01 && r.y + r.h <= H + 0.01,
+          at + 'runs off the screen: ' + JSON.stringify(r));
+        assert.ok(r.y >= B.sheet.py - 0.01 && r.y + r.h <= B.sheet.py + B.sheet.ph + 0.01,
+          at + 'is off the sheet it is drawn on');
+      });
+      // nothing may sit on top of anything else
+      for (var a = 0; a < set[2].length; a++) {
+        for (var b = a + 1; b < set[2].length; b++) {
+          var p = B[set[2][a]], q = B[set[2][b]];
+          assert.ok(!(p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h),
+            sz.join('x') + ' ' + set[0] + ': ' + set[2][a] + ' and ' + set[2][b] + ' overlap');
+        }
+      }
+    });
+  });
+});
+
+test('the board maps what the worker sends, wherever the player sits in it', function () {
+  function top(meAt) {
+    var out = [];
+    for (var i = 1; i <= 20; i++) {
+      out.push({ rank: i, name: i === meAt ? 'Joowon' : 'Cook',
+                 day: 21 - i, earned: i * 100, me: i === meAt });
+    }
+    return out;
+  }
+
+  // the player is inside the visible run
+  var near = MB.lbMap(top(3), null);
+  assert.strictEqual(near.rows.length, 8, 'the sheet holds eight rows, got ' + near.rows.length);
+  assert.strictEqual(near.me, 3, 'the player should be marked in the run');
+  assert.strictEqual(near.mine, null, 'and must not also be repeated below it');
+  assert.strictEqual(near.rows[0].named, false, '"Cook" is the unnamed default');
+  assert.strictEqual(near.rows[2].named, true, 'a named cook should be inked as one');
+  assert.strictEqual(near.rows[0].money, Core.money(100), 'money is not formatted');
+
+  // ...and below it, where they get their own row under a gap
+  var far = MB.lbMap(top(14), null);
+  assert.strictEqual(far.me, null, 'rank 14 is not in the visible eight');
+  assert.ok(far.mine && far.mine.rank === 14, 'a player below the run should still get a row');
+  assert.strictEqual(far.more, 5, 'ranks 9..13 are the five between, got ' + far.more);
+
+  // ...or reported separately by the worker
+  var sep = MB.lbMap(top(0), { rank: 31, name: 'Joowon', day: 2, earned: 400 });
+  assert.ok(sep.mine && sep.mine.rank === 31, 'the worker\'s own row was dropped');
+  assert.strictEqual(sep.more, 22, 'got ' + sep.more + ' cooks in the gap');
+
+  // an empty board says so rather than drawing nothing
+  var none = MB.lbMap([], null);
+  assert.strictEqual(none.rows.length, 0);
+  assert.ok(/NOBODY/.test(none.note), 'an empty board should say it is empty');
+});
+
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');
 
 

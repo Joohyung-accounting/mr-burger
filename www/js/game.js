@@ -3637,33 +3637,80 @@
     el.netState.classList.toggle('on', !!Net.online);
   }
 
+  /*
+   * The board and the cook screen are drawn now, like the title and the shop.
+   *
+   * Eight rows is what the sheet holds at a size hand lettering survives. A
+   * player further down than that gets the run, a torn rule, a count of who is
+   * between, and their own row under it - which is the same shape the design
+   * calls for and the same thing the old DOM list did with a "···".
+   */
+  var LB_ROWS = 8;
+  var lbState = { rows: [], me: null, mine: null, more: 0, note: '' };
+
+  function lbRow(r) {
+    return {
+      rank: r.rank, name: r.name || 'Cook', day: r.day,
+      money: Core.money(r.earned),
+      named: !!r.name && String(r.name).toLowerCase() !== 'cook'
+    };
+  }
+
+  /*
+   * The worker's payload as the sheet wants it. Pure on purpose - the mapping
+   * is the part with the edge cases in it (a player inside the visible run, a
+   * player below it, a player the worker reported separately) and a pure
+   * function is the only version of that a test can pin down without waiting
+   * on a promise.
+   */
+  function lbMap(top, minePayload) {
+    top = top || [];
+    var myIdx = -1;
+    for (var i = 0; i < top.length; i++) if (top[i].me) myIdx = i;
+
+    var shown = top.slice(0, LB_ROWS).map(lbRow);
+    var mine = null;
+    if (myIdx >= LB_ROWS) mine = lbRow(top[myIdx]);
+    else if (minePayload) mine = lbRow(minePayload);
+
+    return {
+      rows: shown,
+      me: (myIdx >= 0 && myIdx < LB_ROWS) ? top[myIdx].rank : null,
+      mine: mine,
+      more: mine ? Math.max(0, mine.rank - shown.length - 1) : 0,
+      note: top.length ? '' : 'NOBODY HAS FINISHED A DAY YET'
+    };
+  }
+
+  function paintLeaderboard() {
+    if (!el.lbArt || !Art.ui.board) return;
+    var W = el.leaderboard.clientWidth, H = el.leaderboard.clientHeight;
+    if (!W || !H) return;
+    paintOn(el.lbArt, W, H, function (g) { Art.ui.board(g, 0, 0, W, H, lbState); });
+    overlay(el.lbClose, grow(Art.ui.boardBoxes(0, 0, W, H).back, MIN_TOUCH));
+  }
+
   function showLeaderboard() {
     showModal(el.leaderboard);
-    el.lbList.innerHTML = '';
+    lbState = { rows: [], me: null, mine: null, more: 0,
+                note: Net.online ? 'LOADING' : 'YOU ARE OFFLINE' };
     el.lbNote.textContent = Net.online ? 'Loading…' : 'You are offline — no board to show.';
+    paintLeaderboard();
     if (!Net.online) return;
 
     Net.leaderboard(20).then(function (data) {
-      if (!data) { el.lbNote.textContent = 'Could not reach the board.'; return; }
-      var rows = (data.top || []).slice();
-      var html = rows.map(function (r) {
-        return '<div class="lb-row' + (r.me ? ' me' : '') + '">' +
-          '<span class="r">' + r.rank + '</span>' +
-          '<span class="n">' + escapeHtml(r.name) + '</span>' +
-          '<span class="d">DAY ' + r.day + '</span>' +
-          '<span class="e">' + Core.money(r.earned) + '</span></div>';
-      }).join('');
-      if (data.mine) {
-        html += '<div class="lb-gap">···</div>' +
-          '<div class="lb-row me"><span class="r">' + data.mine.rank + '</span>' +
-          '<span class="n">' + escapeHtml(data.mine.name) + '</span>' +
-          '<span class="d">DAY ' + data.mine.day + '</span>' +
-          '<span class="e">' + Core.money(data.mine.earned) + '</span></div>';
+      if (!data) {
+        lbState.note = 'COULD NOT REACH THE BOARD';
+        el.lbNote.textContent = 'Could not reach the board.';
+        paintLeaderboard();
+        return;
       }
-      el.lbList.innerHTML = html || '';
-      el.lbNote.textContent = rows.length
+      var top = data.top || [];
+      lbState = lbMap(top, data.mine);
+      el.lbNote.textContent = top.length
         ? 'Furthest day wins; money breaks ties.'
         : 'Nobody has finished a day yet. Be first.';
+      paintLeaderboard();
     });
   }
 
@@ -3673,11 +3720,73 @@
     });
   }
 
+  /*
+   * The cook screen. Both text fields stay real inputs, sitting invisibly on
+   * their drawn boxes - the platform keyboard, autofill and selection are not
+   * things worth reimplementing on a canvas - and every keystroke repaints so
+   * the letters appear in the boxes the pen drew.
+   */
+  var acct = { code: '', at: 0, note: '' };
+  var acctTimer = null;
+
+  function codeLeft() {
+    if (!acct.code) return '';
+    var s = Math.max(0, 600 - Math.floor((nowMs() - acct.at) / 1000));
+    if (!s) return 'EXPIRED';
+    return Math.floor(s / 60) + ':' + (s % 60 < 10 ? '0' : '') + (s % 60) + ' LEFT';
+  }
+
+  function paintAccount() {
+    if (!el.acctArt || !Art.ui.cook) return;
+    var W = el.account.clientWidth, H = el.account.clientHeight;
+    if (!W || !H) return;
+    var typed = (el.claimInput.value || '').toUpperCase().slice(0, 5);
+    paintOn(el.acctArt, W, H, function (g) {
+      Art.ui.cook(g, 0, 0, W, H, {
+        name: el.nameInput.value || Net.name || 'Cook',
+        skin: S.skin,
+        code: acct.code, left: codeLeft(), typed: typed, note: acct.note
+      });
+    });
+    var B = Art.ui.cookBoxes(0, 0, W, H, !!acct.code);
+    overlay(el.nameInput, grow(B.name, MIN_TOUCH));
+    overlay(el.nameSave, grow(B.save, MIN_TOUCH));
+    // once a code is on the sheet its button is gone, and so is its hit box
+    overlay(el.makeCodeBtn, acct.code ? null : grow(B.getCode, MIN_TOUCH));
+    overlay(el.claimInput, grow(B.codeIn, MIN_TOUCH));
+    overlay(el.claimBtn, grow(B.load, MIN_TOUCH));
+    overlay(el.accountClose, grow(B.back, MIN_TOUCH));
+  }
+
+  /** The countdown on an issued code only ticks while the sheet is up. */
+  function acctTick(on) {
+    if (acctTimer) { clearInterval(acctTimer); acctTimer = null; }
+    if (!on) return;
+    acctTimer = setInterval(function () {
+      if (!acct.code || el.account.hidden) { acctTick(false); return; }
+      paintAccount();
+    }, 1000);
+  }
+
+  /*
+   * One line of feedback, in both places it has to appear: lettered onto the
+   * sheet for the player, and in the live region for a screen reader. Every
+   * handler goes through here so the two cannot drift.
+   */
+  function note(msg) {
+    acct.note = msg || '';
+    if (el.accountNote) el.accountNote.textContent = acct.note;
+    paintAccount();
+  }
+
   function showAccount() {
     showModal(el.account);
     el.nameInput.value = Net.name || '';
-    el.codeOut.hidden = true;
-    el.accountNote.textContent = Net.online ? '' : 'You are offline — none of this will stick.';
+    el.claimInput.value = '';
+    acct.code = ''; acct.at = 0;
+    acct.note = Net.online ? '' : 'Offline — none of this will stick.';
+    el.accountNote.textContent = acct.note;
+    paintAccount();
   }
 
   /* ----------------------------------------------------------- co-op flow
@@ -4502,32 +4611,45 @@
     el.boardBtn.addEventListener('click', showLeaderboard);
     el.lbClose.addEventListener('click', function () { hideModal(el.leaderboard); });
     el.accountBtn.addEventListener('click', showAccount);
-    el.accountClose.addEventListener('click', function () { hideModal(el.account); });
+
+    // every keystroke lands in a box the pen drew, so both fields repaint
+    el.nameInput.addEventListener('input', paintAccount);
+    el.claimInput.addEventListener('input', function () {
+      var v = (el.claimInput.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
+      if (v !== el.claimInput.value) el.claimInput.value = v;
+      paintAccount();
+    });
+    el.accountClose.addEventListener('click', function () {
+      acctTick(false);
+      hideModal(el.account);
+    });
 
     el.nameSave.addEventListener('click', function () {
       var name = (el.nameInput.value || '').trim().slice(0, 16) || 'Cook';
-      el.accountNote.textContent = 'Saving…';
+      note('Saving…');
       Net.setName(name).then(function (ok) {
         setNetState();
-        el.accountNote.textContent = ok ? 'Saved as ' + Net.name + '.' : 'Saved on this device only.';
+        note(ok ? 'Saved as ' + Net.name + '.' : 'Saved on this device only.');
       });
     });
 
     el.makeCodeBtn.addEventListener('click', function () {
-      el.accountNote.textContent = '';
+      note('');
       Net.makeCode().then(function (code) {
-        if (!code) { el.accountNote.textContent = 'Could not get a code.'; return; }
-        el.codeOut.hidden = false;
-        el.codeOut.innerHTML = escapeHtml(code) + '<small>type this on the other device within 10 minutes</small>';
+        if (!code) { note('Could not get a code.'); return; }
+        acct.code = code;
+        acct.at = nowMs();
+        note('Type it on the other phone within ten minutes.');
+        acctTick(true);
       });
     });
 
     el.claimBtn.addEventListener('click', function () {
       var code = (el.claimInput.value || '').trim().toUpperCase();
-      if (code.length < 4) { el.accountNote.textContent = 'Enter the code first.'; return; }
-      el.accountNote.textContent = 'Loading…';
+      if (code.length < 4) { note('Enter the code first.'); return; }
+      note('Loading…');
       Net.claim(code).then(function (res) {
-        if (res.error) { el.accountNote.textContent = res.error; return; }
+        if (res.error) { note(res.error); return; }
         // Through the same door as every other save. This one arrives over the
         // network rather than off disk, which is more reason to run it through
         // the rules, not less - and it now carries entitlements.
@@ -4547,8 +4669,8 @@
           paintTitle();
         }
         setNetState();
-        el.accountNote.textContent = 'Loaded ' + (res.name || 'that save') +
-          (res.save ? ' — day ' + (res.save.day || 1) + '.' : ' (no save on it yet).');
+        note('Loaded ' + (res.name || 'that save') +
+             (res.save ? ' — day ' + (res.save.day || 1) + '.' : ' (no save on it yet).'));
       });
     });
 
@@ -4687,8 +4809,8 @@
       'dayEnd', 'dayEndBtn',
       'titleArt', 'signArt', 'rotate', 'rotateArt', 'coopBtn', 'netState', 'boardBtn', 'accountBtn',
       'howBtn', 'howBtn2', 'how', 'howClose',
-      'leaderboard', 'lbList', 'lbNote', 'lbClose',
-      'account', 'nameInput', 'nameSave', 'makeCodeBtn', 'codeOut',
+      'leaderboard', 'lbArt', 'lbNote', 'lbClose',
+      'account', 'acctArt', 'nameInput', 'nameSave', 'makeCodeBtn',
       'claimInput', 'claimBtn', 'accountNote', 'accountClose',
       'coop', 'hostBtn', 'roomOut', 'joinInput', 'joinBtn', 'coopNote', 'coopClose',
       'store', 'storeTabs', 'storeList', 'storeNote', 'storeRestore', 'storeClose',
@@ -4782,6 +4904,8 @@
     syncHud: syncHud, resize: resize,
     chopCurve: chopCurve, drawPrepBoard: drawPrepBoard, drawCarried: drawCarried,
     drawPlates: drawPlates, drawSet: drawSet, setExtras: setExtras,
+    showLeaderboard: showLeaderboard, showAccount: showAccount, lbMap: lbMap,
+    paintAccount: paintAccount, accountNote: function () { return acct.note; },
     drawTraySet: drawTraySet,
     sendChef: sendChef, arrive: arrive, deliver: deliver,
     stationAt: stationAt, standPoint: standPoint,
