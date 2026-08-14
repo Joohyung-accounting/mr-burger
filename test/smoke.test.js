@@ -204,6 +204,7 @@ global.Core = Core;
 require('../www/js/art.js');
 // index.html loads this straight after art.js, and the kitchen draws from it.
 require('../www/js/art-fries-drinks.js');
+require('../www/js/art-freezer-dispenser.js');
 require('../www/js/art-prep.js');
 require('../www/js/art-title.js');
 require('../www/js/audio.js');
@@ -3327,6 +3328,91 @@ test('the board maps what the worker sends, wherever the player sits in it', fun
   var none = MB.lbMap([], null);
   assert.strictEqual(none.rows.length, 0);
   assert.ok(/NOBODY/.test(none.note), 'an empty board should say it is empty');
+});
+
+/* ---------------------------------------- the freezer and the fountain */
+
+test('the fountain always points at the drink the board is waiting for', function () {
+  [3, 5, 8, 12, 16, 20, 25].forEach(function (day) {
+    startShift(day);
+    pump(0.3);
+    var taps = S.drinkTaps || [];
+    if (!taps.length) {
+      assert.deepStrictEqual(MB.dispenserView().ids, [], 'day ' + day + ' has no taps to show');
+      return;
+    }
+    // drive every plumbed flavour through the front of the board in turn
+    taps.forEach(function (id) {
+      S.tickets = [{ drink: id, items: ['bun'], side: null, t: {}, done: false }];
+      var v = MB.dispenserView();
+      var at = 'day ' + day + ' wanting ' + id + ': ';
+      assert.strictEqual(v.ids.length, 3, at + 'the machine is three columns wide');
+      assert.ok(v.active >= 0 && v.active <= 2, at + 'active is off the machine: ' + v.active);
+      assert.strictEqual(v.ids[v.active], id,
+        at + 'the lever it pulls is ' + v.ids[v.active] + ', not what was ordered');
+      // an unplumbed column is allowed, but never the one being poured
+      assert.ok(v.ids[v.active], at + 'it is pouring from a spout with nothing behind it');
+    });
+    S.tickets = [];
+  });
+});
+
+test('taking a basket opens the freezer, and it shuts itself again', function () {
+  startShift(8);
+  pump(0.3);
+  assert.ok(S.fryer.length, 'setup: day 8 should have a fry line');
+
+  var cold = MB.freezerPose();
+  assert.strictEqual(cold.open, 0, 'the freezer starts shut');
+  assert.strictEqual(cold.grab, 0, 'and with nothing in the air');
+
+  S.chef.holding = null;
+  work(MB.fryWellRect(0));
+  assert.ok(S.fryer[0], 'setup: the basket should be in the oil');
+
+  assert.ok(S.fryGrab, 'the freezer was never told a bag came out');
+
+  // the pose is an envelope, so it is zero at the instant it starts
+  pump(0.4);
+  var open = MB.freezerPose();
+  assert.ok(open.open > 0, 'the lid never moved when the bag came out');
+  assert.ok(open.grab > 0, 'no bag came up out of the well');
+
+  // it is an envelope, not a latch: everything settles
+  var was = S.fryGrab;
+  S.fryGrab = was - 4000;
+  var shut = MB.freezerPose();
+  assert.strictEqual(shut.open, 0, 'the freezer was left standing open');
+  assert.strictEqual(shut.grab, 0, 'a bag was left hanging in the air');
+  S.fryGrab = was;
+});
+
+test('the fry column stacks the freezer above the fryer without overlapping it', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  [[375, 812], [412, 915], [820, 600]].forEach(function (sz) {
+    stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+    startShift(8);
+    pump(0.3);
+    var r = MB.fryerRect();
+    var at = sz.join('x') + ': ';
+    assert.ok(r.h > 0, at + 'setup: there should be a fry box');
+    // the two wells live in the lower band; the freezer owns the upper one
+    for (var i = 0; i < S.fryer.length; i++) {
+      var wr = MB.fryWellRect(i);
+      assert.ok(wr.y >= r.y + r.h * 0.30,
+        at + 'well ' + i + ' reaches up into the freezer row');
+      assert.ok(wr.y + wr.h <= r.y + r.h + 0.01, at + 'well ' + i + ' hangs out of the box');
+    }
+    // and drawing the whole station throws at none of these sizes
+    var g = makeCtx();
+    var depth = 0;
+    g.save = function () { depth++; };
+    g.restore = function () { depth--; };
+    assert.doesNotThrow(function () { MB.drawFryStation(); }, at + 'the fry station threw');
+    assert.doesNotThrow(function () { MB.drawFountain(); }, at + 'the fountain threw');
+  });
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.3);
 });
 
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');

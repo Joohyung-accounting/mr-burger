@@ -1523,6 +1523,9 @@
       }
       if (!well) {
         S.fryer[w] = { t: 0 };
+        // the basket did not come from nowhere: the freezer beside it opens,
+        // a bag comes up, and the lid slides back
+        S.fryGrab = nowMs();
         var fr0 = fryWellRect(w);
         Sfx.sizzle();
         buzz(12);
@@ -1563,6 +1566,7 @@
       var want = nextDrinkWanted();
       if (!want) { nope('NOBODY WANTS A DRINK', ci); return; }
       me.holding = { kind: 'cup', flavor: want };
+      S.tapPour = nowMs();          // the paddle leans and the stream runs
       Sfx.lift();
       buzz(8);
       return;
@@ -2346,11 +2350,27 @@
     var busy = S.fryer.some(function (w) { return !!w; });
     var t = nowMs() / 1000;   // the oil bubbles and the crank turn on real time
 
-    // supply across the top of the box: a sack and the cutter that feeds it
+    /*
+     * Supply across the top of the box: a chest freezer of frozen bags.
+     *
+     * It replaces the sack and the hand cutter that used to share this row.
+     * Two machines in 71x36px were always going to crowd, and one of them said
+     * "we peel our own potatoes" - a different restaurant from the one with a
+     * fountain beside it. The freezer is one machine across the whole row, so
+     * it gets twice the width either of them had.
+     */
     var supH = r.h * FRY_SUPPLY * 0.96;
-    Art.scene.sack(ctx, r.x + r.w * 0.03, r.y, r.w * 0.40, supH, { open: 1, count: 4 });
-    Art.scene.cutter(ctx, r.x + r.w * 0.50, r.y, r.w * 0.46, supH,
-      { spin: busy ? (t * 1.6) % 1 : 0, load: busy ? 1 : 0.35, out: busy ? 0.7 : 0 });
+    if (Art.scene.freezer) {
+      var pose = freezerPose();
+      Art.scene.freezer(ctx, r.x + r.w * 0.02, r.y, r.w * 0.96, supH,
+                        { open: pose.open, grab: pose.grab, t: t });
+    } else if (Art.scene.sack) {
+      // art-freezer-dispenser.js is a separate file; if it never loaded, the
+      // row it replaced still stands rather than leaving a hole
+      Art.scene.sack(ctx, r.x + r.w * 0.03, r.y, r.w * 0.40, supH, { open: 1, count: 4 });
+      Art.scene.cutter(ctx, r.x + r.w * 0.50, r.y, r.w * 0.46, supH,
+        { spin: busy ? (t * 1.6) % 1 : 0, load: busy ? 1 : 0.35, out: busy ? 0.7 : 0 });
+    }
 
     var fy = r.y + r.h * FRY_SUPPLY, fh = r.h * (1 - FRY_SUPPLY);
     Art.scene.fryer(ctx, r.x, fy, r.w, fh, {
@@ -2377,39 +2397,71 @@
    * one is next - so the machine answers "what would I get if I tapped this"
    * before the cook walks over, which is the whole decision it offers.
    */
-  function drawFountain() {
-    if (!L.tapH || !Art.item || !Art.item.cup) return;
-    var r = tapRect();
-    var next = nextDrinkWanted();
+  /*
+   * The freezer's one moving beat, as an envelope over the moment a basket
+   * went in. The lid snaps aside, the bag comes up and back down, the lid
+   * slides home - and the pilot lamp goes yellow for as long as it is open,
+   * which is the design's "door left open" tell.
+   */
+  function freezerPose() {
+    var age = (nowMs() - (S.fryGrab || -1e9)) / 1000;
+    if (age < 0 || age > 1.5) return { open: 0, grab: 0 };
+    var open = age < 0.15 ? age / 0.15
+             : (age > 1.15 ? Math.max(0, 1 - (age - 1.15) / 0.35) : 1);
+    var grab = age < 0.25 ? 0
+             : (age < 0.75 ? (age - 0.25) / 0.50 : Math.max(0, 1 - (age - 0.75) / 0.30));
+    return { open: open, grab: grab };
+  }
+
+  /** The stream, for the second or so after a cup is pulled. */
+  function tapPour() {
+    var age = (nowMs() - (S.tapPour || -1e9)) / 1000;
+    if (age < 0 || age > 0.9) return 0;
+    return age < 0.6 ? 1 : Math.max(0, 1 - (age - 0.6) / 0.30);
+  }
+
+  /*
+   * Which three spouts the machine shows.
+   *
+   * The dispenser is three columns wide and the shop plumbs anywhere from two
+   * flavours to six, so this picks a window of three that always contains the
+   * one the front of the board is waiting for - otherwise the machine would be
+   * pouring a drink off the edge of itself. Short of three, the spare column
+   * comes back undefined and draws as an unplumbed spout.
+   */
+  function dispenserView() {
     var taps = S.drinkTaps || [];
+    var want = nextDrinkWanted();
+    if (!taps.length) return { ids: [], active: 0, want: null };
+    var idx = taps.indexOf(want);
+    var start = idx < 0 ? 0 : Math.max(0, Math.min(idx - 1, taps.length - 3));
+    return {
+      ids: [taps[start], taps[start + 1], taps[start + 2]],
+      active: idx < 0 ? 0 : idx - start,
+      want: want
+    };
+  }
 
-    Art.ink(ctx, Art.rectPts(r.x, r.y, r.w, r.h, r.w * 0.10, r.w * 0.008, 5501),
-      '#cfd6da', { lw: Math.max(1.2, r.w * 0.030), off: r.w * 0.006, line: '#3f4a50', seed: 5501 });
-    Art.ink(ctx, Art.rectPts(r.x + r.w * 0.08, r.y + r.h * 0.10, r.w * 0.84, r.h * 0.34,
-      r.w * 0.06, r.w * 0.006, 5502),
-      '#2e3a40', { lw: Math.max(1, r.w * 0.020), line: '#1b2428', seed: 5502 });
+  function drawFountain() {
+    if (!L.tapH || !Art.scene.dispenser) return;
+    var r = tapRect();
+    var v = dispenserView();
+    var pour = tapPour();
 
-    // one bead per plumbed flavour, the next one lit
-    var nT = Math.max(1, taps.length);
-    for (var i = 0; i < taps.length; i++) {
-      var d = Core.drinkById(taps[i]);
-      var bx = r.x + r.w * (0.14 + 0.72 * ((i + 0.5) / nT));
-      var lit = taps[i] === next;
-      ctx.save();
-      ctx.globalAlpha = lit ? 1 : 0.42;
-      Art.ink(ctx, Art.ellPts(bx, r.y + r.h * 0.27, r.w * 0.052, r.w * 0.052, 12, r.w * 0.006, 5510 + i),
-        d ? d.swatch : '#888', { lw: Math.max(0.9, r.w * 0.016), line: '#1b2428', seed: 5510 + i });
-      ctx.restore();
-    }
+    Art.scene.dispenser(ctx, r.x, r.y, r.w, r.h, {
+      flavors: v.ids,
+      active: v.active,
+      pour: v.want ? pour : 0,
+      // the cup fills as the stream runs, and stands full while one is waiting
+      fill: pour ? 0.20 + 0.65 * (1 - pour) : 0.80,
+      cup: !!v.want,
+      t: nowMs() / 1000
+    });
 
-    if (next) {
-      Art.item.cup(ctx, r.x + r.w * 0.30, r.y + r.h * 0.48, r.w * 0.40, r.h * 0.48,
-        { flavor: next, fill: 0.85, lid: 1, straw: true });
-      pickRing(r, 8);
-    } else {
-      Art.ui.letters(ctx, taps.length ? 'NO ORDERS' : 'CLOSED',
-        r.x + r.w / 2, r.y + r.h * 0.78, r.h * 0.13,
-        { fill: 'rgba(63,74,80,0.55)', weight: 0.12, track: 0.14, seed: 5520 });
+    if (v.want) pickRing(r, 8);
+    else if (!(S.drinkTaps || []).length) {
+      Art.ui.letters(ctx, 'CLOSED', r.x + r.w / 2, r.y + r.h * 0.70, r.h * 0.055,
+        { fill: 'rgba(63,74,80,0.70)', weight: 0.12, track: 0.14, seed: 5520 });
     }
   }
 
@@ -4345,7 +4397,15 @@
         : { stack: p.s || [], side: p.sd || null, sideCook: p.sc, drink: p.dr || null };
     });
     S.grill = m.grill;
+    /*
+     * A well that was empty and is not any more means the partner just took a
+     * bag out. The stamp is a local clock, so it cannot come over the wire -
+     * derive it from the change instead and the guest sees the same freezer
+     * open that the host does.
+     */
+    var camePacked = (m.fryer || []).some(function (w, i) { return w && !S.fryer[i]; });
     S.fryer = m.fryer || [];
+    if (camePacked) S.fryGrab = nowMs();
     S.drinkTaps = m.taps || [];
     // the guest only knows the day, so the run has to come down the wire or
     // the two kitchens are laid out differently and the taps miss
@@ -4904,6 +4964,8 @@
     syncHud: syncHud, resize: resize,
     chopCurve: chopCurve, drawPrepBoard: drawPrepBoard, drawCarried: drawCarried,
     drawPlates: drawPlates, drawSet: drawSet, setExtras: setExtras,
+    dispenserView: dispenserView, freezerPose: freezerPose, drawFryStation: drawFryStation,
+    drawFountain: drawFountain,
     showLeaderboard: showLeaderboard, showAccount: showAccount, lbMap: lbMap,
     paintAccount: paintAccount, accountNote: function () { return acct.note; },
     drawTraySet: drawTraySet,

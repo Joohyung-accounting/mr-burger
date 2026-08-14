@@ -85,6 +85,7 @@ function tape() {
 global.self = global;                     // art.js hangs itself off `self` in the browser
 require('../www/js/art.js');
 require('../www/js/art-fries-drinks.js');
+require('../www/js/art-freezer-dispenser.js');
 var Art = global.Art;
 
 /*
@@ -310,5 +311,134 @@ test('the straight-sided pieces carry enough points to stay straight', function 
       ' points, so trace() will round it into a blob');
   });
 });
+
+/* ------------------------------------------ the freezer and the fountain */
+
+/*
+ * A context that remembers where things were drawn.
+ *
+ * The handoff's promise for both machines is that they contain themselves -
+ * "넘긴 상자 안에 스스로를 다 담고" - which is the property that decides
+ * whether two machines standing next to each other collide. Anything drawn
+ * inside a clip is skipped: the clip path was itself measured, and its
+ * contents cannot escape it.
+ */
+function bboxTape() {
+  var t = tape();
+  var b = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+  var clip = 0, stack = [];
+  function pt(x, y) {
+    if (clip || !isFinite(x) || !isFinite(y)) return;
+    if (x < b.x0) b.x0 = x;
+    if (y < b.y0) b.y0 = y;
+    if (x > b.x1) b.x1 = x;
+    if (y > b.y1) b.y1 = y;
+  }
+  ['moveTo', 'lineTo'].forEach(function (m) {
+    var real = t[m];
+    t[m] = function (x, y) { pt(x, y); real.apply(t, arguments); };
+  });
+  var qc = t.quadraticCurveTo;
+  t.quadraticCurveTo = function (cx, cy, x, y) { pt(cx, cy); pt(x, y); if (qc) qc.apply(t, arguments); };
+  ['rect', 'fillRect', 'strokeRect'].forEach(function (m) {
+    var real = t[m];
+    t[m] = function (x, y, w, h) { pt(x, y); pt(x + w, y + h); if (real) real.apply(t, arguments); };
+  });
+  var arc = t.arc;
+  t.arc = function (x, y, r) { pt(x - r, y - r); pt(x + r, y + r); if (arc) arc.apply(t, arguments); };
+  var ell = t.ellipse;
+  t.ellipse = function (x, y, rx, ry) { pt(x - rx, y - ry); pt(x + rx, y + ry); if (ell) ell.apply(t, arguments); };
+  var sv = t.save, rs = t.restore, cl = t.clip;
+  t.save = function () { stack.push(clip); sv.apply(t, arguments); };
+  t.restore = function () { if (stack.length) clip = stack.pop(); rs.apply(t, arguments); };
+  t.clip = function () { clip++; if (cl) cl.apply(t, arguments); };
+  t.bbox = b;
+  return t;
+}
+
+var COLD_STATES = [
+  ['freezer', { open: 0 }],
+  ['freezer', { open: 1, t: 2.4 }],
+  ['freezer', { open: 1, grab: 1, t: 2.4 }],
+  ['freezer', { open: 0.5, grab: 0.5, t: 0.3 }],
+  ['dispenser', { pour: 0, fill: 0, cup: false }],
+  ['dispenser', { active: 0, pour: 1, fill: 0.35, t: 1.1 }],
+  ['dispenser', { active: 2, pour: 1, fill: 0.9, t: 3.7 }],
+  ['dispenser', { flavors: ['cola', 'cider'], active: 1, pour: 1, fill: 0.4, t: 0.8 }],
+  ['dispenser', { flavors: [], active: 0, pour: 0, cup: false }]
+];
+
+// the sizes they are actually given: the fry supply row and the drink column
+// on a phone, on a tablet, and the roomy ones the handoff drew them at
+var COLD_SIZES = [[68, 36], [92, 48], [71, 90], [92, 118], [330, 320], [250, 370]];
+
+test('the freezer and the fountain are registered and never throw', function () {
+  ['freezer', 'dispenser'].forEach(function (k) {
+    assert.strictEqual(typeof Art.scene[k], 'function', 'Art.scene.' + k + ' is missing');
+  });
+  assert.strictEqual(typeof Art.item.fryBag, 'function', 'Art.item.fryBag is missing');
+
+  COLD_SIZES.forEach(function (sz) {
+    COLD_STATES.forEach(function (st, i) {
+      var g = tape();
+      assert.doesNotThrow(function () {
+        Art.scene[st[0]](g, 0, 0, sz[0], sz[1], st[1]);
+      }, sz.join('x') + ' ' + st[0] + '#' + i + ' threw');
+      assert.strictEqual(g.depth, 0, sz.join('x') + ' ' + st[0] + '#' + i + ' leaked a save()');
+      assert.strictEqual(g.floor, 0, sz.join('x') + ' ' + st[0] + '#' + i + ' over-restored');
+      assert.ok(!/NaN|Infinity/.test(g.log.join('|')),
+        sz.join('x') + ' ' + st[0] + '#' + i + ' emitted NaN into the context');
+    });
+  });
+});
+
+test('neither machine draws outside the box it was handed', function () {
+  COLD_SIZES.forEach(function (sz) {
+    var W = sz[0], H = sz[1];
+    COLD_STATES.forEach(function (st, i) {
+      var g = bboxTape();
+      Art.scene[st[0]](g, 10, 20, W, H, st[1]);
+      var b = g.bbox;
+      if (!isFinite(b.x0)) return;                 // drew nothing measurable
+      var at = sz.join('x') + ' ' + st[0] + '#' + i + ': ';
+      // a stroke straddles its path, so allow half of the widest line
+      var slack = Math.max(2.5, Math.min(W, H) * 0.06);
+      assert.ok(b.x0 >= 10 - slack, at + 'ran ' + (10 - b.x0).toFixed(1) + 'px off the left');
+      assert.ok(b.y0 >= 20 - slack, at + 'ran ' + (20 - b.y0).toFixed(1) + 'px off the top');
+      assert.ok(b.x1 <= 10 + W + slack, at + 'ran ' + (b.x1 - 10 - W).toFixed(1) + 'px off the right');
+      assert.ok(b.y1 <= 20 + H + slack, at + 'ran ' + (b.y1 - 20 - H).toFixed(1) + 'px off the bottom');
+    });
+  });
+});
+
+test('a spout with nothing plumbed to it draws as a spout, not as a question mark', function () {
+  // two flavours in a three-column machine is the shop's first week
+  var two = draw2('dispenser', { flavors: ['cola', 'cider'], active: 0, pour: 0 }, 250, 370);
+  var three = draw2('dispenser', { flavors: ['cola', 'cider', 'orange'], active: 0, pour: 0 }, 250, 370);
+  assert.ok(!/\?/.test(two.log.join('|')), 'an unplumbed spout drew a question mark');
+  assert.notStrictEqual(two.log.join('|'), three.log.join('|'),
+    'a two-flavour machine should not draw the same as a three-flavour one');
+});
+
+test('the cold machines hold still when nothing is moving', function () {
+  var a = draw2('freezer', { open: 0, t: 1 }, 200, 200).log.join('|');
+  var b = draw2('freezer', { open: 0, t: 9 }, 200, 200).log.join('|');
+  assert.strictEqual(a, b, 'a shut freezer shimmered between frames');
+
+  var c = draw2('dispenser', { pour: 0, fill: 0.5, t: 1 }, 200, 300).log.join('|');
+  var d = draw2('dispenser', { pour: 0, fill: 0.5, t: 9 }, 200, 300).log.join('|');
+  assert.strictEqual(c, d, 'an idle fountain shimmered between frames');
+
+  // ...and that the clock DOES reach the parts that move
+  var e = draw2('dispenser', { pour: 1, fill: 0.5, t: 1 }, 200, 300).log.join('|');
+  var f = draw2('dispenser', { pour: 1, fill: 0.5, t: 9 }, 200, 300).log.join('|');
+  assert.notStrictEqual(e, f, 'the stream is not animating at all');
+});
+
+function draw2(name, o, w, h) {
+  var g = tape();
+  Art.scene[name](g, 0, 0, w, h, o);
+  return g;
+}
 
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');
