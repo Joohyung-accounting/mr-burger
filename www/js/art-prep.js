@@ -635,9 +635,19 @@
 
   /* ============================================================ prep scene */
 
+  /*
+   * Phase 0 is the edge in the wood. A chop hangs at the top, accelerates on
+   * the way down and stops dead - so the fall is q*q (fastest at contact) and
+   * there is a real dwell at both ends. The previous curve fell with exponent
+   * 0.62, an ease-out, which decelerated the blade into the board.
+   */
   function chopPhase(t) {
     var p = (t * 1.55) % 1;
-    return p < 0.72 ? 1 - Math.pow(p / 0.72, 0.85) : Math.pow((p - 0.72) / 0.28, 0.62);
+    if (p < 0.09) return 1;
+    if (p < 0.66) { var u = (p - 0.09) / 0.57; return (1 - u) * (1 - u); }
+    if (p < 0.76) return 0;
+    var q = (p - 0.76) / 0.24;
+    return q * q;
   }
 
   /**
@@ -645,8 +655,11 @@
    * the top ~30% is headroom the raised knife swings into, so the board sits low.
    *   o.veg    'tomato' | 'onion' | 'pickle' | 'lettuce' | 'jalapeno'
    *   o.cut    0..1  whole vegetable -> nothing left but slices
+   *   o.left   0..1  how much of the PILE remains; defaults to o.cut
    *   o.chop   0..1  0 = knife up, 1 = edge on the board (overrides o.t)
    *   o.t      seconds, drives a rock-chop cycle when o.chop is absent
+   *   o.hit    0..1  impact spray; defaults to being derived from o.chop
+   *   o.hitSeed      integer, re-seeds the spray so strikes differ
    *   o.knife  knife type, o.board  options passed to Art.scene.board
    */
   function drawPrep(ctx, x, y, w, h, o) {
@@ -668,11 +681,16 @@
     var vegY = seat.baseY - R * 0.86;
     // the cut face eats rightwards through the vegetable as cut climbs
     var faceX = vegX - R + cut * R * 1.92;
-    var pileW = seat.w * 0.44 * (0.32 + cut * 0.68);
+    // How much of the PILE is left, which is not the same question as how far
+    // the blade got. While chopping they agree; once the board is full and the
+    // cook starts drawing portions off it, only `left` falls. Defaults to
+    // `cut`, so a caller that does not know about portions is unaffected.
+    var left = o.left === undefined ? cut : cl(o.left, 0, 1);
+    var pileW = seat.w * 0.44 * (0.32 + left * 0.68);
     var pileX = seat.x0 + pileW / 2 + seat.w * 0.015;
-    var nSlices = Math.max(1, Math.round(1 + cut * 5));
+    var nSlices = Math.max(1, Math.round(1 + left * 5));
 
-    if (cut > 0.02) {
+    if (cut > 0.02 && left > 0.02) {
       drawVegCut(ctx, pileX, seat.baseY - R * 0.70, pileW, {
         id: id, n: nSlices, r: R * 0.82, seed: s + 10, squash: 0.88
       });
@@ -682,8 +700,16 @@
     var len = seat.w * 0.62;
     var px = faceX - R * 0.18;
     var py = seat.baseY;
-    drawKnife(ctx, px, py, len, {
-      type: o.knife || 'chef', lift: 0.14 + 0.80 * (1 - chop), seed: 1301,
+    /*
+     * The blade has to actually travel. drawKnife only ROTATES about (cx, cy),
+     * so with a fixed pivot the knife see-sawed - the tip drove down into the
+     * board as the handle came up - and `lift` bottomed out at 0.14, meaning
+     * the edge never lay flat even at full contact. Lift the pivot as well,
+     * and let the angle reach zero.
+     */
+    var rise = (1 - chop) * R * 0.55;
+    drawKnife(ctx, px, py - rise, len, {
+      type: o.knife || 'chef', lift: 0.86 * (1 - chop), seed: 1301,
       juice: cut > 0.15 ? V.juice : null
     });
 
@@ -696,28 +722,42 @@
       ctx.clip();
       drawVegWhole(ctx, vegX, vegY, R, { id: id, shadow: false });
       ctx.restore();
-      // the cross-section, foreshortened and shrinking as the blade nears the end
-      var u = cl((faceX - vegX) / R, -1, 0.95);
-      ctx.save();
-      ctx.translate(faceX, vegY);
-      ctx.scale(V.thin + 0.06, Math.sqrt(Math.max(0.05, 1 - u * u)));
-      drawSlice(ctx, 0, 0, R * 0.84, { id: id, seed: s + 3 });
-      ctx.restore();
+      // the cross-section, foreshortened and shrinking as the blade nears the
+      // end. The 0.05 floor used to keep a sliver of cut face on the silhouette
+      // of a vegetable nothing had touched yet - let it grow from nothing.
+      if (cut > 0.03) {
+        var u = cl((faceX - vegX) / R, -1, 0.95);
+        ctx.save();
+        ctx.translate(faceX, vegY);
+        ctx.scale(V.thin + 0.06, Math.sqrt(Math.max(0, 1 - u * u)));
+        drawSlice(ctx, 0, 0, R * 0.84, { id: id, seed: s + 3 });
+        ctx.restore();
+      }
     }
 
     // impact: juice jumps off the edge and the board takes a tap
-    var hit = chop > 0.90 ? (chop - 0.90) / 0.10 : 0;
+    /*
+     * Driven off the landing when the caller can say where the landing is.
+     * Derived from the blade's height it was symmetric about contact, so half
+     * the spray came off a vegetable the knife had not reached yet.
+     */
+    var hit = o.hit !== undefined ? cl(o.hit, 0, 1)
+            : (chop > 0.90 ? (chop - 0.90) / 0.10 : 0);
     if (hit > 0) {
+      // re-seeded per strike, so four identical rays do not replay every swing
+      var hs = s * 7 + (o.hitSeed || 0) * 31;
       ctx.save();
       ctx.globalAlpha = 0.5 * hit;
       ctx.strokeStyle = V.juice;
       ctx.lineCap = 'round';
       ctx.lineWidth = Math.max(1, R * 0.055);
       for (i = 0; i < 4; i++) {
-        var a = -2.55 + i * 0.40, d = R * (0.45 + hash(s * 7 + i) * 0.45);
+        var a = -2.55 + i * 0.40 + (hash(hs + i * 3 + 1) - 0.5) * 0.26;
+        var d = R * (0.45 + hash(hs + i) * 0.45);
+        // off the cut face rather than the pivot, and falling as it goes out
         ctx.beginPath();
-        ctx.moveTo(px + Math.cos(a) * d * 0.45, py + Math.sin(a) * d * 0.45);
-        ctx.lineTo(px + Math.cos(a) * d, py + Math.sin(a) * d);
+        ctx.moveTo(faceX + Math.cos(a) * d * 0.45, py + Math.sin(a) * d * 0.45);
+        ctx.lineTo(faceX + Math.cos(a) * d, py + Math.sin(a) * d * 0.82);
         ctx.stroke();
       }
       ctx.restore();

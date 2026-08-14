@@ -307,6 +307,9 @@
    */
   var CHOP_TIME = 3.4;        // seconds from whole vegetable to a full board
   var PREP_PORTIONS = 4;
+  // strikes per vegetable. CHOP_TIME / CHOPS = 567ms a swing, near the 645ms
+  // the free-running blade used to take, but now a whole number of them.
+  var CHOPS = 6;
   var FRY_SUPPLY = 0.36;          // the share of the box the supply row takes
 
   // The kitchen the speeds in core.js were tuned against: a 412x360 stage.
@@ -603,10 +606,25 @@
      * standing on it. drawPrepBoard splits it.
      */
     var fw = L.floor.x1 - L.floor.x0, fh2 = L.floor.y1 - L.floor.y0;
-    var bw = clamp(fw * 0.80, 96, 250);
+    /*
+     * Right-aligned, with the cook's own standing room reserved on the left.
+     *
+     * Centred at 80% of the floor it left 17px gutters on a phone - narrower
+     * than the cook - so standPoint's `board.x - CHEF_S*k*0.42` fell outside
+     * the floor and got clamped back to the wall, which is the same pixel the
+     * grill and the plates use. The cook never worked it from an end, and the
+     * most common traverse walked straight through the tabletop.
+     *
+     * Reserve the stand-off first and the clamp never fires.
+     */
+    var stand = CHEF_S * k * 0.42;
+    var bw = clamp(fw - stand - 6, 96, 250);
     L.board = S.board ? {
-      x: L.floor.x0 + (fw - bw) / 2,
-      y: L.floor.y0 - fh2 * 0.02,
+      x: L.floor.x1 - bw,
+      // `- fh2 * 0.02` was a fraction of floor HEIGHT charged against a fixed
+      // 16px gap, so a tall screen pushed the board up through the crate shelf
+      // and the crates won the tap. Sit inside the floor the table stands on.
+      y: L.floor.y0 + 4,
       w: bw,
       h: Math.min(bw * 0.56, fh2 * 0.40)
     } : null;
@@ -1328,6 +1346,13 @@
         bd.id = null;
         bd.cut = 0;
       }
+      /*
+       * Say what is left. The board announced "4 READY" once and then never
+       * mentioned the count again, and the heap on it drew the same at four
+       * portions as at one - so a finite supply read as a bottomless one.
+       */
+      float(bd.portions ? bd.portions + ' LEFT' : 'BOARD CLEAR',
+            br.x + br.w / 2, br.y, C.warm, 11);
       Sfx.lift();
       buzz(8);
       return;
@@ -2052,26 +2077,66 @@
     var wood = { wood: 'maple', scars: 0.55, wet: bd.wet || 0, juice: bd.juice || '#c0392b' };
     var bx = r.x + r.w * 0.07, bw2 = r.w * 0.86;
 
-    if (!bd.id) {
+    // The vegetable is still in the air. The grill and the plates both wait for
+    // their flyer to land before drawing what it carries; this did not, so the
+    // vegetable was on screen twice for the 0.2s flight.
+    if (!bd.id || inbound('board', 0)) {
       // bare: just the slab, sitting on the table
       Art.scene.board(ctx, bx, r.y + r.h * 0.20, bw2, r.h * 0.44, wood);
       return;
     }
+
+    /*
+     * The blade is phase-locked to the work.
+     *
+     * It used to run off the wall clock at a fixed 1.55Hz, which meant 5.27
+     * swings per vegetable - a non-integer count, so the board finished
+     * mid-stroke at a different point every time and the cut face crept
+     * smoothly while the knife bounced past it. Now one vegetable is exactly
+     * CHOPS strikes, the face steps one slice on each landing, and the last
+     * strike is always a completed one.
+     */
+    var ph = bd.cut * CHOPS;
+    var fr = ph - Math.floor(ph);
     Art.scene.prep(ctx, bx, r.y - r.h * 0.02, bw2, r.h * 0.64, {
       board: wood,
       veg: bd.id,
-      cut: bd.portions ? 1 : bd.cut,
-      // still to cut -> the knife rocks; done -> it rests on the board
-      chop: bd.portions ? 0.06 : chopSwing(nowMs() / 1000)
+      cut: bd.portions ? 1 : Math.floor(ph) / CHOPS,
+      // done -> the edge rests on the board. `chop` is 1 AT the board, not 0:
+      // the old 0.06 held the knife at the top of its arc, a frozen mid-swing.
+      chop: bd.portions ? 1 : chopCurve(ph),
+      // how much of the PILE is left, which `cut` cannot say - it only knows
+      // how far the blade got. Without this the heap looked the same at four
+      // portions and at one, so the supply read as bottomless.
+      left: bd.portions ? bd.portions / PREP_PORTIONS : bd.cut,
+      // strictly after the landing, so juice never leaves an untouched
+      // vegetable, and re-seeded per strike so no two sprays match
+      hit: bd.portions ? 0 : (fr < 0.09 ? 1 - fr / 0.09 : 0),
+      hitSeed: Math.floor(ph)
     });
     if (bd.portions) pickRing(r, 12);
   }
 
-  /** The blade's own cycle - art-prep's chopPhase, which it does not export. */
-  function chopSwing(t) {
-    var p = (t * 1.55) % 1;
-    return p < 0.72 ? 1 - Math.pow(p / 0.72, 0.85) : Math.pow((p - 0.72) / 0.28, 0.62);
+  /**
+   * The blade's own cycle, as a 0..1 phase. Phase 0 is the edge in the wood.
+   *
+   * The old curve was a power-law sawtooth that fell with exponent 0.62 -
+   * an ease-OUT - so the knife left the apex at 70 units/s and arrived at the
+   * board at 3.4, decelerating into the cut. It also had no dwell at either
+   * end (16ms out of a 645ms cycle) and a velocity discontinuity at the top.
+   * A chop hangs, accelerates, and stops dead. This one does.
+   */
+  function chopCurve(p) {
+    p = p - Math.floor(p);
+    if (p < 0.09) return 1;                              // buried in the board
+    if (p < 0.66) { var u = (p - 0.09) / 0.57; return (1 - u) * (1 - u); }
+    if (p < 0.76) return 0;                              // hanging at the top
+    var q = (p - 0.76) / 0.24;
+    return q * q;                                        // down under gravity
   }
+
+  /** Seconds-based wrapper, for anything not driven by a vegetable. */
+  function chopSwing(t) { return chopCurve(t * 1.55); }
 
   function drawFryStation() {
     // art-fries-drinks.js is a separate file. If it ever fails to load, the
@@ -2250,13 +2315,29 @@
    * on the object and the sleeves end at the hands. Kept beside the drawing
    * rather than inside it so the two cannot disagree about a size.
    */
-  function carriedHalf(maxW, hold) {
+  function carriedHalf(maxW, hold, maxH) {
     if (!hold) return 0;
     if (hold.kind === 'plate') return plateRadius(maxW);
     if (hold.kind === 'fries') return maxW * 0.20;
     if (hold.kind === 'cup') return maxW * 0.17;
     if (hold.id === 'bun') return Art.layerWidth('bunBottom', bunRollWidth(maxW)) / 2;
+    if (wholeVeg(hold)) return veggieRadius(maxW, maxH);
     return Art.layerWidth(hold.id, looseWidth(maxW, hold.id)) / 2;
+  }
+
+  /** An uncut vegetable in the hands - not the burger layer it becomes. */
+  function wholeVeg(hold) {
+    if (!hold || hold.kind !== 'ing' || hold.prepped) return false;
+    if (!Art.item || !Art.item.vegWhole) return false;   // art-prep.js absent
+    var ing = Core.byId(hold.id);
+    return !!(ing && ing.chop);
+  }
+
+  // the carry box is wide and flat, so a round thing is bounded by its height.
+  // carriedHalf is called from the measure pass, which may not know maxH; the
+  // fallback is the ratio art.js actually uses (0.205 / 0.72).
+  function veggieRadius(maxW, maxH) {
+    return Math.min(maxW * 0.17, (maxH || maxW * 0.2847) * 0.46);
   }
 
   /*
@@ -2281,7 +2362,7 @@
     if (!hold) return 0;
     // The measuring pass: drawChef needs the width before it can place the
     // hands, and the object cannot be painted until the arms are down.
-    if (measure) return carriedHalf(maxW, hold);
+    if (measure) return carriedHalf(maxW, hold, maxH);
 
     g.save();
     g.shadowColor = 'rgba(80,50,32,0.35)';
@@ -2346,6 +2427,22 @@
       Art.drawStack(g, roll, cx, baseY, rw);
       g.restore();
       return Art.layerWidth('bunBottom', rw) / 2;
+    }
+
+    /*
+     * A head of lettuce is not shredded lettuce.
+     *
+     * Art.drawLayer paints the BURGER layer - a cut tomato face, three torn
+     * leaves - so a vegetable straight out of the crate was drawn in the
+     * cook's hands as though it had already been through the board. That is
+     * the one distinction he has to be able to make at a glance, and it was
+     * the only thing on screen that could have told him.
+     */
+    if (wholeVeg(hold)) {
+      var vr = veggieRadius(maxW, maxH);
+      Art.item.vegWhole(g, cx, baseY - vr, vr, { id: hold.id });
+      g.restore();
+      return vr;
     }
 
     // The raw patty came out of the crate a shade wider than the hands holding
@@ -2535,12 +2632,22 @@
     drawRoom();
     drawCounter();
     drawCrates();
-    drawPrepBoard();
+    /*
+     * The board is furniture standing in open floor, not a wall fitting, so
+     * whether it belongs in front of the cook or behind him depends on where
+     * he is. Feet above its front edge means he is standing behind the table
+     * and it should cover his legs; below, he walks in front of it. Drawn
+     * unconditionally first, he strode through the tabletop on every traverse.
+     */
+    var boardOver = !!L.board && S.chefs.length > 0 &&
+      S.chefs.every(function (c) { return c.y < L.board.y + L.board.h; });
+    if (!boardOver) drawPrepBoard();
     drawGrill();
     drawFryStation();
     drawPlates();
     drawFountain();
     drawChefs();
+    if (boardOver) drawPrepBoard();
     drawFlyers();
     drawHatchAndBin();     // nearest the camera, so it draws over the cook
     drawSparks();
@@ -4358,6 +4465,7 @@
     startDay: startDay, spawnTicket: spawnTicket, endDay: endDay,
     renderBoard: renderBoard, reserveBoard: reserveBoard, orderRows: orderRows,
     syncHud: syncHud, resize: resize,
+    chopCurve: chopCurve, drawPrepBoard: drawPrepBoard, drawCarried: drawCarried,
     drawTraySet: drawTraySet,
     sendChef: sendChef, arrive: arrive, deliver: deliver,
     stationAt: stationAt, standPoint: standPoint,

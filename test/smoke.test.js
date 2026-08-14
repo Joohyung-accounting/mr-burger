@@ -2674,6 +2674,143 @@ test('whoever changes the kitchen height re-measures it in the same beat', funct
   pump(0.4);
 });
 
+/* ---------------------------------------------------------------- the board */
+
+test('the blade is fastest where it lands and hangs at the top', function () {
+  var f = MB.chopCurve;
+  assert.strictEqual(f(0), 1, 'phase 0 is the edge in the wood');
+  assert.strictEqual(f(0.05), 1, 'it should sit in the wood for a beat');
+  assert.strictEqual(f(0.70), 0, 'and hang at the top of the arc');
+
+  // speed at the moment of contact must beat speed anywhere else in the fall
+  function v(p) { return Math.abs(f(p + 1e-5) - f(p - 1e-5)) / 2e-5; }
+  var atContact = v(0.999), midFall = v(0.87);
+  assert.ok(atContact > midFall * 2,
+    'a chop accelerates into the board; got ' + atContact.toFixed(1) +
+    ' at contact vs ' + midFall.toFixed(1) + ' mid-fall');
+
+  // and it must not teleport at the apex, which the old sawtooth did
+  assert.ok(v(0.65) < 3 && v(0.77) < 3,
+    'the apex should be a turn, not a jump');
+
+  // continuous across the wrap
+  assert.ok(Math.abs(f(0.9999) - f(0)) < 0.01, 'the cycle should close on itself');
+});
+
+test('a board that is running out looks like it', function () {
+  startShift(6);
+  pump(0.2);
+  var seen = [];
+  var prep = Art.scene.prep;
+  Art.scene.prep = function (c, x, y, w, h, o) { seen.push(o); };
+  try {
+    S.board = { id: 'lettuce', cut: 1, portions: 4, wet: 0, juice: '#93d33d' };
+    MB.drawPrepBoard(); var four = seen.pop();
+    S.board.portions = 1;
+    MB.drawPrepBoard(); var one = seen.pop();
+    assert.ok(four && one, 'setup: the board should have drawn twice');
+    assert.ok(four.left > one.left,
+      'the pile must shrink as portions are taken; got ' + four.left + ' vs ' + one.left);
+  } finally { Art.scene.prep = prep; }
+});
+
+test('taking a portion says how many are left', function () {
+  startShift(6);
+  pump(0.2);
+  S.board = { id: 'lettuce', cut: 1, portions: 3, wet: 0, juice: '#93d33d' };
+  var me = MB.chefAt(0);
+  me.holding = null;
+  S.floats.length = 0;
+  MB.arrive({ kind: 'board' }, 0);
+  assert.strictEqual(S.board.portions, 2, 'one portion should have come off');
+  assert.ok(S.floats.some(function (f) { return /2 LEFT/.test(f.text); }),
+    'the count should be shown, got ' + JSON.stringify(S.floats.map(function (f) { return f.text; })));
+
+  // and the last one reads as empty rather than "0 LEFT"
+  S.board.portions = 1;
+  MB.chefAt(0).holding = null;
+  S.floats.length = 0;
+  MB.arrive({ kind: 'board' }, 0);
+  assert.ok(S.floats.some(function (f) { return /BOARD CLEAR/.test(f.text); }),
+    'draining the board should say so');
+});
+
+test('the board waits for the vegetable to land before drawing it', function () {
+  startShift(6);
+  pump(0.2);
+  var prepCalls = 0, bareCalls = 0;
+  var prep = Art.scene.prep, board = Art.scene.board;
+  Art.scene.prep = function () { prepCalls++; };
+  Art.scene.board = function () { bareCalls++; return { x0: 0, w: 10, h: 10, baseY: 10 }; };
+  try {
+    S.board = { id: 'lettuce', cut: 0, portions: 0, wet: 0, juice: '#93d33d' };
+    S.flyers.push({ to: { kind: 'board', i: 0 }, id: 'lettuce', t: 0 });
+    MB.drawPrepBoard();
+    assert.strictEqual(prepCalls, 0, 'the vegetable is still in the air - draw the bare slab');
+    assert.ok(bareCalls > 0, 'the slab should still be there');
+    S.flyers.length = 0;
+    MB.drawPrepBoard();
+    assert.strictEqual(prepCalls, 1, 'once it lands, the board draws what it holds');
+  } finally { Art.scene.prep = prep; Art.scene.board = board; }
+});
+
+test('the cook can stand at the board without being shoved against the wall', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  stage.clientWidth = 375; stage.clientHeight = 700;
+  startShift(6);
+  pump(0.4);
+  var b = MB.boardRect();
+  assert.ok(b.w > 0, 'setup: day 6 should have a board');
+
+  var p = MB.standPoint({ kind: 'board' });
+  assert.ok(p.x > MB.layout.floor.x0 + 1,
+    'the stand point was clamped onto the wall - the cook works the board from ' +
+    'the same pixel he uses for the grill');
+
+  // and the board must not sit on the row the crates put him on
+  assert.ok(b.y > MB.layout.cratesBottom,
+    'the board climbed into the crate shelf: board.y ' + b.y.toFixed(1) +
+    ' vs shelf bottom ' + MB.layout.cratesBottom.toFixed(1));
+
+  // fetching an ingredient must not park the cook's feet inside the table
+  var inside = [];
+  for (var ci = 0; ci < S.menu.length; ci++) {
+    var cp = MB.standPoint({ kind: 'crate', i: ci });
+    if (cp.x > b.x && cp.x < b.x + b.w && cp.y > b.y && cp.y < b.y + b.h) inside.push(ci);
+  }
+  assert.strictEqual(inside.length, 0,
+    'crates ' + inside.join(',') + ' stand the cook inside the board rect');
+
+  // there has to be a lane: the cook is about CHEF_S*0.60 wide
+  var gap = b.x - MB.layout.floor.x0;
+  assert.ok(gap > 20, 'no room to walk past the board, gap is ' + gap.toFixed(1) + 'px');
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.4);
+});
+
+test('a whole vegetable in the hands does not look like a chopped one', function () {
+  startShift(6);
+  pump(0.2);
+  var whole = 0, layer = 0;
+  var vw = Art.item.vegWhole, dl = Art.drawLayer;
+  Art.item.vegWhole = function () { whole++; };
+  Art.drawLayer = function () { layer++; };
+  try {
+    var me = MB.chefAt(0);
+    me.holding = { kind: 'ing', id: 'lettuce', done: 0, char: 0 };
+    MB.drawCarried(makeCtx(), 100, 100, 40, 12, me.holding, false);
+    assert.strictEqual(whole, 1, 'straight out of the crate it is a whole head');
+    assert.strictEqual(layer, 0, 'and not the burger layer it becomes');
+
+    whole = 0; layer = 0;
+    me.holding = { kind: 'ing', id: 'lettuce', done: 0, char: 0, prepped: true };
+    MB.drawCarried(makeCtx(), 100, 100, 40, 12, me.holding, false);
+    assert.strictEqual(layer, 1, 'once chopped it is the topping');
+    assert.strictEqual(whole, 0, 'and no longer a whole head');
+  } finally { Art.item.vegWhole = vw; Art.drawLayer = dl; }
+});
+
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');
 
 

@@ -3284,13 +3284,23 @@
       // below. Tighten the pitch, and only the pitch, once it has to: one, two
       // and three lines still sit exactly where they were drawn.
       var room = th * (0.900 - 0.665);
-      if (rows.length && (rows.length - 1) * rs * 1.15 + rs * 0.60 > room) {
-        rs = room / ((rows.length - 1) * 1.15 + 0.60);
+      // the trailing term is the glyph's own height - keep it in step with the
+      // size below, or a five-line slip budgets for letters it no longer draws
+      if (rows.length && (rows.length - 1) * rs * 1.15 + rs * 0.86 > room) {
+        rs = room / ((rows.length - 1) * 1.15 + 0.86);
       }
+      /*
+       * The name is the thing the player actually reads across the room, and
+       * it was set at 0.60 of the row - half the pitch, with the rest of the
+       * line empty. Fill the row properly. fitLetters only shrinks when a long
+       * name would run off the paper, so JALAPENO still fits while the short
+       * names get the full size.
+       */
+      var chip = rs * 0.72;
       for (var k = 0; k < rows.length; k++) {
-        ink(ctx, rectPts(tx + tw * 0.10, ry - rs * 0.62, rs * 0.62, rs * 0.62, rs * 0.16, rs * 0.05, seed + 20 + k),
+        ink(ctx, rectPts(tx + tw * 0.10, ry - chip, chip, chip, rs * 0.18, rs * 0.05, seed + 20 + k),
             rows[k].c, { lw: Math.max(0.8, rs * 0.12), line: '#4a3226', lineAlpha: 0.8, seed: seed + 20 + k });
-        penLetters(ctx, rows[k].n, tx + tw * 0.26, ry, rs * 0.60, {
+        fitLetters(ctx, rows[k].n, tx + tw * 0.27, ry, rs * 0.86, tw * 0.66, {
           fill: '#4a3226', weight: 0.13, track: 0.05, align: 'left', seed: seed + 30 + k
         });
         ry += rs * 1.15;
