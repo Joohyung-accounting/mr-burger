@@ -174,12 +174,13 @@
   root.Sfx = Sfx;
 
   /* ======================================================================
-   * Bgm - the diner's backing track.
+   * Synth - the backing track the game composes for itself.
    *
-   * Composed here rather than shipped as a file: the project carries zero
-   * assets, and a generated loop has no licence attached to it, which matters
-   * for a store release. It is a ii-V-I turnaround (Dm7 - G7 - Cmaj7 - A7)
-   * with a walking bass, swung hats and light comping.
+   * This used to be the whole of Bgm, written here rather than shipped as a
+   * file because the project carried zero assets. It is now the fallback: if
+   * the recording is missing or the browser will not play it, the kitchen
+   * still has music. A ii-V-I turnaround (Dm7 - G7 - Cmaj7 - A7) with a
+   * walking bass, swung hats and light comping.
    *
    * Scheduled with a lookahead clock rather than timers-per-note: setTimeout
    * is far too jittery to keep a groove.
@@ -197,7 +198,7 @@
   var STEPS_PER_BAR = 16;
   var TOTAL_STEPS = STEPS_PER_BAR * CHART.length;
 
-  var Bgm = {
+  var Synth = {
     bpm: 100,
     gain: null,
     timer: null,
@@ -314,5 +315,117 @@
     }
   };
 
+  /* ======================================================================
+   * Bgm - what the shift actually plays.
+   *
+   * A recorded loop, routed through the same master gain the effects use so
+   * the MUTE switch keeps working the way it always did. If the file is
+   * missing, unplayable, or the browser refuses to decode it, this falls back
+   * to Synth and the kitchen is never silent.
+   *
+   * Autoplay is not ours to decide: browsers refuse `play()` until the player
+   * has touched something. A refusal arms a one-shot retry on the next
+   * pointerdown rather than giving up.
+   * ==================================================================== */
+  var TRACK = 'audio/diner-shuffle.mp3';
+
+  var Bgm = {
+    playing: false,
+    intensity: 0,
+    el: null,
+    gain: null,
+    fallback: false,      // true once the recording failed and Synth took over
+    _armed: false,
+
+    start: function () {
+      Sfx.init();
+      if (this.playing) return;
+      if (!this.fallback && this._open()) {
+        this.playing = true;
+        this._level();
+        var p;
+        try { p = this.el.play(); } catch (e) { this._giveUp(); return; }
+        if (p && p['catch']) {
+          var self = this;
+          p['catch'](function () { self._retryOnGesture(); });
+        }
+        return;
+      }
+      Synth.start();
+      this.playing = Synth.playing;
+    },
+
+    stop: function () {
+      this.playing = false;
+      if (this.el) { try { this.el.pause(); } catch (e) { /* already gone */ } }
+      Synth.stop();
+    },
+
+    /** 0 = quiet shift, 1 = everyone is about to walk out. */
+    setIntensity: function (v) {
+      this.intensity = v < 0 ? 0 : (v > 1 ? 1 : v);
+      Synth.setIntensity(this.intensity);
+      this._level();
+    },
+
+    /** Build the element once. False where there is no DOM to build one in. */
+    _open: function () {
+      if (this.el) return true;
+      if (typeof document === 'undefined' || typeof Audio === 'undefined') return false;
+      var el;
+      try { el = new Audio(TRACK); } catch (e) { return false; }
+      el.loop = true;
+      el.preload = 'auto';
+      var self = this;
+      el.addEventListener('error', function () { self._giveUp(); });
+      this.el = el;
+      /*
+       * Through the graph if we can - that is what makes MUTE reach it. A
+       * file:// page can taint the element and throw here, in which case the
+       * element's own volume is the control and Sfx.muted is read directly.
+       */
+      if (Sfx.ctx && Sfx.ctx.createMediaElementSource) {
+        try {
+          this.gain = Sfx.ctx.createGain();
+          this.gain.connect(Sfx.master);
+          Sfx.ctx.createMediaElementSource(el).connect(this.gain);
+        } catch (e) { this.gain = null; }
+      }
+      return true;
+    },
+
+    _giveUp: function () {
+      if (this.fallback) return;
+      this.fallback = true;
+      this.el = null;
+      this.gain = null;
+      if (this.playing) { Synth.start(); this.playing = Synth.playing; }
+    },
+
+    /*
+     * A recording cannot thicken its own arrangement the way Synth did, so
+     * intensity rides the level instead: down on a quiet shift, up when the
+     * board is full.
+     */
+    _level: function () {
+      var v = 0.34 + 0.20 * this.intensity;
+      if (this.gain) this.gain.gain.value = v;
+      else if (this.el) this.el.volume = Sfx.muted ? 0 : v;
+    },
+
+    _retryOnGesture: function () {
+      if (this._armed || typeof document === 'undefined') return;
+      this._armed = true;
+      var self = this;
+      var go = function () {
+        document.removeEventListener('pointerdown', go);
+        self._armed = false;
+        if (self.playing && self.el) { try { self.el.play(); } catch (e) { /* later */ } }
+      };
+      document.addEventListener('pointerdown', go);
+    }
+  };
+
   root.Bgm = Bgm;
+  root.BgmSynth = Synth;      // the fallback, exposed so a test can reach it
 })(typeof self !== 'undefined' ? self : this);

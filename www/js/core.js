@@ -494,7 +494,9 @@
     underdone: { label: 'UNDERCOOKED', cost: 0.18 },
     overdone: { label: 'OVERCOOKED', cost: 0.18 },
     raw: { label: 'THAT PATTY IS RAW', cost: 0.55 },
-    burnt: { label: 'THAT PATTY IS BURNT', cost: 0.55 }
+    burnt: { label: 'THAT PATTY IS BURNT', cost: 0.55 },
+    // the vegetables' version of `raw`: it skipped the board
+    whole: { label: 'THAT ISN\'T CHOPPED', cost: 0.55 }
   };
 
   function faultLabel(code) {
@@ -562,7 +564,21 @@
     var cooked = [];
     for (i = 0; i < built.length; i++) {
       var ing = BY_ID[built[i].id];
-      if (!ing || !ing.grill) continue;
+      if (!ing) continue;
+      /*
+       * The backstop the patty has always had, finally given to the
+       * vegetables. The plate refuses an unchopped one, so in ordinary play
+       * this never fires - it is here so that a hole in that gate costs the
+       * player a score rather than passing silently.
+       *
+       * Explicitly false, not falsy: a stack saved before plates carried the
+       * flag has `undefined`, and old saves should not be punished for it.
+       */
+      if (ing.chop && built[i].prepped === false) {
+        tally.whole = (tally.whole || 0) + 1;
+        cookPenalty += FAULT.whole.cost;
+      }
+      if (!ing.grill) continue;
       cooked.push(built[i]);
       f = cookFault(built[i]);
       if (f) {

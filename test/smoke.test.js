@@ -1993,7 +1993,9 @@ test('the backing track schedules a groove and keeps time', function () {
     Object.defineProperty(this, 'currentTime', { get: function () { return now; } });
   };
 
-  var Bgm = global.Bgm;
+  // the scheduler lives on the synth, which is the fallback the game drops to
+  // when there is no recording to play
+  var Bgm = global.BgmSynth;
   Bgm.start();
   try {
     assert.ok(Bgm.playing, 'the track never started');
@@ -2228,7 +2230,7 @@ test('the board turns one vegetable into several portions', function () {
   assert.strictEqual(plateIds(0).length, 4);
 });
 
-test('the board takes one vegetable at a time', function () {
+test('the knife cannot be interrupted, but a finished board can be swept', function () {
   startShift(8);
   var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; });
   if (veg.length < 2) { S.levels = {}; return; }   // nothing to prove today
@@ -2236,12 +2238,33 @@ test('the board takes one vegetable at a time', function () {
 
   work(crateOf(veg[0]));
   work(MB.boardRect());
-  for (var i = 0; i < 400 && !S.board.portions; i++) pump(0.05);
+  assert.strictEqual(S.board.id, veg[0], 'setup: the first vegetable should be on');
 
+  // mid-chop the board is busy - otherwise a slow cut is free to reroll
   work(crateOf(veg[1]));
   work(MB.boardRect());
-  assert.strictEqual(S.board.id, veg[0], 'the second vegetable shoved the first off');
+  assert.strictEqual(S.board.id, veg[0], 'a second vegetable interrupted the knife');
   assert.ok(held(), 'the cook lost the vegetable he was carrying');
+
+  for (var i = 0; i < 400 && !S.board.portions; i++) pump(0.05);
+  assert.ok(S.board.portions, 'setup: the board should have finished');
+
+  /*
+   * Once it is done, changing your mind costs the 3.4s chop instead of three
+   * round trips to the bin - which is what emptying it used to take, because
+   * the only way off the board was one portion at a time.
+   */
+  work(MB.boardRect());
+  assert.strictEqual(S.board.id, veg[1], 'a different vegetable should sweep the board');
+  assert.strictEqual(S.board.portions, 0, 'and start the new one from scratch');
+  assert.ok(!held(), 'it should be on the board, not still in his hands');
+
+  // but not to make more of what is already sitting there
+  for (i = 0; i < 400 && !S.board.portions; i++) pump(0.05);
+  work(crateOf(veg[1]));
+  work(MB.boardRect());
+  assert.ok(S.board.portions > 0, 'sweeping a board to reload the same vegetable wastes it');
+  assert.ok(held(), 'and the cook should still be holding it');
 });
 
 test('the knife only runs while there is something to cut', function () {
@@ -2809,6 +2832,90 @@ test('a whole vegetable in the hands does not look like a chopped one', function
     assert.strictEqual(layer, 1, 'once chopped it is the topping');
     assert.strictEqual(whole, 0, 'and no longer a whole head');
   } finally { Art.item.vegWhole = vw; Art.drawLayer = dl; }
+});
+
+test('everything a cook can carry survives the wire', function () {
+  var cases = [
+    { kind: 'ing', id: 'lettuce', cook: undefined, done: 0, char: 0, prepped: true },
+    { kind: 'ing', id: 'patty', cook: 0.8, done: 0.5, char: 0.1, grillT: 3 },
+    { kind: 'fries', cook: 0.9, done: 0.6, char: 0 },
+    { kind: 'cup', flavor: 'cola' },
+    { kind: 'plate', stack: [{ id: 'bun', cook: 1 }], side: 'fries', sideCook: 0.7, drink: 'cider' }
+  ];
+  cases.forEach(function (h) {
+    var back = MB.unpackHold(MB.packHold(h));
+    assert.strictEqual(back.kind, h.kind, h.kind + ' came back as ' + back.kind);
+    Object.keys(h).forEach(function (k) {
+      if (h[k] === undefined) return;
+      assert.deepStrictEqual(back[k], h[k],
+        h.kind + '.' + k + ' was lost: ' + JSON.stringify(back));
+    });
+  });
+  assert.strictEqual(MB.packHold(null), null, 'empty hands stay empty');
+});
+
+test('a state packet that arrives late is ignored', function () {
+  startShift(6);
+  pump(0.3);
+  var a = MB.snapshot();
+  var b = MB.snapshot();
+  assert.ok(b.seq > a.seq, 'setup: each packet should carry a fresh number');
+
+  S.role = 'guest';
+  MB.applySnapshot(b);
+  var afterNew = S.sales;
+  // the older packet overtakes it - and must not roll the kitchen back
+  a.sales = afterNew + 999;
+  MB.applySnapshot(a);
+  assert.strictEqual(S.sales, afterNew, 'a stale packet overwrote newer state');
+  S.role = 'host';
+});
+
+test('the shift plays the recording, and is never left silent without one', function () {
+  var B = global.Bgm;
+  var played = 0, paused = 0, onError = null, built = null;
+
+  var realAudio = global.Audio;
+  global.Audio = function (src) {
+    built = src;
+    this.loop = false; this.preload = ''; this.volume = 1;
+    this.play = function () { played++; return { 'catch': function () {} }; };
+    this.pause = function () { paused++; };
+    this.addEventListener = function (t, fn) { if (t === 'error') onError = fn; };
+  };
+  var was = { el: B.el, gain: B.gain, fallback: B.fallback, playing: B.playing };
+  B.el = null; B.gain = null; B.fallback = false; B.playing = false;
+
+  try {
+    B.start();
+    assert.ok(/\.mp3$/.test(built || ''), 'it should reach for the recording, got ' + built);
+    assert.strictEqual(B.el.loop, true, 'a backing track that stops after one pass is not one');
+    assert.strictEqual(played, 1, 'it never actually started');
+    assert.ok(B.playing, 'and it should know it is playing');
+
+    // level rides the pressure rather than the arrangement
+    B.setIntensity(0);
+    var quiet = B.el.volume;
+    B.setIntensity(1);
+    assert.ok(B.el.volume > quiet, 'a full board should not be quieter than an empty one');
+
+    B.stop();
+    assert.strictEqual(paused, 1, 'stopping the music left it running');
+    assert.ok(!B.playing);
+
+    // a file that will not decode must hand the shift back to the synth
+    B.start();
+    onError();
+    assert.ok(B.fallback, 'a broken recording should fall back');
+    assert.strictEqual(B.el, null, 'and let go of the element');
+    B.stop();
+    B.start();
+    assert.ok(!B.el, 'once it has fallen back it should stop retrying the file');
+  } finally {
+    if (realAudio === undefined) delete global.Audio; else global.Audio = realAudio;
+    B.stop();
+    B.el = was.el; B.gain = was.gain; B.fallback = was.fallback; B.playing = was.playing;
+  }
 });
 
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');

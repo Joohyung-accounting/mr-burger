@@ -173,6 +173,8 @@
     role: 'solo',        // solo | host | guest
     peer: false,         // is the other cook connected
     snapSeq: 0,
+    lastSeq: -1,   // highest state packet a guest has applied
+
     bannerId: 0,
     lastBannerId: -1,
     roomCode: null,
@@ -1251,7 +1253,10 @@
         p.stack.push({
           id: hold.id,
           cook: hold.cook === undefined ? 1 : hold.cook,
-          done: hold.done, char: hold.char      // how it should look, not what it scores
+          done: hold.done, char: hold.char,     // how it should look, not what it scores
+          // carried so evaluate() has something to check. It was dropped here,
+          // which left the chop gate with no second line of defence.
+          prepped: ping && ping.chop ? !!hold.prepped : undefined
         });
         me.holding = null;
         var pr = plateRect(t.i);
@@ -1322,7 +1327,23 @@
         var bing = hold.kind === 'ing' && Core.byId(hold.id);
         if (!bing || !bing.chop) { nope('THAT DOESN\'T GET CHOPPED', ci); return; }
         if (hold.prepped) { nope('ALREADY CHOPPED', ci); return; }
-        if (bd.id) { nope(bd.portions ? 'CLEAR THE BOARD FIRST' : 'ONE AT A TIME', ci); return; }
+        if (bd.id) {
+          // mid-chop is mid-chop; letting the knife be interrupted would make
+          // a slow cut free to reroll
+          if (!bd.portions) { nope('ONE AT A TIME', ci); return; }
+          // and sweeping a board to make more of what is already on it is not
+          // a change of mind, it is throwing away portions
+          if (hold.id === bd.id) { nope('CLEAR THE BOARD FIRST', ci); return; }
+          /*
+           * A board of lettuce when the ticket wants tomato used to cost three
+           * round trips to the bin - the only way to empty it was to carry the
+           * portions off one at a time, 16s of a 190s shift. Sweeping costs the
+           * 3.4s chop instead, which is the price of changing your mind rather
+           * than a punishment for the day's own menu.
+           */
+          bd.wet = Math.min(1, (bd.wet || 0) + 0.34);
+          float('SWEPT', br.x + br.w / 2, br.y, C.warm, 10);
+        }
         bd.id = hold.id;
         bd.cut = 0;
         bd.portions = 0;
@@ -1902,6 +1923,7 @@
         name: ing.short || ing.name || id,
         tint: ing.swatch,
         hot: !!ing.grill,
+        chop: !!ing.chop,
         live: targeted('crate', i),
         pop: S.cratePop[i] || 0
       });
@@ -2115,6 +2137,21 @@
       hitSeed: Math.floor(ph)
     });
     if (bd.portions) pickRing(r, 12);
+    /*
+     * Walking there. The crates, the grill, the plates, the hatch and the bin
+     * all light up while a cook is on his way; the board was the only station
+     * that did not - and it is the one with the longest walk, standing in open
+     * floor. Thin, inset and unlit, so it never reads as the ready-to-take
+     * ring above it.
+     */
+    if (targeted('board')) {
+      ctx.save();
+      Art.rr(ctx, r.x + 3, r.y + 3, r.w - 6, r.h - 6, 10);
+      ctx.strokeStyle = 'rgba(174,191,146,0.80)';
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   /**
@@ -3832,14 +3869,33 @@
       ? performance.now() : Date.now();
   }
 
+  /*
+   * What a cook is holding, over the wire.
+   *
+   * Everything that was not a plate fell through to the ingredient branch -
+   * but a fries carton is `{kind:'fries', cook, done, char}` and a cup is
+   * `{kind:'cup', flavor}`, and neither has an `id`. So a partner carrying
+   * either one arrived on the other screen as an ingredient with `id:
+   * undefined`, which draws as nothing and loses the flavour outright. The
+   * plate branch had the milder version of the same bug: it kept the stack
+   * and dropped the tray's side and drink.
+   */
   function packHold(h) {
     if (!h) return null;
-    if (h.kind === 'plate') return { k: 'p', s: h.stack };
+    if (h.kind === 'plate') {
+      return { k: 'p', s: h.stack, sd: h.side || null, sc: h.sideCook, dr: h.drink || null };
+    }
+    if (h.kind === 'fries') return { k: 'f', c: h.cook, d: h.done, ch: h.char };
+    if (h.kind === 'cup') return { k: 'c', fl: h.flavor };
     return { k: 'i', id: h.id, c: h.cook, d: h.done, ch: h.char, gt: h.grillT, pr: h.prepped ? 1 : 0 };
   }
   function unpackHold(h) {
     if (!h) return null;
-    if (h.k === 'p') return { kind: 'plate', stack: h.s || [] };
+    if (h.k === 'p') {
+      return { kind: 'plate', stack: h.s || [], side: h.sd || null, sideCook: h.sc, drink: h.dr || null };
+    }
+    if (h.k === 'f') return { kind: 'fries', cook: h.c, done: h.d, char: h.ch };
+    if (h.k === 'c') return { kind: 'cup', flavor: h.fl };
     return { kind: 'ing', id: h.id, cook: h.c, done: h.d, char: h.ch, grillT: h.gt, prepped: !!h.pr };
   }
 
@@ -3847,7 +3903,10 @@
     var fw = Math.max(1, L.floor.x1 - L.floor.x0);
     var fh = Math.max(1, L.floor.y1 - L.floor.y0);
     return {
+      // one packet, one number - stamped where the packet is made, not in the
+      // send loop, so every path that produces one gets a fresh number
       type: 'state',
+      seq: ++S.snapSeq,
       t: Math.round(nowMs()),
       day: S.day, hearts: S.hearts, sales: S.sales, tips: S.tips, rent: S.rent,
       screen: S.screen, menu: S.menu, concurrent: S.cfg ? S.cfg.concurrent : 3,
@@ -3880,6 +3939,18 @@
   Core.CUSTOMERS.forEach(function (c) { ARCH_BY_ID[c.id] = c; });
 
   function applySnapshot(m) {
+    /*
+     * State packets are not ordered by the transport, and this used to take
+     * whichever one arrived last. A packet that overtook a newer one rebuilt
+     * the guest's board with the old portion count - repainting a full pile of
+     * slices on a board the host had already wiped - until the next in-order
+     * packet corrected it ~125ms later. Ignore anything that goes backwards.
+     */
+    if (m.seq !== undefined) {
+      if (S.lastSeq !== undefined && m.seq <= S.lastSeq) return;
+      S.lastSeq = m.seq;
+    }
+
     // Anything that changes the size or count of a station changes the room.
     var shapeChanged =
       (S.menu || []).length !== (m.menu || []).length ||
@@ -4071,7 +4142,6 @@
     stateTimer -= dt;
     if (stateTimer <= 0) {
       stateTimer = 1 / STATE_HZ;
-      S.snapSeq++;
       Net.send(snapshot());
     }
   }
@@ -4470,7 +4540,8 @@
     sendChef: sendChef, arrive: arrive, deliver: deliver,
     stationAt: stationAt, standPoint: standPoint,
     setPaused: setPaused, quitToTitle: quitToTitle,
-    snapshot: snapshot, applySnapshot: applySnapshot, onCoopMessage: onCoopMessage,
+    snapshot: snapshot, applySnapshot: applySnapshot,
+    packHold: packHold, unpackHold: unpackHold, onCoopMessage: onCoopMessage,
     leaveCoop: endCoop, endCoop: endCoop, chefAt: chefAt,
     _setClock: function (fn) { clockFn = fn; },
     enterRoom: enterRoom, connectRoom: connectRoom,

@@ -1880,6 +1880,7 @@
    *   name,  short label ('Cheese'); omit for no label plate
    *   tint,  the ingredient's swatch colour, a dot beside the name
    *   hot,   true for anything that has to be grilled - a little flame
+   *   chop,  true for anything that has to be chopped - a little blade
    *   live,  true while a cook is walking to it - hand-drawn ring, no glow
    *   pop    0..1 recoil after something is lifted out
    * })
@@ -1980,6 +1981,24 @@
         ink(ctx, jitter([[fx, fy - fh * 0.52], [fx + fw * 0.5, fy], [fx, fy + fh * 0.48],
                          [fx - fw * 0.5, fy]], w * 0.004, s + 22),
             '#e2704f', { lw: lw * 0.55, line: '#8a3a1c', seed: s + 22 });
+      }
+      /*
+       * ...and anything that has to be chopped wears a little blade, in the
+       * same slot. The grill has always announced itself on the crate; the
+       * board asked for the same detour and said nothing about it anywhere.
+       * Nothing is both, so the two markers never compete for the space.
+       */
+      if (opts.chop && !opts.hot && w >= 62) {
+        rpad = 0.24;
+        var kx = lx + lw2 * 0.88, ky = ly2 + lh * 0.52, kh = lh * 0.62, kw = lh * 0.54;
+        ink(ctx, jitter([[kx - kw * 0.52, ky - kh * 0.30], [kx + kw * 0.14, ky - kh * 0.36],
+                         [kx + kw * 0.14, ky + kh * 0.12], [kx - kw * 0.52, ky - kh * 0.04]],
+                        w * 0.004, s + 23),
+            '#cdd5db', { lw: lw * 0.55, line: '#5b6670', seed: s + 23 });
+        ink(ctx, jitter([[kx + kw * 0.14, ky - kh * 0.30], [kx + kw * 0.54, ky - kh * 0.24],
+                         [kx + kw * 0.54, ky + kh * 0.02], [kx + kw * 0.14, ky + kh * 0.04]],
+                        w * 0.004, s + 24),
+            '#8a5a3c', { lw: lw * 0.55, line: '#4a3226', seed: s + 24 });
       }
       var tx = lx + lw2 * (lpad + (1 - lpad - rpad) * 0.5);
       var room = lw2 * (1 - lpad - rpad);

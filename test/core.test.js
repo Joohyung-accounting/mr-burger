@@ -1291,4 +1291,32 @@ test('rent does not move when the kitchen does', function () {
   }
 });
 
+test('an unchopped vegetable is faulted the way a raw patty is', function () {
+  var order = ['bun', 'patty', 'lettuce'];
+  var chopped = plate(order).map(function (b) {
+    return Core.byId(b.id).chop ? { id: b.id, cook: 1, prepped: true } : b;
+  });
+  var whole = plate(order).map(function (b) {
+    return Core.byId(b.id).chop ? { id: b.id, cook: 1, prepped: false } : b;
+  });
+
+  var good = Core.evaluate(order, chopped);
+  var bad = Core.evaluate(order, whole);
+
+  assert.strictEqual(good.faults.length, 0, 'a properly chopped burger is clean');
+  assert.ok(bad.quality < good.quality,
+    'a whole head of lettuce should cost something; got ' + bad.quality + ' vs ' + good.quality);
+  assert.ok(bad.faults.some(function (f) { return f.code === 'whole'; }),
+    'and it should say why: ' + JSON.stringify(bad.faults));
+
+  /*
+   * The plate refuses an unchopped vegetable, so this can only fire if that
+   * gate springs a leak - which is the point. A stack saved before plates
+   * carried the flag has no `prepped` at all and must not be punished.
+   */
+  var legacy = Core.evaluate(order, plate(order));
+  assert.strictEqual(legacy.faults.length, 0,
+    'an old save with no prepped flag was faulted: ' + JSON.stringify(legacy.faults));
+});
+
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');
