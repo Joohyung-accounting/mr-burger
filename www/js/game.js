@@ -444,7 +444,7 @@
        */
       var gN = S.grill.length || 2, pN = S.plates.length || 2;
       var fryN = S.fryer.length ? 1 : 0;
-      var tapN = (S.drinkTaps && S.drinkTaps.length) ? 1 : 0;
+      var tapN = 0;   // the fountain moved to the bottom wall; see L.tapX above
       var colW = clamp(W * 0.19, 62, 92);
       var target = MIN_TAPPABLE * 1.20;         // a margin over the turn-your-phone sheet
       var needGrill = gN * target + fryN * target * 1.35 + gap * (gN + fryN - 1);
@@ -628,11 +628,32 @@
 
     // --- serving hatch and bin along the bottom wall. The bin changes ends
     // with the room, so "throw it away" is not always the same corner.
+    /*
+     * The bottom band is the hatch's own height, and the fountain standing on
+     * it gets no more. Growing the band raises hatchY, which shortens the
+     * floor - and by a different number of pixels on every screen, because it
+     * scales with k. Walk fairness is normalised against the floor's DIAGONAL,
+     * so a floor that changes shape per device makes the same traverse cost
+     * 1.03s on one phone and 1.29s on another. Even a 8% bump broke it.
+     *
+     * The machine got its room in WIDTH instead, which is the axis the levers
+     * are on: 71px in the plate column with a 20px lever, 93-170px here with
+     * a 26-48px one.
+     */
     L.hatchH = HATCH_H * k;
     L.hatchY = H - L.pad - L.hatchH;
+    /*
+     * The bottom wall is FIXED: bin left, hatch centre, fountain right.
+     *
+     * The bin used to change corners from day seven and the fountain rode
+     * whichever column the plates were on, so the two things a player reaches
+     * for without looking moved under them. Everything else about the room
+     * still rerolls - the palette, the crate line, the wall colours, which
+     * wall is the grill - but these three keep their place and only their
+     * size answers to the room.
+     */
     L.binW = 52 * k;
-    var binRight = !room.plain && room.bin === 'right';
-    L.binX = binRight ? W - L.pad - L.binW : L.pad;
+    L.binX = L.pad;
 
     /*
      * A window, not a serving bar.
@@ -645,8 +666,19 @@
      *
      * Still an enormous tap target at ~150 x 46; MIN_TAPPABLE is 22.
      */
-    var freeX = binRight ? L.pad : L.pad + L.binW + gap;
-    var freeW = W - L.pad * 2 - L.binW - gap;
+    /*
+     * The fountain's width is set by its levers, not by the wall: it draws
+     * three columns at a 0.283 step, so 92px is the narrowest that keeps each
+     * one over MIN_TAPPABLE. In the plate column it was 71px wide and a lever
+     * was 20px - a machine you could see three flavours on and not press one.
+     */
+    L.tapH = (S.drinkTaps && S.drinkTaps.length) ? L.hatchH : 0;
+    L.tapW = L.tapH ? clamp(W * 0.29, 92, 170) : 0;
+    L.tapX = W - L.pad - L.tapW;
+    L.tapY = L.hatchY;
+
+    var freeX = L.pad + L.binW + gap;
+    var freeW = W - L.pad * 2 - L.binW - gap - (L.tapW ? L.tapW + gap : 0);
     L.hatchW = Math.min(freeW, Math.max(L.hatchH * 2.6, W * 0.42));
     L.hatchX = clamp((W - L.hatchW) / 2, freeX, freeX + freeW - L.hatchW);
 
@@ -710,7 +742,7 @@
     // [] is truthy: without the length check the fountain stood in the room
     // from day one with CLOSED written on it, holding column space the plates
     // could have used, for a machine nothing could order from yet.
-    var tapN = (S.drinkTaps && S.drinkTaps.length) ? 1 : 0;
+    var tapN = 0;   // the fountain moved to the bottom wall; see L.tapX above
     // the board owns the top of the plate band; everything under it divides
     // what is left, which is what makes the plate stack shrink and sit lower
     var boardBand = S.board ? L.boardH + gap + 4 : 0;
@@ -739,7 +771,6 @@
       L.plateH = plateFor(tapSlots);
     }
     L.fryH = fryN ? Math.min(FRYER_H * k, L.slotH * 1.35) : 0;
-    L.tapH = tapN ? Math.min(TAP_H * k * 1.30, L.plateH * tapSlots) : 0;
     var gTotal = gN * L.slotH + (gN - 1) * gap + (fryN ? gap + L.fryH : 0);
     var pTotal = pN * L.plateH + (pN - 1) * gap + (tapN ? gap + L.tapH : 0);
     L.grillTop = L.midTop + (midH - gTotal) / 2;
@@ -757,7 +788,6 @@
     L.plateTop = L.midTop + boardBand - (L.midTop - (L.cratesBottom + 8)) +
                  Math.max(0, Math.min((plateSpace - pTotal) / 2, plateSpace - pTotal));
     L.fryTop = L.grillTop + gN * (L.slotH + gap);
-    L.tapTop = L.plateTop + pN * (L.plateH + gap);
 
     // --- the walkable floor: whatever is left between the two walls. The board
     // is the widest thing on the plate side, so it sets that edge.
@@ -915,7 +945,7 @@
     }
     return null;
   }
-  function tapRect() { return { x: L.plateX, y: L.tapTop, w: L.plateW || L.colW, h: L.tapH }; }
+  function tapRect() { return { x: L.tapX, y: L.tapY, w: L.tapW, h: L.tapH }; }
 
   function hatchRect() { return { x: L.hatchX, y: L.hatchY, w: L.hatchW, h: L.hatchH }; }
   function binRect() { return { x: L.binX, y: L.hatchY, w: L.binW, h: L.hatchH }; }
@@ -937,15 +967,14 @@
       return { x: clamp(r.x + r.w / 2, f.x0, f.x1), y: nearEdge(r, f, 'y') };
     }
     if (t.kind === 'grill' || t.kind === 'plate' || t.kind === 'fryer' ||
-        t.kind === 'tap' || t.kind === 'board') {
+        t.kind === 'board') {
       r = t.kind === 'grill' ? slotRect(t.i)
         : t.kind === 'plate' ? plateRect(t.i)
-        : t.kind === 'fryer' ? fryerRect()
-        : t.kind === 'board' ? boardRect() : tapRect();
+        : t.kind === 'fryer' ? fryerRect() : boardRect();
       return { x: nearEdge(r, f, 'x'), y: clamp(r.y + r.h / 2, f.y0, f.y1) };
     }
-    if (t.kind === 'hatch' || t.kind === 'bin') {
-      r = t.kind === 'hatch' ? hatchRect() : binRect();
+    if (t.kind === 'hatch' || t.kind === 'bin' || t.kind === 'tap') {
+      r = t.kind === 'hatch' ? hatchRect() : (t.kind === 'bin' ? binRect() : tapRect());
       return { x: clamp(r.x + r.w / 2, f.x0, f.x1), y: nearEdge(r, f, 'y') };
     }
     return { x: clamp(t.x, f.x0, f.x1), y: clamp(t.y, f.y0, f.y1) };

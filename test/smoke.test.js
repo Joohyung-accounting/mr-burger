@@ -561,6 +561,24 @@ test('the cooks keep their place in the room when the viewport changes', functio
     'the cook slid from ' + relX.toFixed(2) + ',' + relY.toFixed(2) +
     ' to ' + nx.toFixed(2) + ',' + ny.toFixed(2) + ' of the floor');
 
+  /*
+   * The settle may have let the walk finish - how long a crossing takes is a
+   * property of the room, not of this test - so make sure there is a live
+   * target before asking where it points. Send it to whichever crate it is
+   * furthest from.
+   */
+  if (!S.chef.target) {
+    var far = 0, best = -1;
+    for (var ci = 0; ci < S.menu.length; ci++) {
+      var sp = MB.standPoint({ kind: 'crate', i: ci });
+      var d = Math.hypot(sp.x - S.chef.x, sp.y - S.chef.y);
+      if (d > best) { best = d; far = ci; }
+    }
+    tapRect(MB.crateRect(far));
+    pump(0.05);
+    assert.ok(S.chef.target, 'the cook refused a fresh walk after the relayout');
+  }
+
   // and it is aiming at where the crate is now, not where it used to be
   var want = MB.standPoint(S.chef.target);
   assert.ok(Math.hypot(S.chef.tx - want.x, S.chef.ty - want.y) < 1,
@@ -3558,6 +3576,58 @@ test('no two fixtures in the room stand in the same place', function () {
       }
     });
   });
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.3);
+});
+
+/*
+ * Three fixtures a player reaches for without looking - the bin, the serving
+ * hatch and the fountain - keep their place whatever the room rerolls. The bin
+ * used to change corners from day seven and the fountain rode whichever column
+ * the plates were on, so the two most-used targets moved under the player's
+ * thumb. Everything else still varies: the palette, the crate line, the wall
+ * colours, which wall is the grill.
+ */
+test('the bin, the hatch and the fountain never move house', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  var sawGrillLeft = false, sawGrillRight = false;
+
+  [[375, 812], [412, 915], [360, 640], [412, 430], [820, 600]].forEach(function (sz) {
+    stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+    for (var day = 1; day <= 30; day++) {
+      S.runSeed = day * 7919;                 // a different run every pass
+      MB.startDay(day);
+      pump(0.2);
+      var where = sz.join('x') + ' day ' + day + ': ';
+      var bin = MB.binRect(), hatch = MB.hatchRect(), L2 = MB.layout;
+
+      // bottom-left, always
+      assert.ok(bin.x <= L2.pad + 0.01, where + 'the bin left the left-hand corner');
+      assert.ok(bin.y + bin.h >= L2.H - L2.pad - 1, where + 'the bin left the bottom');
+
+      // the hatch sits between the bin and whatever is to its right
+      assert.ok(hatch.x >= bin.x + bin.w - 0.01, where + 'the hatch is left of the bin');
+      assert.strictEqual(hatch.y, bin.y, where + 'the hatch and the bin are on different rows');
+
+      if (L2.tapH) {
+        var tap = MB.tapRect();
+        assert.ok(tap.x + tap.w >= L2.W - L2.pad - 1, where + 'the fountain left the right corner');
+        assert.strictEqual(tap.y, bin.y, where + 'the fountain is not on the bottom wall');
+        assert.ok(tap.x >= hatch.x + hatch.w - 0.01, where + 'the fountain is left of the hatch');
+        // and each of its three levers is still worth aiming at
+        assert.ok(tap.w * 0.283 >= 22,
+          where + 'a lever is ' + (tap.w * 0.283).toFixed(0) + 'px, under a thumb');
+      }
+
+      if (L2.room.grill === 'left' || L2.room.plain) sawGrillLeft = true;
+      else sawGrillRight = true;
+    }
+  });
+
+  // the rest of the room is still allowed to move
+  assert.ok(sawGrillLeft && sawGrillRight,
+    'pinning the bottom wall also froze which wall is the grill');
+
   stage.clientWidth = w0; stage.clientHeight = h0;
   pump(0.3);
 });
