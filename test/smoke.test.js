@@ -304,19 +304,76 @@ test('the whole line sits on one row, ordered buns then toppings then sauces', f
     prev = g;
   }
 
-  // one row: same y, strictly increasing x, nothing overlapping or off-canvas
+  /*
+   * The shelf runs in one row, or two when a single row would squeeze the
+   * boxes too narrow to read. Either way it is a grid: every box the same
+   * size, laid out left to right and then down, nothing overlapping and
+   * nothing off the canvas.
+   */
   var first = MB.crateRect(0);
+  var ys = {};
   for (i = 0; i < S.menu.length; i++) {
     var r = MB.crateRect(i);
-    assert.strictEqual(r.y, first.y, 'crate ' + i + ' is on a second row');
+    ys[r.y.toFixed(2)] = 1;
+    assert.strictEqual(r.w, first.w, 'crate ' + i + ' is a different width');
     assert.strictEqual(r.h, first.h, 'crate ' + i + ' is a different height');
     assert.ok(r.w > 20, 'crate ' + i + ' shrank to ' + r.w.toFixed(1) + 'px');
     assert.ok(r.x >= 0 && r.x + r.w <= VIEW_W + 0.01, 'crate ' + i + ' is off-canvas');
     if (i > 0) {
       var p = MB.crateRect(i - 1);
-      assert.ok(p.x + p.w <= r.x + 0.01, 'crates ' + (i - 1) + ' and ' + i + ' overlap');
+      // reading order: further right, or the start of the next row down
+      assert.ok(p.x + p.w <= r.x + 0.01 || r.y > p.y + 0.01,
+        'crates ' + (i - 1) + ' and ' + i + ' are out of reading order');
+    }
+    for (var j = 0; j < i; j++) {
+      var q = MB.crateRect(j);
+      assert.ok(!(q.x < r.x + r.w - 0.01 && r.x < q.x + q.w - 0.01 &&
+                  q.y < r.y + r.h - 0.01 && r.y < q.y + q.h - 0.01),
+        'crates ' + j + ' and ' + i + ' overlap');
     }
   }
+  assert.ok(Object.keys(ys).length <= 2,
+    'the shelf ran to ' + Object.keys(ys).length + ' rows; two is the limit');
+});
+
+/*
+ * The shelf is the thing that gets crowded as the menu grows: eight boxes
+ * across a phone is 40px each, too narrow for the name and under the 62px
+ * drawCrate needs before it will draw the grill flame or the chop blade - so
+ * the two markers that teach the game vanish exactly when the game gets
+ * complicated. It wraps to a second row instead, but only where the columns
+ * below can still stand up.
+ */
+test('a crowded line gets a second row rather than eight thin boxes', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+
+  [[375, 812], [412, 915], [360, 640]].forEach(function (sz) {
+    stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+    [14, 20, 25].forEach(function (d) {
+      MB.startDay(d);
+      pump(0.3);
+      var where = sz.join('x') + ' day ' + d + ': ';
+      assert.ok(S.menu.length >= 7, where + 'setup: expected a busy line');
+      var w = MB.crateRect(0).w;
+      assert.ok(w >= 62, where + 'crates are ' + w.toFixed(0) + 'px, too narrow for their markers');
+      assert.strictEqual(S.cramped, false, where + 'the shelf squeezed the kitchen out of the room');
+      assert.ok(MB.layout.slotH >= 22 && MB.layout.plateH >= 22,
+        where + 'a station fell under a tappable size: ' +
+        MB.layout.slotH.toFixed(0) + '/' + MB.layout.plateH.toFixed(0));
+    });
+  });
+
+  // ...and a screen that cannot pay for the row keeps its single line
+  stage.clientWidth = 412; stage.clientHeight = 430;
+  MB.startDay(20);
+  pump(0.3);
+  var rows = {};
+  for (var i = 0; i < S.menu.length; i++) rows[MB.crateRect(i).y.toFixed(2)] = 1;
+  assert.strictEqual(Object.keys(rows).length, 1,
+    'a short screen took a second row it did not have the height for');
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.3);
 });
 
 test('taking from a box kicks off an animation without changing the outcome', function () {

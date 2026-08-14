@@ -324,6 +324,9 @@
   // The whole line lives on one shelf: eight boxes side by side beats three
   // labelled rows, and the boxes get tall enough to look like boxes.
   var CRATE_MAX_W = 84, GAP = 6, HATCH_H = 46;
+  // under this a crate cannot show its name, and drawCrate stops drawing the
+  // grill flame and the chop blade entirely - see the w >= 62 guards there
+  var CRATE_MIN_W = 62;
   var SLOT_H = 42, PLATE_H = 50, CHEF_S = 54;
   // The fry box is deeper than a burner - it holds two wells and its supply -
   // and the fountain is a little taller than a plate.
@@ -386,12 +389,62 @@
    * compactHeight() calls this without a k on purpose: it is measuring the room
    * at its most compact in order to work k out in the first place.
    */
-  function crateSize(W, k) {
+  /*
+   * The shelf. Pass roomH and it may run in two rows; leave it out and it
+   * answers for the most compact shelf there is, which is what compactHeight
+   * wants.
+   *
+   * A single row divides the wall between every box on the menu, and by the
+   * time the menu is eight ingredients that is 40px on a phone: too narrow for
+   * the name, and under the 62px the grill's flame and the board's blade need,
+   * so the two markers that teach the game disappear exactly when the game
+   * gets complicated enough to need them. Wrapping buys back the full width
+   * per box at the cost of one row's height, which the columns below can
+   * afford on a tall screen and cannot on a short one - hence the guard.
+   *
+   * Never three rows. That is a shelf with a kitchen attached.
+   */
+  function crateSize(W, k, roomH) {
     var n = menuLen();
     var gap = Math.min(GAP, (W - 16) * 0.02);
-    var w = Math.min((W - 16 - gap * (n - 1)) / n, CRATE_MAX_W);
     var floor = 54 * clamp(k || 1, 1, 1.34);
-    return { w: w, h: clamp(w * 1.02, floor, 92), gap: gap, n: n };
+
+    function fit(per) {
+      var w = Math.min((W - 16 - gap * (per - 1)) / per, CRATE_MAX_W);
+      return { w: w, h: clamp(w * 1.02, floor, 92) };
+    }
+
+    var rows = 1, per = n, f = fit(n);
+    if (n > 1 && roomH && f.w < CRATE_MIN_W) {
+      var two = fit(Math.ceil(n / 2));
+      /*
+       * Only if the columns can still stand up afterwards.
+       *
+       * A flat share of the room is the wrong test: it wraps a 320x480 into a
+       * kitchen whose plates fall under MIN_TAPPABLE, and refuses a 360x640
+       * that had the height to spare. Ask instead what the two walls actually
+       * need for tonight's equipment - which is the same arithmetic the
+       * layout below does - and only take the row if what is left covers it.
+       */
+      var gN = S.grill.length || 2, pN = S.plates.length || 2;
+      var fryN = S.fryer.length ? 1 : 0;
+      var tapN = (S.drinkTaps && S.drinkTaps.length) ? 1 : 0;
+      var colW = clamp(W * 0.19, 62, 92);
+      var target = MIN_TAPPABLE * 1.20;         // a margin over the turn-your-phone sheet
+      var needGrill = gN * target + fryN * target * 1.35 + gap * (gN + fryN - 1);
+      var needPlate = (S.board ? colW * 1.16 + gap + 4 : 0) +
+                      pN * target + tapN * target * 1.10 + gap * (pN + tapN - 1);
+      // what the mid band is left with once the shelf, the hatch and the
+      // margins above and below it have taken their share
+      var midAfter = roomH - (two.h * 2 + gap) - HATCH_H - 46;
+      if (midAfter >= Math.max(needGrill, needPlate)) {
+        rows = 2; per = Math.ceil(n / 2); f = two;
+      }
+    }
+    return {
+      w: f.w, h: f.h, gap: gap, n: n, rows: rows, per: per,
+      shelfH: f.h * rows + gap * (rows - 1)
+    };
   }
 
   /** The height the room needs at its most compact, before any growing. */
@@ -512,11 +565,11 @@
        stays organised left to right without needing labelled sections. */
     // Crates size themselves off the screen width, not off k - they are already
     // width-constrained, and scaling them again just made them enormous.
-    var box = crateSize(W, k);
+    var box = crateSize(W, k, H);
     L.crateW = box.w;
     L.crateH = box.h;
     L.crates = [];
-    var rowW = box.n * box.w + (box.n - 1) * box.gap;
+    var rowW = Math.min(box.n, box.per) * box.w + (Math.min(box.n, box.per) - 1) * box.gap;
     var y = L.pad + 4;
     var slack = W - rowW;                      // room the row does not fill
 
@@ -528,7 +581,9 @@
      */
     var x0 = slack / 2;
     var splitAt = -1;
-    if (!room.plain && slack > box.w * 0.6) {
+    // The decorative runs are a single-row idea; a wrapped shelf is busy
+    // enough already, and both rows simply centre.
+    if (box.rows === 1 && !room.plain && slack > box.w * 0.6) {
       if (room.line === 'left') x0 = Math.min(slack, box.gap * 2);
       else if (room.line === 'right') x0 = slack - Math.min(slack, box.gap * 2);
       else if (room.line === 'split' && box.n >= 4) {
@@ -540,14 +595,20 @@
 
     var extra = splitAt > 0 ? Math.min(slack, box.gap * 3) : 0;
     for (var c = 0; c < box.n; c++) {
+      var row = Math.floor(c / box.per);
+      var col = c - row * box.per;
+      // the last row can be short, so it centres on its own count
+      var inRow = Math.min(box.per, box.n - row * box.per);
+      var rx = box.rows === 1 ? x0
+             : (W - (inRow * box.w + (inRow - 1) * box.gap)) / 2;
       L.crates[c] = {
-        x: x0 + c * (box.w + box.gap) + (splitAt > 0 && c >= splitAt ? extra : 0),
-        y: y, w: box.w, h: box.h
+        x: rx + col * (box.w + box.gap) + (splitAt > 0 && c >= splitAt ? extra : 0),
+        y: y + row * (box.h + box.gap), w: box.w, h: box.h
       };
     }
-    L.cratesBottom = y + box.h;
+    L.cratesBottom = y + box.shelfH;
     // one counter run, bleeding off both edges of the room
-    L.counters = [{ x: -8, y: L.pad - 3, w: W + 16, h: box.h + 12 }];
+    L.counters = [{ x: -8, y: L.pad - 3, w: W + 16, h: box.shelfH + 12 }];
 
     // --- serving hatch and bin along the bottom wall. The bin changes ends
     // with the room, so "throw it away" is not always the same corner.
