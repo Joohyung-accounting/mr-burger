@@ -2999,6 +2999,55 @@ test('the shift plays the recording, and is never left silent without one', func
   }
 });
 
+test('restarting the day leaves the music playing, from the top', function () {
+  var B = global.Bgm;
+  var realAudio = global.Audio;
+  var tape = [];
+  global.Audio = function () {
+    var el = this;
+    this.loop = false; this.preload = ''; this.volume = 1;
+    this._t = 0;
+    Object.defineProperty(this, 'currentTime', {
+      get: function () { return el._t; },
+      set: function (v) { el._t = v; tape.push('seek' + v); }
+    });
+    this.play = function () { tape.push('play'); return { 'catch': function () {} }; };
+    this.pause = function () { tape.push('pause'); };
+    this.addEventListener = function () {};
+  };
+  var was = { el: B.el, gain: B.gain, fallback: B.fallback, playing: B.playing };
+  B.el = null; B.gain = null; B.fallback = false; B.playing = false;
+
+  try {
+    startShift(4);
+    B.stop(); B.playing = false;
+    B.start();
+    B.el._t = 33.7;
+    tape.length = 0;
+
+    // the pause sheet, then RESTART THE DAY
+    MB.setPaused(true);
+    MB.setPaused(false);
+    MB.startDay(S.day);
+
+    assert.ok(B.playing, 'restarting the day left the track stopped');
+    assert.strictEqual(B.el._t, 0, 'it carried on from ' + B.el._t + 's instead of the top');
+    /*
+     * The order is the whole bug: setPaused(false) starts the track, startDay
+     * rewinds it, and a seek issued while play() is still resolving aborts it.
+     * Whatever the order, the last thing that happens has to be a play().
+     */
+    var last = tape.filter(function (e) { return e === 'play' || /^seek/.test(e); }).pop();
+    assert.strictEqual(last, 'play',
+      'the last thing done to the element was ' + last + ' - a seek after play() ' +
+      'kills it, and the music comes back only on the next tap. Tape: ' + tape.join(','));
+  } finally {
+    if (realAudio === undefined) delete global.Audio; else global.Audio = realAudio;
+    B.stop();
+    B.el = was.el; B.gain = was.gain; B.fallback = was.fallback; B.playing = was.playing;
+  }
+});
+
 test('a new day opens on the first bar, a pause picks up where it stopped', function () {
   var B = global.Bgm;
   var realAudio = global.Audio;

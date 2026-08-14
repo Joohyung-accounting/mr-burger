@@ -1120,6 +1120,10 @@
      * the night are not that, and both come through here.
      */
     Bgm.rewind();
+    // ...and a shift has music. Every way into a day used to have to remember
+    // this for itself, and RESTART THE DAY is the one that did it in the wrong
+    // order - it started the track and then rewound it, which stopped it.
+    if (!S.musicOff) Bgm.start();
 
     S.day = day;
     S.cfg = Core.dayConfig(day);

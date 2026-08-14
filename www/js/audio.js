@@ -343,12 +343,7 @@
       if (!this.fallback && this._open()) {
         this.playing = true;
         this._level();
-        var p;
-        try { p = this.el.play(); } catch (e) { this._giveUp(); return; }
-        if (p && p['catch']) {
-          var self = this;
-          p['catch'](function () { self._retryOnGesture(); });
-        }
+        this._play();
         return;
       }
       Synth.start();
@@ -380,8 +375,25 @@
       if (this.el) {
         // seeking before metadata arrives throws; it would have started at 0
         try { this.el.currentTime = 0; } catch (e) { /* nothing to seek yet */ }
+        /*
+         * ...and a seek issued while play() is still resolving aborts it, on
+         * every browser that returns a promise from play(). RESTART THE DAY
+         * runs setPaused(false) - which starts the track - and then startDay,
+         * which rewinds it, so the restart killed the music it had just asked
+         * for and the rejection handler sat waiting for the next tap. Ask
+         * again after the seek; play() on an already-playing element is a
+         * no-op, so this costs nothing when the order was harmless.
+         */
+        if (this.playing) this._play();
       }
       Synth.step = 0;
+    },
+
+    /** play(), with the autoplay refusal handled the one way it can be. */
+    _play: function () {
+      var p, self = this;
+      try { p = this.el.play(); } catch (e) { this._giveUp(); return; }
+      if (p && p['catch']) p['catch'](function () { self._retryOnGesture(); });
     },
 
     /** Build the element once. False where there is no DOM to build one in. */
