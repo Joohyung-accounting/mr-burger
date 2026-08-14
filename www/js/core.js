@@ -429,8 +429,22 @@
    *   0s                          8.0s   8.8s  9.6s      11.8s
    *   0%                           68%    75%   81%       100%
    */
-  var COOK_TIME = 8.8;   // seconds to the middle of the perfect zone
-  var BURN_TIME = 2.2;   // seconds from leaving the zone to fully ruined
+  /*
+   * The grill's clock, and the one constraint that is not obvious: the perfect
+   * moment has to sit about three quarters of the way through the patty's
+   * whole life, or the sweet spot arrives while the player is still walking
+   * over and the rest of the cook is dead time.
+   *
+   * Pushing the burnt verdict three seconds later therefore cannot be done on
+   * BURN_TIME alone - that stretches only the tail and drags the sweet spot
+   * back to the halfway point this was moved away from. The cook lengthens
+   * with it: 11.4 + 0.8 + 3.0 = 15.2s of life, perfect at 75% of it, and the
+   * verdict at 13.7s where it used to be 10.7s.
+   *
+   * The fry wells read the same curve, so a basket gets the same grace.
+   */
+  var COOK_TIME = 11.4;  // seconds to the middle of the perfect zone
+  var BURN_TIME = 3.0;   // seconds from leaving the zone to fully ruined
   var TIP_RATE = 0.70;   // tip ceiling as a fraction of the ticket
   var BASE_WINDOW = 1.6; // seconds of perfect zone before upgrades
   var EXTRA_PENALTY = 0.20; // accuracy lost per unwanted filling on the plate

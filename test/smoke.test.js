@@ -2203,7 +2203,7 @@ test('a whole vegetable is refused by the plate until it has been chopped', func
   assert.ok(held(), 'the cook put it down anyway');
 });
 
-test('the board turns one vegetable into several portions', function () {
+test('a vegetable chops into exactly what PREP_PORTIONS says, and no more', function () {
   startShift(6);
   var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; })[0];
   S.chef.holding = null;
@@ -2215,9 +2215,10 @@ test('the board turns one vegetable into several portions', function () {
   assert.strictEqual(S.board.portions, 0, 'it was chopped before the knife moved');
 
   for (var i = 0; i < 400 && !S.board.portions; i++) pump(0.05);
-  assert.ok(S.board.portions > 1, 'one vegetable yielded ' + S.board.portions + ' portions');
+  var yielded = S.board.portions;
+  assert.ok(yielded >= 1, 'the board never produced anything');
 
-  // and every portion comes off prepped, until the board is bare
+  // every portion comes off prepped, and the board is bare when they run out
   var got = 0;
   while (S.board.portions) {
     work(MB.boardRect());
@@ -2225,9 +2226,14 @@ test('the board turns one vegetable into several portions', function () {
     got++;
     work(MB.plateRect(0));
   }
-  assert.strictEqual(got, 4, 'took ' + got + ' portions off the board');
+  assert.strictEqual(got, yielded,
+    'the board handed out ' + got + ' portions but only announced ' + yielded);
   assert.strictEqual(S.board.id, null, 'the board was not cleared when it ran out');
-  assert.strictEqual(plateIds(0).length, 4);
+  assert.strictEqual(plateIds(0).length, yielded);
+
+  // and it is genuinely empty - no fifth portion hiding in it
+  work(MB.boardRect());
+  assert.strictEqual(held(), null, 'the bare board handed out one more');
 });
 
 test('the knife cannot be interrupted, but a finished board can be swept', function () {

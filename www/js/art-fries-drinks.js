@@ -13,6 +13,7 @@
  *   Art.item.basket     (ctx, x, y, w, h, o)   wire fry basket, optionally full
  *   Art.item.friesBox   (ctx, x, y, w, h, o)   the carton that goes on the tray
  *   Art.item.cup        (ctx, x, y, w, h, o)   16oz cup, paper or clear
+ *   Art.item.tray       (ctx, x, y, w, h, o)   the tray a combo rides on
  *
  * Every wobble comes from Art.hash(seed), never Math.random, so a machine that
  * is not animating holds perfectly still between frames. The only arguments
@@ -878,6 +879,42 @@
     }
   }
 
+  /* ---------------------------------------------------------------- tray */
+
+  /**
+   * The tray a combo rides on, seen the way every other surface in this
+   * kitchen is: face on and foreshortened, so the food stands ON it and what
+   * has to read is the front lip.
+   *
+   * (x, y) is the top-left of the slab and w x h its whole footprint - so the
+   * food's baseline is somewhere around y + h * 0.45, not y + h.
+   *   o.tint  the plastic; defaults to the diner's red
+   */
+  function drawTray(ctx, x, y, w, h, o) {
+    o = o || {};
+    var s = 7301;
+    var body = o.tint || '#b7513c';
+    var lip = mix(body, '#221008', 0.42);
+    var well = mix(body, '#ffffff', 0.14);
+    var r = Math.min(h * 0.42, w * 0.055);
+    var lw = Math.max(0.9, Math.min(w * 0.012, h * 0.10));
+
+    // the slab, with its front lip carrying the weight of the line
+    ink(ctx, rectPts(x, y, w, h, r, w * 0.004, s), body,
+        { lw: lw, line: lip, lineAlpha: 0.9, seed: s });
+    // the well the food sits in, a shade lighter where the light lands
+    ink(ctx, rectPts(x + w * 0.045, y + h * 0.10, w * 0.91, h * 0.56,
+                     r * 0.65, w * 0.003, s + 1),
+        well, { lw: lw * 0.65, line: lip, lineAlpha: 0.45, seed: s + 1 });
+    // two hand slots on the ends, which is what makes it read as a tray
+    // rather than as a red mat
+    var sw = w * 0.055, sh = h * 0.16;
+    [x + w * 0.055, x + w - w * 0.055 - sw].forEach(function (sx, i) {
+      ink(ctx, rectPts(sx, y + h * 0.74, sw, sh, sh * 0.45, w * 0.002, s + 2 + i),
+          lip, { lw: lw * 0.5, line: lip, lineAlpha: 0.5, seed: s + 2 + i });
+    });
+  }
+
   /* ----------------------------------------------------------- register */
   Art.scene.sack = drawSack;
   Art.scene.cutter = drawCutter;
@@ -890,6 +927,7 @@
   Art.item.friesBox = drawFriesBox;
   Art.item.cup = drawCup;
   Art.item.stick = stick;
+  Art.item.tray = drawTray;
   Art.FLAVORS = FLAVORS;
   Art.FLAVOR_IDS = ['cola', 'cider', 'orange', 'lemon', 'root', 'tea'];
 })(typeof self !== 'undefined' ? self : this);

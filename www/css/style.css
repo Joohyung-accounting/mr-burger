@@ -333,6 +333,15 @@ body.rush .board-wrap {
 .modal.show { opacity: 1; pointer-events: auto; }
 
 /*
+ * A drawn screen is an opaque full-bleed canvas, so a paper sheet opened FROM
+ * one has to sit above it. #shop comes after #store in the document and both
+ * were z-index 10, which put the outfitters behind the shop screen: tapping
+ * "change the cook's outfit" looked like it did nothing, and the sheet only
+ * surfaced once the shop was dismissed by starting the day.
+ */
+.modal:not(.drawn) { z-index: 12; }
+
+/*
  * A screen the pen draws instead of the stylesheet. The canvas is the whole
  * picture - diner, rail, slip, wordmark, buttons - and the controls sit on top
  * of it, invisible, on the rects Art.ui.titleBoxes hands back.

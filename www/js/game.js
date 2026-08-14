@@ -333,17 +333,20 @@
   // and with the burner above, and an illegible label is worse than none.
   var FRYER_H = 78, TAP_H = 54;
   /*
-   * The board is a PREP station, not a per-order one.
+   * One vegetable, one portion.
    *
-   * Chopping a tomato for every ticket that wants one would be two more
-   * station visits per vegetable per order, on top of the three the tray
-   * already added - the walking budget does not have it. A real kitchen does
-   * not work that way either: you prep a board of tomato and draw from it all
-   * service. So one vegetable yields PREP_PORTIONS, and the cost is paid when
-   * the board runs dry rather than on every plate.
+   * This began as a PREP station - a board of tomato prepped once and drawn
+   * from all service, so the walking cost was paid when the board ran dry
+   * rather than on every plate. It is a per-order station now by request: a
+   * tomato chops into a tomato.
+   *
+   * That is four times the trips and, since the board only advances while a
+   * cook is standing at it, four times the standing. CHOP_TIME is the dial if
+   * the later days come out too heavy - the cost per portion is CHOP_TIME plus
+   * a crate round trip, where it used to be a quarter of that.
    */
   var CHOP_TIME = 3.4;        // seconds from whole vegetable to a full board
-  var PREP_PORTIONS = 4;
+  var PREP_PORTIONS = 1;
   // strikes per vegetable. CHOP_TIME / CHOPS = 567ms a swing, near the 645ms
   // the free-running blade used to take, but now a whole number of them.
   var CHOPS = 6;
@@ -1773,7 +1776,8 @@
       if (S.board.cut >= 1) {
         S.board.portions = PREP_PORTIONS;
         var brr = boardRect();
-        float(PREP_PORTIONS + ' READY', brr.x + brr.w / 2, brr.y, K.go, 11);
+        float(PREP_PORTIONS > 1 ? PREP_PORTIONS + ' READY' : 'READY',
+              brr.x + brr.w / 2, brr.y, K.go, 11);
         Sfx.stack(2);
       }
     }
