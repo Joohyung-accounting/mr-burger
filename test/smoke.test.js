@@ -2777,36 +2777,54 @@ test('the board waits for the vegetable to land before drawing it', function () 
   } finally { Art.scene.prep = prep; Art.scene.board = board; }
 });
 
-test('the cook can stand at the board without being shoved against the wall', function () {
+/*
+ * The board is a wall fitting on the plate side, above the plate stack. It
+ * spent a while as an island in open floor and was wrong in every way that
+ * mattered - the cook walked through the tabletop, his own body covered the
+ * vegetable he was chopping, and it ate the middle of the room.
+ */
+test('the board is a wall fitting, not an island in the walking lane', function () {
   var w0 = stage.clientWidth, h0 = stage.clientHeight;
-  stage.clientWidth = 375; stage.clientHeight = 700;
-  startShift(6);
-  pump(0.4);
-  var b = MB.boardRect();
-  assert.ok(b.w > 0, 'setup: day 6 should have a board');
+  [[375, 700], [412, 915], [820, 600], [360, 640]].forEach(function (sz) {
+    stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+    startShift(6);
+    pump(0.4);
+    var where = sz.join('x') + ': ';
+    var b = MB.boardRect(), L = MB.layout;
+    assert.ok(b.w > 0, where + 'setup: day 6 should have a board');
 
-  var p = MB.standPoint({ kind: 'board' });
-  assert.ok(p.x > MB.layout.floor.x0 + 1,
-    'the stand point was clamped onto the wall - the cook works the board from ' +
-    'the same pixel he uses for the grill');
+    // out of the floor entirely - nothing to walk through
+    var overlapsFloor = b.x + b.w > L.floor.x0 + 1 && b.x < L.floor.x1 - 1;
+    assert.ok(!overlapsFloor, where + 'the board is standing in the walking lane: ' +
+      b.x.toFixed(0) + '..' + (b.x + b.w).toFixed(0) +
+      ' against floor ' + L.floor.x0.toFixed(0) + '..' + L.floor.x1.toFixed(0));
 
-  // and the board must not sit on the row the crates put him on
-  assert.ok(b.y > MB.layout.cratesBottom,
-    'the board climbed into the crate shelf: board.y ' + b.y.toFixed(1) +
-    ' vs shelf bottom ' + MB.layout.cratesBottom.toFixed(1));
+    // below the crate shelf, above the plates, touching neither
+    assert.ok(b.y > L.cratesBottom, where + 'the board climbed into the crate shelf');
+    assert.ok(b.y + b.h <= L.plateTop + 0.5,
+      where + 'the board runs into the plate stack: ends ' + (b.y + b.h).toFixed(0) +
+      ' vs plates at ' + L.plateTop.toFixed(0));
 
-  // fetching an ingredient must not park the cook's feet inside the table
-  var inside = [];
-  for (var ci = 0; ci < S.menu.length; ci++) {
-    var cp = MB.standPoint({ kind: 'crate', i: ci });
-    if (cp.x > b.x && cp.x < b.x + b.w && cp.y > b.y && cp.y < b.y + b.h) inside.push(ci);
-  }
-  assert.strictEqual(inside.length, 0,
-    'crates ' + inside.join(',') + ' stand the cook inside the board rect');
+    // still a real tap target, and the vegetable on it still has room to draw
+    assert.ok(b.w >= 22 && b.h >= 22,
+      where + 'the board shrank below a tappable size: ' + b.w.toFixed(0) + 'x' + b.h.toFixed(0));
 
-  // there has to be a lane: the cook is about CHEF_S*0.60 wide
-  var gap = b.x - MB.layout.floor.x0;
-  assert.ok(gap > 20, 'no room to walk past the board, gap is ' + gap.toFixed(1) + 'px');
+    // the cook stands on the floor beside it, the way he does at the plates,
+    // rather than in front of the one thing this station exists to show
+    var p = MB.standPoint({ kind: 'board' });
+    assert.ok(p.x >= L.floor.x0 - 1 && p.x <= L.floor.x1 + 1 &&
+              p.y >= L.floor.y0 - 1 && p.y <= L.floor.y1 + 1,
+      where + 'the stand point is off the floor');
+    assert.ok(p.x >= b.x + b.w - 1 || p.x <= b.x + 1,
+      where + 'the cook stands on top of the board');
+
+    // and fetching an ingredient must not park his feet inside it
+    for (var ci = 0; ci < S.menu.length; ci++) {
+      var cp = MB.standPoint({ kind: 'crate', i: ci });
+      assert.ok(!(cp.x > b.x && cp.x < b.x + b.w && cp.y > b.y && cp.y < b.y + b.h),
+        where + 'crate ' + ci + ' stands the cook inside the board');
+    }
+  });
 
   stage.clientWidth = w0; stage.clientHeight = h0;
   pump(0.4);
@@ -2953,6 +2971,53 @@ test('a new day opens on the first bar, a pause picks up where it stopped', func
     B.stop();
     B.el = was.el; B.gain = was.gain; B.fallback = was.fallback; B.playing = was.playing;
   }
+});
+
+test('the board only chops while a cook is standing at it', function () {
+  startShift(6);
+  var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; })[0];
+  S.chef.holding = null;
+  work(crateOf(veg));
+  work(MB.boardRect());
+  assert.strictEqual(S.board.id, veg, 'setup: the vegetable should be on the board');
+
+  pump(0.5);
+  var withHim = S.board.cut;
+  assert.ok(withHim > 0, 'the knife never started while he was standing there');
+  assert.strictEqual(S.board.working, true, 'it should know he is on it');
+
+  // send him across the kitchen before it can finish
+  MB.sendChef({ kind: 'grill', i: 0 }, 0);
+  pump(1.2);
+  var away = S.board.cut;
+  assert.ok(away < 1, 'setup: it should not have had time to finish');
+  pump(2.0);
+  assert.strictEqual(S.board.cut, away,
+    'the board chopped itself with nobody there: ' + away + ' -> ' + S.board.cut);
+  assert.strictEqual(S.board.working, false, 'and it should know it is stalled');
+  assert.ok(!S.board.portions, 'it even finished the job unattended');
+
+  // and it picks up where it stopped when he comes back
+  work(MB.boardRect());
+  pump(0.4);
+  assert.ok(S.board.cut > away, 'it did not start again when he came back');
+});
+
+test('holding the chopping pose does not restart it every frame', function () {
+  startShift(6);
+  var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; })[0];
+  S.chef.holding = null;
+  work(crateOf(veg));
+  work(MB.boardRect());
+  pump(0.2);
+  var m = S.chefMood;
+  assert.ok(m && m.mode === 'cook', 'setup: he should be chopping');
+  var at = m.at, until = m.until;
+
+  pump(0.5);
+  assert.strictEqual(S.chefMood.at, at,
+    'the pose was restarted, which pins him to the first frame of the swing');
+  assert.ok(S.chefMood.until > until, 'the pose was not held while he kept working');
 });
 
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');

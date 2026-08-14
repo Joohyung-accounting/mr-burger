@@ -83,6 +83,24 @@
     S.chefMood = { mode: mode, at: nowMs(), until: nowMs() + secs * 1000, who: who || 0 };
   }
 
+  /*
+   * Keep a pose alive without restarting it.
+   *
+   * The chopping pose is renewed every frame the cook stays at the board, and
+   * chefMood stamps `at` - which is the phase the animation is read from - so
+   * calling it each frame would pin him to the first frame of the swing
+   * forever. Push the deadline instead and leave the phase alone.
+   */
+  function chefMoodHold(mode, secs, who) {
+    var m = S.chefMood;
+    who = who || 0;
+    if (m && m.mode === mode && m.who === who && m.until > nowMs()) {
+      m.until = nowMs() + secs * 1000;
+      return;
+    }
+    chefMood(mode, secs, who);
+  }
+
   function setRush(heat) {
     var next = rushOn ? heat > 0.55 : heat > 0.72;
     if (next === rushOn) return;
@@ -218,6 +236,23 @@
       if (t && t.kind === kind && (i === undefined || t.i === i)) return true;
     }
     return false;
+  }
+
+  /*
+   * Which cook is working the board, or -1. "Working" means he is not on his
+   * way somewhere else and his feet are within a body's width of the spot the
+   * board is worked from - the same place tapping it would send him.
+   */
+  function cookAtBoard() {
+    if (!L.board || !S.chefs.length) return -1;
+    var p = standPoint({ kind: 'board' });
+    var near = (L.chefS || CHEF_S) * 0.80;
+    for (var i = 0; i < S.chefs.length; i++) {
+      var c = S.chefs[i];
+      if (c.target) continue;                       // walking somewhere else
+      if (Math.abs(c.x - p.x) <= near && Math.abs(c.y - p.y) <= near) return i;
+    }
+    return -1;
   }
 
   /** True if any cook is carrying a finished plate - lights the hatch up. */
@@ -545,6 +580,37 @@
     L.plateX = grillLeft ? rightX : leftX;
 
     /*
+     * The prep board is a wall fitting, not an island.
+     *
+     * It used to stand in open floor because both walls were full - and it was
+     * wrong in every way that mattered: the cook worked it from a clamped
+     * point against the wall anyway, walked through the tabletop on the most
+     * common traverse, and it ate the middle of the room.
+     *
+     * It goes on the plate side instead, at the top of the band, and the plate
+     * stack gives up a little width and drops below it. The board keeps more
+     * width than the plate column because the art needs it - the vegetable's
+     * radius is capped at 0.15 of the board's width, so a column-width board
+     * draws a 6px tomato nobody can identify.
+     */
+    L.plateW = S.board ? Math.max(52, L.colW * 0.86) : L.colW;
+    // Only a shade wider than the column it shares a wall with. Wider was
+    // tempting - the art likes a long counter - but the floor's edge is set by
+    // the widest thing on this side, and a board half again the column's width
+    // pulled that edge 36px in and left the bin out of the cook's reach on a
+    // short screen. The legibility that bought is taken back in art-prep,
+    // where the vegetable's radius was capped at 0.15 of the board's width.
+    L.boardW = S.board ? L.colW : 0;
+    // ...and never more than a third of the band, or a short landscape screen
+    // hands the board so much height that the plates below it fall under
+    // MIN_TAPPABLE and the room asks the player to turn the phone.
+    L.boardH = S.board ? Math.min(L.boardW * 1.16, (L.midBottom - L.midTop) * 0.30) : 0;
+    if (S.board) {
+      L.plateX = grillLeft ? (W - L.pad - L.plateW) : leftX;
+      L.boardX = grillLeft ? (W - L.pad - L.boardW) : leftX;
+    }
+
+    /*
      * The two working walls, each with a machine hung under its column.
      *
      * The fry station goes below the grill because it IS a grill: something
@@ -565,27 +631,41 @@
     // from day one with CLOSED written on it, holding column space the plates
     // could have used, for a machine nothing could order from yet.
     var tapN = (S.drinkTaps && S.drinkTaps.length) ? 1 : 0;
+    // the board owns the top of the plate band; everything under it divides
+    // what is left, which is what makes the plate stack shrink and sit lower
+    var boardBand = S.board ? L.boardH + gap + 4 : 0;
+    var plateSpace = midH - boardBand;
     L.slotH = Math.min(SLOT_H * k, (midH - gap * (gN + fryN - 1)) / (gN + fryN));
-    L.plateH = Math.min(PLATE_H * k, (midH - gap * (pN + tapN - 1)) / (pN + tapN));
+    /*
+     * The fountain is budgeted at 1.10 slots because that is what it takes -
+     * tapH is plateH * 1.10. Dividing by (pN + tapN) gave it one slot and the
+     * column ran 8px past the bottom of its own band. It had slack to hide in
+     * before the board moved in above it.
+     */
+    L.plateH = Math.min(PLATE_H * k * 0.88,
+                        (plateSpace - gap * (pN + tapN - 1)) / (pN + tapN * 1.10));
     L.fryH = fryN ? Math.min(FRYER_H * k, L.slotH * 1.35) : 0;
     L.tapH = tapN ? Math.min(TAP_H * k, L.plateH * 1.10) : 0;
     var gTotal = gN * L.slotH + (gN - 1) * gap + (fryN ? gap + L.fryH : 0);
     var pTotal = pN * L.plateH + (pN - 1) * gap + (tapN ? gap + L.tapH : 0);
     L.grillTop = L.midTop + (midH - gTotal) / 2;
-    L.plateTop = L.midTop + (midH - pTotal) / 2;
+    /*
+     * Centred in the space under the board, then nudged down a little further -
+     * a stack pinned right under the board reads as one tall fixture rather
+     * than two stations.
+     */
+    L.plateTop = L.midTop + boardBand +
+                 Math.min((plateSpace - pTotal) / 2 + plateSpace * 0.05,
+                          Math.max(0, plateSpace - pTotal));
     L.fryTop = L.grillTop + gN * (L.slotH + gap);
     L.tapTop = L.plateTop + pN * (L.plateH + gap);
 
-    /*
-     * The prep board stands in the middle of the room rather than against a
-     * wall - both walls are full, and the middle was the largest empty thing
-     * in the kitchen. The cook works it from the near side, so it sits in the
-     * upper half of the floor and the cook's own body never covers it.
-     */
-    // --- the walkable floor: whatever is left between the two walls
+    // --- the walkable floor: whatever is left between the two walls. The board
+    // is the widest thing on the plate side, so it sets that edge.
+    var plateBandW = Math.max(L.plateW, L.boardW || 0);
     L.floor = {
-      x0: leftX + L.colW + 16,
-      x1: rightX - 16,
+      x0: grillLeft ? (leftX + L.colW + 16) : (leftX + plateBandW + 16),
+      x1: grillLeft ? (W - L.pad - plateBandW - 16) : (rightX - 16),
       y0: L.cratesBottom + 16,
       y1: L.hatchY - 14
     };
@@ -608,27 +688,9 @@
      * standing on it. drawPrepBoard splits it.
      */
     var fw = L.floor.x1 - L.floor.x0, fh2 = L.floor.y1 - L.floor.y0;
-    /*
-     * Right-aligned, with the cook's own standing room reserved on the left.
-     *
-     * Centred at 80% of the floor it left 17px gutters on a phone - narrower
-     * than the cook - so standPoint's `board.x - CHEF_S*k*0.42` fell outside
-     * the floor and got clamped back to the wall, which is the same pixel the
-     * grill and the plates use. The cook never worked it from an end, and the
-     * most common traverse walked straight through the tabletop.
-     *
-     * Reserve the stand-off first and the clamp never fires.
-     */
-    var stand = CHEF_S * k * 0.42;
-    var bw = clamp(fw - stand - 6, 96, 250);
+    // top of the plate band, against the wall - the plates start below it
     L.board = S.board ? {
-      x: L.floor.x1 - bw,
-      // `- fh2 * 0.02` was a fraction of floor HEIGHT charged against a fixed
-      // 16px gap, so a tall screen pushed the board up through the crate shelf
-      // and the crates won the tap. Sit inside the floor the table stands on.
-      y: L.floor.y0 + 4,
-      w: bw,
-      h: Math.min(bw * 0.56, fh2 * 0.40)
+      x: L.boardX, y: L.midTop + 2, w: L.boardW, h: L.boardH
     } : null;
 
     var diag = Math.hypot(L.floor.x1 - L.floor.x0, L.floor.y1 - L.floor.y0);
@@ -692,7 +754,7 @@
   }
 
   function plateRect(i) {
-    return { x: L.plateX, y: L.plateTop + i * (L.plateH + L.gap), w: L.colW, h: L.plateH };
+    return { x: L.plateX, y: L.plateTop + i * (L.plateH + L.gap), w: L.plateW || L.colW, h: L.plateH };
   }
 
   function boardRect() { return L.board || { x: 0, y: 0, w: 0, h: 0 }; }
@@ -740,7 +802,7 @@
     }
     return null;
   }
-  function tapRect() { return { x: L.plateX, y: L.tapTop, w: L.colW, h: L.tapH }; }
+  function tapRect() { return { x: L.plateX, y: L.tapTop, w: L.plateW || L.colW, h: L.tapH }; }
 
   function hatchRect() { return { x: L.hatchX, y: L.hatchY, w: L.hatchW, h: L.hatchH }; }
   function binRect() { return { x: L.binX, y: L.hatchY, w: L.binW, h: L.hatchH }; }
@@ -761,25 +823,13 @@
       r = crateRect(t.i);
       return { x: clamp(r.x + r.w / 2, f.x0, f.x1), y: nearEdge(r, f, 'y') };
     }
-    if (t.kind === 'grill' || t.kind === 'plate' || t.kind === 'fryer' || t.kind === 'tap') {
+    if (t.kind === 'grill' || t.kind === 'plate' || t.kind === 'fryer' ||
+        t.kind === 'tap' || t.kind === 'board') {
       r = t.kind === 'grill' ? slotRect(t.i)
         : t.kind === 'plate' ? plateRect(t.i)
-        : t.kind === 'fryer' ? fryerRect() : tapRect();
+        : t.kind === 'fryer' ? fryerRect()
+        : t.kind === 'board' ? boardRect() : tapRect();
       return { x: nearEdge(r, f, 'x'), y: clamp(r.y + r.h / 2, f.y0, f.y1) };
-    }
-    /*
-     * The only station standing in open floor, so the cook has to work it from
-     * an END rather than from in front. Standing at the middle put a whole
-     * chef between the camera and the board - the vegetable, the knife and the
-     * pile of slices were all behind him, which is the one thing this station
-     * exists to show.
-     */
-    if (t.kind === 'board') {
-      r = boardRect();
-      return {
-        x: clamp(r.x - CHEF_S * (L.k || 1) * 0.42, f.x0, f.x1),
-        y: clamp(r.y + r.h * 0.92, f.y0, f.y1)
-      };
     }
     if (t.kind === 'hatch' || t.kind === 'bin') {
       r = t.kind === 'hatch' ? hatchRect() : binRect();
@@ -1704,8 +1754,22 @@
     // A guest renders what the host sends and simulates none of it.
     if (S.role === 'guest') { updateBoardBars(); syncClock(); return; }
 
+    /*
+     * The board does not chop itself.
+     *
+     * It used to advance on the clock alone, so a cook could load a vegetable,
+     * walk to the grill, and come back to a finished board - the knife swinging
+     * away at an empty station the whole time. The work happens while somebody
+     * is standing there, which is also what makes the progress bar mean
+     * something: it stops when he does.
+     */
     if (S.board && S.board.id && !S.board.portions) {
-      S.board.cut = Math.min(1, S.board.cut + dt / CHOP_TIME);
+      var chopper = cookAtBoard();
+      S.board.working = chopper >= 0;
+      if (S.board.working) {
+        chefMoodHold('cook', 0.35, chopper);
+        S.board.cut = Math.min(1, S.board.cut + dt / CHOP_TIME);
+      }
       if (S.board.cut >= 1) {
         S.board.portions = PREP_PORTIONS;
         var brr = boardRect();
@@ -2136,16 +2200,36 @@
       cut: bd.portions ? 1 : Math.floor(ph) / CHOPS,
       // done -> the edge rests on the board. `chop` is 1 AT the board, not 0:
       // the old 0.06 held the knife at the top of its arc, a frozen mid-swing.
-      chop: bd.portions ? 1 : chopCurve(ph),
+      // Nobody there is also a rest, not a freeze halfway up the arc.
+      chop: (bd.portions || !bd.working) ? 1 : chopCurve(ph),
       // how much of the PILE is left, which `cut` cannot say - it only knows
       // how far the blade got. Without this the heap looked the same at four
       // portions and at one, so the supply read as bottomless.
       left: bd.portions ? bd.portions / PREP_PORTIONS : bd.cut,
       // strictly after the landing, so juice never leaves an untouched
       // vegetable, and re-seeded per strike so no two sprays match
-      hit: bd.portions ? 0 : (fr < 0.09 ? 1 - fr / 0.09 : 0),
+      hit: (bd.portions || !bd.working) ? 0 : (fr < 0.09 ? 1 - fr / 0.09 : 0),
       hitSeed: Math.floor(ph)
     });
+
+    /*
+     * How much chopping is left.
+     *
+     * The board is the one station whose work is invisible from across the
+     * room - a patty browns, fries darken, a cup fills, but a vegetable half
+     * cut looks much like a vegetable. Green while the cook is on it, amber
+     * when he has walked off, so a stalled board reads as stalled rather than
+     * as broken.
+     */
+    if (!bd.portions) {
+      var pbx = r.x + 5, pbw = r.w - 10, pby = r.y + r.h - 9, pbh = 5;
+      Art.rr(ctx, pbx, pby, pbw, pbh, 2.5);
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fill();
+      Art.rr(ctx, pbx, pby, Math.max(2, pbw * clamp(bd.cut, 0, 1)), pbh, 2.5);
+      ctx.fillStyle = bd.working ? K.go : C.warm;
+      ctx.fill();
+    }
     if (bd.portions) pickRing(r, 12);
     /*
      * Walking there. The crates, the grill, the plates, the hatch and the bin
@@ -2679,22 +2763,13 @@
     drawRoom();
     drawCounter();
     drawCrates();
-    /*
-     * The board is furniture standing in open floor, not a wall fitting, so
-     * whether it belongs in front of the cook or behind him depends on where
-     * he is. Feet above its front edge means he is standing behind the table
-     * and it should cover his legs; below, he walks in front of it. Drawn
-     * unconditionally first, he strode through the tabletop on every traverse.
-     */
-    var boardOver = !!L.board && S.chefs.length > 0 &&
-      S.chefs.every(function (c) { return c.y < L.board.y + L.board.h; });
-    if (!boardOver) drawPrepBoard();
+    // a wall fitting now, like the plates it sits above - always behind the cook
+    drawPrepBoard();
     drawGrill();
     drawFryStation();
     drawPlates();
     drawFountain();
     drawChefs();
-    if (boardOver) drawPrepBoard();
     drawFlyers();
     drawHatchAndBin();     // nearest the camera, so it draws over the cook
     drawSparks();
@@ -3927,7 +4002,7 @@
       }),
       grill: S.grill.map(function (g) { return g ? { id: g.id, t: g.t } : null; }),
       fryer: S.fryer.map(function (w) { return w ? { t: w.t } : null; }),
-      board: S.board ? { id: S.board.id, cut: S.board.cut, p: S.board.portions,
+      board: S.board ? { id: S.board.id, cut: S.board.cut, p: S.board.portions, w: !!S.board.working,
                          wet: S.board.wet, j: S.board.juice } : null,
       taps: S.drinkTaps,
       seed: S.runSeed || 0,
@@ -4008,7 +4083,8 @@
     // the two kitchens are laid out differently and the taps miss
     S.runSeed = m.seed || 0;
     S.board = m.board
-      ? { id: m.board.id, cut: m.board.cut, portions: m.board.p, wet: m.board.wet, juice: m.board.j }
+      ? { id: m.board.id, cut: m.board.cut, portions: m.board.p, working: !!m.board.w,
+          wet: m.board.wet, juice: m.board.j }
       : null;
 
     // keep ticket objects (and their DOM nodes) alive across snapshots

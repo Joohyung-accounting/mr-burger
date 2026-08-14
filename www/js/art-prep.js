@@ -676,7 +676,14 @@
     var chop = o.chop === undefined ? (o.t === undefined ? 0.2 : chopPhase(o.t)) : cl(o.chop, 0, 1);
     var s = 1701, i;
 
-    var R = Math.min(seat.h * 0.44, seat.w * 0.150) * V.r;
+    /*
+     * The width cap was 0.150, which suited the long counter this used to be
+     * drawn on. As a column fixture beside the plates the board is about half
+     * that wide, and 0.150 shrank the vegetable to something you could not
+     * identify. The height cap still governs on a wide board, so nothing that
+     * was already legible grows.
+     */
+    var R = Math.min(seat.h * 0.44, seat.w * 0.200) * V.r;
     var vegX = seat.x0 + seat.w * 0.66;
     var vegY = seat.baseY - R * 0.86;
     // the cut face eats rightwards through the vegetable as cut climbs
