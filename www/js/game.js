@@ -2379,6 +2379,24 @@
       var shown = built.length ? Core.displayStack(built) : null;
       var bw = shown ? Art.fitWidth(shown, pw * 0.74, r.h - 16) : 0;
 
+      /*
+       * The moment a side or a drink joins it, the bench is building a SET and
+       * has to show one. It used to draw the burger and nothing else, so the
+       * player assembled a combo with no way to see the combo.
+       */
+      var benchEx = setExtras(p);
+      if (benchEx.n) {
+        drawSet(ctx, { stack: built, side: p.side, sideCook: p.sideCook, drink: p.drink },
+                cx, r.y + r.h - 4, r.w * 0.96, r.h - 16, benchEx, plateGlow(p));
+        if (live) {
+          Art.rr(ctx, r.x, r.y, r.w, r.h, 11);
+          ctx.strokeStyle = K.pick;
+          ctx.lineWidth = 2.4;
+          ctx.stroke();
+        }
+        continue;
+      }
+
       Art.scene.plate(ctx, cx, py - 2, pw, {
         glow: plateGlow(p), food: shown ? 1 : 0, foodW: bw
       });
@@ -2452,7 +2470,11 @@
    */
   function carriedHalf(maxW, hold, maxH) {
     if (!hold) return 0;
-    if (hold.kind === 'plate') return plateRadius(maxW);
+    // a tray is much wider than a dish, and the hands close on whatever this
+    // says - get it wrong and the arms hold air beside the thing being carried
+    if (hold.kind === 'plate') {
+      return setExtras(hold).n ? trayWidth(maxW) / 2 : plateRadius(maxW);
+    }
     if (hold.kind === 'fries') return maxW * 0.20;
     if (hold.kind === 'cup') return maxW * 0.17;
     if (hold.id === 'bun') return Art.layerWidth('bunBottom', bunRollWidth(maxW)) / 2;
@@ -2520,6 +2542,16 @@
     }
 
     if (hold.kind === 'plate') {
+      // A set goes on a tray. Carried as a bare dish, a burger-fries-cola
+      // order looked exactly like a burger, right up to the hatch.
+      var carryEx = setExtras(hold);
+      if (carryEx.n) {
+        var tw = trayWidth(maxW);
+        drawSet(g, hold, cx, baseY, tw, maxH, carryEx, 0);
+        g.restore();
+        return tw / 2;
+      }
+
       var shown = Core.displayStack(hold.stack);
       var pr = plateRadius(maxW);
       // the food fits the dish, not the other way round
@@ -2994,6 +3026,64 @@
    * The words underneath still say WHICH drink: six flavours are six shades of
    * brown at this size, and the slip has always named what the picture cannot.
    */
+  /** What rides beside the burger on this plate, if anything. */
+  function setExtras(p) {
+    var fries = !!(p && p.side && Core.SIDES[p.side]);
+    var cup = !!(p && p.drink && Core.drinkById(p.drink));
+    return { fries: fries, cup: cup, n: (fries ? 1 : 0) + (cup ? 1 : 0) };
+  }
+
+  /** The tray is nearly the whole carry box - it has three things on it. */
+  function trayWidth(maxW) { return maxW * 0.92; }
+
+  /*
+   * A set on a tray: the burger on its dish with whatever rides beside it.
+   *
+   * One function for the plating bench and for the cook's hands, so a combo
+   * cannot look like one thing while it is being built and another while it is
+   * being carried - which is what it did, because neither drew the side or the
+   * drink at all. A plate with a cola on it was a plate with a burger on it.
+   *
+   * (cx, baseY) is the middle of the tray's front edge, `w` the tray, `maxH`
+   * the tallest anything standing on it may draw. Heights are held well under
+   * maxH because the cup is the tall one and it must not reach past what the
+   * cook carrying it has room for.
+   */
+  function drawSet(g, p, cx, baseY, w, maxH, ex, glow) {
+    ex = ex || setExtras(p);
+    var shown = Core.displayStack(p.stack || []);
+    var th = w * 0.20;
+    var tx = cx - w / 2, ty = baseY - th;
+    if (Art.item && Art.item.tray) Art.item.tray(g, tx, ty, w, th, {});
+    var foodY = ty + th * 0.50;
+
+    // fries on the left, burger in the middle, cup on the right - the order a
+    // tray is loaded in, and it keeps the burger centred when both are out
+    var burgerW = ex.n === 1 ? w * 0.60 : w * 0.52;
+    var sideW = ex.n ? (w - burgerW) / ex.n : 0;
+    var bcx = tx + (ex.fries ? sideW : 0) + burgerW / 2;
+
+    var dishW = burgerW * 0.92;
+    var bw = shown.length ? Art.fitWidth(shown, dishW * 0.74, maxH * 0.62) : 0;
+    Art.scene.plate(g, bcx, foodY, dishW,
+                    { glow: glow || 0, food: shown.length ? 1 : 0, foodW: bw });
+    if (shown.length) {
+      var seat = Art.scene.plateSeat(bcx, foodY, dishW);
+      Art.drawStack(g, shown, seat.x, seat.y, bw);
+    }
+
+    if (ex.fries && Art.item && Art.item.friesBox) {
+      var cw = sideW * 0.78, ch = maxH * 0.55;
+      Art.item.friesBox(g, tx + (sideW - cw) / 2, foodY - ch, cw, ch,
+        { fries: 1, cooked: p.sideCook === undefined ? 0.82 : p.sideCook, brand: '' });
+    }
+    if (ex.cup && Art.item && Art.item.cup) {
+      var uw = sideW * 0.60, uh = maxH * 0.70;
+      Art.item.cup(g, tx + w - sideW + (sideW - uw) / 2, foodY - uh, uw, uh,
+        { flavor: p.drink, fill: 0.85, lid: 1, straw: true });
+    }
+  }
+
   function drawTraySet(g, t, x, y, w, h) {
     var shown = Core.displayStack(t.items);
     // Ask Core, the same way orderRows and checkExtras do. A ticket carrying an
@@ -4626,6 +4716,7 @@
     renderBoard: renderBoard, reserveBoard: reserveBoard, orderRows: orderRows,
     syncHud: syncHud, resize: resize,
     chopCurve: chopCurve, drawPrepBoard: drawPrepBoard, drawCarried: drawCarried,
+    drawPlates: drawPlates, drawSet: drawSet, setExtras: setExtras,
     drawTraySet: drawTraySet,
     sendChef: sendChef, arrive: arrive, deliver: deliver,
     stationAt: stationAt, standPoint: standPoint,

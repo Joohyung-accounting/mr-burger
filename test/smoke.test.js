@@ -3026,6 +3026,103 @@ test('holding the chopping pose does not restart it every frame', function () {
   assert.ok(S.chefMood.until > until, 'the pose was not held while he kept working');
 });
 
+/*
+ * Everything the cook can pick up, measured and drawn.
+ *
+ * drawChef asks for a half-width BEFORE it puts the arms down, then paints the
+ * object last so the hands sit on top of it. If the two passes disagree the
+ * arms close on air beside whatever is being carried - which is exactly what a
+ * new carry shape (the tray) is most likely to break.
+ */
+var CARRIES = [
+  { kind: 'ing', id: 'cheese', done: 0, char: 0 },
+  { kind: 'ing', id: 'bun', done: 0, char: 0 },
+  { kind: 'ing', id: 'patty', cook: 1, done: 1, char: 0 },
+  { kind: 'ing', id: 'lettuce', done: 0, char: 0 },
+  { kind: 'ing', id: 'lettuce', done: 0, char: 0, prepped: true },
+  { kind: 'fries', cook: 1, done: 0.8, char: 0 },
+  { kind: 'cup', flavor: 'cola' },
+  { kind: 'plate', stack: [{ id: 'bun', cook: 1 }, { id: 'patty', cook: 1 }] },
+  { kind: 'plate', stack: [{ id: 'bun', cook: 1 }], drink: 'cola' },
+  { kind: 'plate', stack: [{ id: 'bun', cook: 1 }], side: 'fries', sideCook: 0.8 },
+  { kind: 'plate', stack: [], drink: 'cider' },
+  { kind: 'plate', stack: [{ id: 'bun', cook: 1 }, { id: 'patty', cook: 1 }],
+    side: 'fries', sideCook: 0.8, drink: 'cola' }
+];
+function carryName(h, i) { return '#' + i + ' ' + (h.id || h.kind) +
+  (h.side ? '+fries' : '') + (h.drink ? '+drink' : ''); }
+
+test('the hands close on what is actually drawn, whatever the cook carries', function () {
+  startShift(8);
+  [[54, 0.72, 0.205], [96, 0.72, 0.205]].forEach(function (sz) {
+    var maxW = sz[0] * sz[1], maxH = sz[0] * sz[2];
+    CARRIES.forEach(function (h, i) {
+      var g = makeCtx();
+      var measured = MB.drawCarried(g, 100, 100, maxW, maxH, h, true);
+      var drawn = MB.drawCarried(g, 100, 100, maxW, maxH, h, false);
+      var at = 's' + sz[0] + ' ' + carryName(h, i) + ': ';
+      assert.ok(isFinite(measured) && measured > 0, at + 'measured ' + measured);
+      assert.strictEqual(measured, drawn,
+        at + 'the hands close at ' + measured + ' but it drew at ' + drawn);
+      assert.ok(measured <= maxW / 2 + 0.01,
+        at + 'wider than the carry box, ' + measured.toFixed(1) + ' vs ' + (maxW / 2).toFixed(1));
+    });
+  });
+});
+
+test('nothing the cook carries leaks a save() into the rest of the frame', function () {
+  startShift(8);
+  CARRIES.forEach(function (h, i) {
+    var depth = 0, worst = 0;
+    var g = makeCtx();
+    g.save = function () { depth++; };
+    g.restore = function () { depth--; if (depth < worst) worst = depth; };
+    MB.drawCarried(g, 100, 100, 54 * 0.72, 54 * 0.205, h, false);
+    assert.strictEqual(depth, 0,
+      carryName(h, i) + ' left the context ' + depth + ' save(s) deep - everything ' +
+      'drawn after it inherits the shadow and the clip');
+    assert.strictEqual(worst, 0, carryName(h, i) + ' restored more than it saved');
+  });
+});
+
+test('a set is drawn as a set, on the bench and in the hands', function () {
+  startShift(8);
+  function pieces(fn) {
+    var seen = { tray: 0, fries: 0, cup: 0 };
+    var t = Art.item.tray, f = Art.item.friesBox, c = Art.item.cup;
+    Art.item.tray = function () { seen.tray++; };
+    Art.item.friesBox = function () { seen.fries++; };
+    Art.item.cup = function () { seen.cup++; };
+    try { fn(); } finally { Art.item.tray = t; Art.item.friesBox = f; Art.item.cup = c; }
+    return seen;
+  }
+
+  // in the hands
+  var full = { kind: 'plate', stack: [{ id: 'bun', cook: 1 }], side: 'fries', drink: 'cola' };
+  var got = pieces(function () {
+    MB.drawCarried(makeCtx(), 100, 100, 40, 12, full, false);
+  });
+  assert.deepStrictEqual(got, { tray: 1, fries: 1, cup: 1 },
+    'a carried combo drew ' + JSON.stringify(got));
+
+  // ...and a plain plate is still a plain plate
+  var bare = pieces(function () {
+    MB.drawCarried(makeCtx(), 100, 100, 40, 12,
+      { kind: 'plate', stack: [{ id: 'bun', cook: 1 }] }, false);
+  });
+  assert.deepStrictEqual(bare, { tray: 0, fries: 0, cup: 0 },
+    'a plain plate grew a tray: ' + JSON.stringify(bare));
+
+  // on the bench, while it is still being built
+  S.plates[0].stack = [{ id: 'bun', cook: 1 }];
+  S.plates[0].side = null;
+  S.plates[0].drink = 'cola';
+  var bench = pieces(function () { MB.drawPlates(); });
+  assert.strictEqual(bench.tray, 1, 'the bench never put the set on a tray');
+  assert.strictEqual(bench.cup, 1, 'the drink on the plate was invisible on the bench');
+  assert.strictEqual(bench.fries, 0, 'it drew fries nobody ordered');
+});
+
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');
 
 
