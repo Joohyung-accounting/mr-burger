@@ -235,6 +235,23 @@ function work(rect) {
   assert.strictEqual(S.chef.target, null, 'the chef never reached the station');
 }
 
+/*
+ * Press one of the fountain's three spouts, stand there while the cup fills,
+ * and take it. The machine no longer hands over a finished drink in one tap -
+ * the lever you press is the flavour you get, and it costs the cook's time.
+ */
+function pourCup(col) {
+  var r = MB.tapRect();
+  var w3 = r.w * 0.283;
+  var cx = r.x + r.w * (0.217 + 0.283 * (col || 0));
+  work({ x: cx - w3 / 2, y: r.y, w: w3, h: r.h });
+  for (var i = 0; i < 200 && S.pour && !held(); i++) {
+    pump(0.05);
+    if (S.pour && S.pour.t >= 1.5) MB.arrive({ kind: 'tap', i: col || 0 }, 0);
+  }
+  return held();
+}
+
 function crateOf(id) {
   var i = S.menu.indexOf(id);
   assert.ok(i >= 0, id + ' is not on the line today');
@@ -2452,16 +2469,28 @@ test('fries left in too long come out burnt', function () {
   assert.ok(held().cook < 0.5, 'burnt fries scored ' + held().cook);
 });
 
-test('the fountain pours what the front of the board is waiting for', function () {
-  startShift(8);
+test('the spout the cook presses is the flavour that comes out', function () {
+  startShift(12);
   S.tickets.length = 0;
   MB.spawnTicket();
-  S.tickets[0].drink = S.drinkTaps[1] || S.drinkTaps[0];
+  S.tickets[0].drink = S.drinkTaps[0];
   S.chef.holding = null;
-  assert.strictEqual(MB.nextDrinkWanted(), S.tickets[0].drink);
-  work(MB.tapRect());
-  assert.strictEqual(held().kind, 'cup');
-  assert.strictEqual(held().flavor, S.tickets[0].drink, 'the wrong flavour came out');
+  S.pour = null;
+
+  // the machine centres on what the board wants, so column 0..2 maps to real
+  // flavours - press each one and check the cup matches the lever
+  var view = MB.dispenserView();
+  assert.ok(view.ids.filter(Boolean).length >= 2, 'setup: day 12 should plumb three');
+  for (var col = 0; col < 3; col++) {
+    if (!view.ids[col]) continue;
+    S.chef.holding = null;
+    S.pour = null;
+    var got = pourCup(col);
+    assert.ok(got, 'column ' + col + ' never produced a cup');
+    assert.strictEqual(got.kind, 'cup');
+    assert.strictEqual(got.flavor, view.ids[col],
+      'pressing column ' + col + ' poured ' + got.flavor + ', not ' + view.ids[col]);
+  }
 });
 
 test('the fountain will not pour a second cup for the same order', function () {
@@ -2471,7 +2500,7 @@ test('the fountain will not pour a second cup for the same order', function () {
   S.tickets[0].drink = S.drinkTaps[0];
   S.chef.holding = null;
   var uid = S.tickets[0].uid;
-  work(MB.tapRect());
+  pourCup(0);
   work(MB.plateRect(0));
   assert.strictEqual(S.plates[0].drink, S.drinkTaps[0], 'the cup never reached the tray');
 
@@ -2492,7 +2521,7 @@ test('fries and a cup ride on the tray, not inside the burger', function () {
 
   fryPerfect(0);
   work(MB.plateRect(0));
-  work(MB.tapRect());
+  pourCup(0);
   work(MB.plateRect(0));
 
   assert.strictEqual(S.plates[0].side, 'fries');
@@ -2519,7 +2548,7 @@ test('a complete tray is paid for in full', function () {
 
   fryPerfect(0);
   work(MB.plateRect(0));
-  work(MB.tapRect());
+  pourCup(0);
   work(MB.plateRect(0));
   buildPlate(0, ['bun', 'patty']);
 
@@ -3410,6 +3439,124 @@ test('the fry column stacks the freezer above the fryer without overlapping it',
     g.restore = function () { depth--; };
     assert.doesNotThrow(function () { MB.drawFryStation(); }, at + 'the fry station threw');
     assert.doesNotThrow(function () { MB.drawFountain(); }, at + 'the fountain threw');
+  });
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.3);
+});
+
+test('a drink parked on a plate does not lock the burger out of it', function () {
+  startShift(12);
+  S.chef.holding = null;
+  S.pour = null;
+  S.plates.forEach(function (p) { p.stack = []; p.side = null; p.drink = null; });
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].drink = S.drinkTaps[0];
+
+  // the cider goes down first, on its own
+  pourCup(0);
+  work(MB.plateRect(0));
+  assert.ok(S.plates[0].drink, 'setup: the drink should be on plate 0');
+  assert.strictEqual(S.plates[0].stack.length, 0, 'setup: and nothing else');
+
+  // the burger is built on the other plate and carried over
+  work(crateOf('bun'));
+  work(MB.plateRect(1));
+  assert.strictEqual(S.plates[1].stack.length, 1, 'setup: the bun should be on plate 1');
+  work(MB.plateRect(1));
+  assert.strictEqual(held() && held().kind, 'plate', 'setup: the tray should be in hand');
+
+  work(MB.plateRect(0));
+  assert.strictEqual(held(), null,
+    'the tray came back - a drink on a plate blocked the burger joining it');
+  assert.strictEqual(S.plates[0].stack.length, 1, 'the burger never landed');
+  assert.strictEqual(S.plates[0].drink, S.drinkTaps[0], 'the drink was lost in the merge');
+
+  // ...but two trays that want the same slot still refuse
+  S.plates[1].stack = [{ id: 'bun', cook: 1 }];
+  work(MB.plateRect(1));
+  assert.ok(held(), 'setup: pick the second tray up');
+  work(MB.plateRect(0));
+  assert.ok(held(), 'two trays with food on both should not merge');
+});
+
+test('the fountain costs the cook time, and only while he is standing there', function () {
+  startShift(12);
+  S.chef.holding = null;
+  S.pour = null;
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].drink = S.drinkTaps[0];
+
+  var r = MB.tapRect();
+  var w3 = r.w * 0.283;
+  var cx = r.x + r.w * 0.217;
+  work({ x: cx - w3 / 2, y: r.y, w: w3, h: r.h });
+  assert.ok(S.pour, 'pressing a spout started nothing');
+  assert.strictEqual(held(), null, 'the cup arrived instantly - it is meant to take time');
+
+  pump(0.4);
+  var partway = S.pour.t;
+  assert.ok(partway > 0, 'the cup is not filling while he stands there');
+  assert.strictEqual(S.pour.working, true, 'it should know he is on it');
+
+  // send him away and the stream stops
+  MB.sendChef({ kind: 'grill', i: 0 }, 0);
+  pump(1.2);
+  var away = S.pour.t;
+  pump(1.5);
+  assert.strictEqual(S.pour.t, away, 'the cup filled itself with nobody there');
+  assert.strictEqual(S.pour.working, false, 'and it should know it is stalled');
+
+  // come back, finish it, take it
+  var got = pourCup(0);
+  assert.ok(got && got.kind === 'cup', 'the cup never came off the spout');
+  assert.strictEqual(S.pour, null, 'the spout was left holding a cup');
+});
+
+/*
+ * The whole room, measured. Every fixture is a tap target and a picture; two
+ * of them in the same pixels is both a wrong tap and a wrong drawing, and the
+ * column has had three things added to it (board, fry line, fountain) since
+ * anything checked.
+ */
+test('no two fixtures in the room stand in the same place', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  [[375, 812], [412, 915], [360, 640], [412, 430], [820, 600], [320, 568]].forEach(function (sz) {
+    [1, 5, 8, 12, 20, 25].forEach(function (day) {
+      stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+      MB.startDay(day);
+      pump(0.3);
+      var where = sz.join('x') + ' day ' + day + ': ';
+
+      var boxes = [];
+      for (var i = 0; i < S.menu.length; i++) boxes.push(['crate' + i, MB.crateRect(i)]);
+      for (i = 0; i < S.grill.length; i++) boxes.push(['grill' + i, MB.slotRect(i)]);
+      for (i = 0; i < S.plates.length; i++) boxes.push(['plate' + i, MB.plateRect(i)]);
+      if (MB.layout.fryH) boxes.push(['fryer', MB.fryerRect()]);
+      if (MB.layout.tapH) boxes.push(['tap', MB.tapRect()]);
+      if (MB.layout.board) boxes.push(['board', MB.boardRect()]);
+      boxes.push(['hatch', MB.hatchRect()], ['bin', MB.binRect()]);
+
+      boxes.forEach(function (e) {
+        var r = e[1];
+        assert.ok(r && isFinite(r.x) && r.w > 0 && r.h > 0, where + e[0] + ' is not a box');
+        assert.ok(r.x >= -1 && r.y >= -1 &&
+                  r.x + r.w <= MB.layout.W + 1 && r.y + r.h <= MB.layout.H + 1,
+          where + e[0] + ' hangs off the canvas: ' + JSON.stringify(r));
+      });
+
+      for (var a = 0; a < boxes.length; a++) {
+        for (var b = a + 1; b < boxes.length; b++) {
+          var p = boxes[a][1], q = boxes[b][1];
+          var over = Math.max(0, Math.min(p.x + p.w, q.x + q.w) - Math.max(p.x, q.x)) *
+                     Math.max(0, Math.min(p.y + p.h, q.y + q.h) - Math.max(p.y, q.y));
+          assert.strictEqual(over, 0,
+            where + boxes[a][0] + ' and ' + boxes[b][0] + ' overlap by ' +
+            over.toFixed(0) + 'px²');
+        }
+      }
+    });
   });
   stage.clientWidth = w0; stage.clientHeight = h0;
   pump(0.3);

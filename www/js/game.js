@@ -183,6 +183,7 @@
     fryer: [],     // { t } | null, one per well - the same clock the grill runs
     board: null,   // { id, cut, portions, wet, juice } - the prep board
     drinkTaps: [], // the flavours the fountain is plumbed for today
+    pour: null,    // { flavor, t } - a cup filling under one of the spouts
     // One cook in single player, two in co-op. S.me is which one this device
     // drives; S.chef below stays a live alias to it so the rest of the game
     // reads exactly as it did before.
@@ -250,6 +251,19 @@
     for (var i = 0; i < S.chefs.length; i++) {
       var c = S.chefs[i];
       if (c.target) continue;                       // walking somewhere else
+      if (Math.abs(c.x - p.x) <= near && Math.abs(c.y - p.y) <= near) return i;
+    }
+    return -1;
+  }
+
+  /** Which cook is standing at the fountain, or -1. Same rule as the board. */
+  function cookAtTap() {
+    if (!L.tapH || !S.chefs.length) return -1;
+    var p = standPoint({ kind: 'tap' });
+    var near = (L.chefS || CHEF_S) * 0.80;
+    for (var i = 0; i < S.chefs.length; i++) {
+      var c = S.chefs[i];
+      if (c.target) continue;
       if (Math.abs(c.x - p.x) <= near && Math.abs(c.y - p.y) <= near) return i;
     }
     return -1;
@@ -353,6 +367,8 @@
   // strikes per vegetable. CHOP_TIME / CHOPS = 567ms a swing, near the 645ms
   // the free-running blade used to take, but now a whole number of them.
   var CHOPS = 6;
+  // seconds of the cook standing at the fountain to fill one cup
+  var POUR_TIME = 1.5;
   var FRY_SUPPLY = 0.36;          // the share of the box the supply row takes
 
   // The kitchen the speeds in core.js were tuned against: a 412x360 stage.
@@ -701,15 +717,29 @@
     var plateSpace = midH - boardBand;
     L.slotH = Math.min(SLOT_H * k, (midH - gap * (gN + fryN - 1)) / (gN + fryN));
     /*
-     * The fountain is budgeted at 1.10 slots because that is what it takes -
-     * tapH is plateH * 1.10. Dividing by (pN + tapN) gave it one slot and the
+     * The fountain is budgeted at 1.55 slots because that is what it takes -
+     * tapH is plateH * 1.55. Dividing by (pN + tapN) gave it one slot and the
      * column ran 8px past the bottom of its own band. It had slack to hide in
      * before the board moved in above it.
      */
-    L.plateH = Math.min(PLATE_H * k * 0.88,
-                        (plateSpace - gap * (pN + tapN - 1)) / (pN + tapN * 1.10));
+    var tapSlots = 1.55;
+    function plateFor(slots) {
+      return Math.min(PLATE_H * k * 0.88,
+                      (plateSpace - gap * (pN + tapN - 1)) / (pN + tapN * slots));
+    }
+    L.plateH = plateFor(tapSlots);
+    /*
+     * ...but the taller fountain is a luxury, not a right. On a short screen
+     * at four plates it eats enough of the column that the plates fall under
+     * MIN_TAPPABLE and the room asks the player to turn the phone - which is a
+     * worse trade than a smaller machine. Hand the room back and shrink it.
+     */
+    if (tapN && L.plateH < MIN_TAPPABLE) {
+      tapSlots = 1.10;
+      L.plateH = plateFor(tapSlots);
+    }
     L.fryH = fryN ? Math.min(FRYER_H * k, L.slotH * 1.35) : 0;
-    L.tapH = tapN ? Math.min(TAP_H * k, L.plateH * 1.10) : 0;
+    L.tapH = tapN ? Math.min(TAP_H * k * 1.30, L.plateH * tapSlots) : 0;
     var gTotal = gN * L.slotH + (gN - 1) * gap + (fryN ? gap + L.fryH : 0);
     var pTotal = pN * L.plateH + (pN - 1) * gap + (tapN ? gap + L.tapH : 0);
     L.grillTop = L.midTop + (midH - gTotal) / 2;
@@ -718,9 +748,14 @@
      * a stack pinned right under the board reads as one tall fixture rather
      * than two stations.
      */
-    L.plateTop = L.midTop + boardBand +
-                 Math.min((plateSpace - pTotal) / 2 + plateSpace * 0.05,
-                          Math.max(0, plateSpace - pTotal));
+    /*
+     * Centred in what the board leaves, and no lower. It used to take a
+     * further 5% down to stop the stack reading as one tall fixture with the
+     * board; the fountain is tall enough now to separate them on its own, and
+     * the extra drop pushed the whole column into the bottom of the room.
+     */
+    L.plateTop = L.midTop + boardBand - (L.midTop - (L.cratesBottom + 8)) +
+                 Math.max(0, Math.min((plateSpace - pTotal) / 2, plateSpace - pTotal));
     L.fryTop = L.grillTop + gN * (L.slotH + gap);
     L.tapTop = L.plateTop + pN * (L.plateH + gap);
 
@@ -754,7 +789,7 @@
     var fw = L.floor.x1 - L.floor.x0, fh2 = L.floor.y1 - L.floor.y0;
     // top of the plate band, against the wall - the plates start below it
     L.board = S.board ? {
-      x: L.boardX, y: L.midTop + 2, w: L.boardW, h: L.boardH
+      x: L.boardX, y: L.cratesBottom + 8, w: L.boardW, h: L.boardH
     } : null;
 
     var diag = Math.hypot(L.floor.x1 - L.floor.x0, L.floor.y1 - L.floor.y0);
@@ -840,6 +875,20 @@
     return x < r.x + r.w / 2 ? 0 : 1;
   }
 
+  /*
+   * Which of the fountain's three spouts is under this point.
+   *
+   * The machine draws its columns at col0 = 0.217 with a step of 0.283, so the
+   * boundaries between them are the midpoints of those - kept here rather than
+   * guessed, because a lever that pours the flavour beside the one you pressed
+   * is worse than no choice at all.
+   */
+  function tapColAt(x) {
+    var r = tapRect();
+    var f = r.w ? (x - r.x) / r.w : 0;
+    return f < 0.217 + 0.283 * 0.5 ? 0 : (f < 0.217 + 0.283 * 1.5 ? 1 : 2);
+  }
+
   /** Is there anything on this tray at all? */
   function trayBusy(p) { return !!(p.stack.length || p.side || p.drink); }
 
@@ -919,7 +968,7 @@
     for (i = 0; i < S.plates.length; i++) if (inside(plateRect(i))) return { kind: 'plate', i: i };
     if (L.board && inside(boardRect())) return { kind: 'board' };
     if (L.fryH && inside(fryerRect())) return { kind: 'fryer', i: fryWellAt(x, y) };
-    if (L.tapH && inside(tapRect())) return { kind: 'tap' };
+    if (L.tapH && inside(tapRect())) return { kind: 'tap', i: tapColAt(x) };
     if (inside(hatchRect())) return { kind: 'hatch' };
     if (inside(binRect())) return { kind: 'bin' };
     return { kind: 'floor', x: x, y: y };
@@ -1418,11 +1467,21 @@
         return;
       }
       if (hold && hold.kind === 'plate') {
-        if (trayBusy(p)) { nope('PLATE IN USE', ci); return; }
-        p.stack = hold.stack;
-        p.side = hold.side || null;
-        p.sideCook = hold.sideCook;
-        p.drink = hold.drink || null;
+        /*
+         * Two trays MERGE when they do not want the same slot.
+         *
+         * This used to refuse any occupied plate outright, which meant parking
+         * the cider on a plate and then bringing the burger over - the obvious
+         * way to build a set - came back "PLATE IN USE". A tray is three
+         * slots, not one thing: only a slot that is already taken is a clash.
+         */
+        var clash = (hold.stack.length && p.stack.length) ? 'BOTH HAVE FOOD ON THEM'
+                  : (hold.side && p.side) ? 'BOTH HAVE FRIES'
+                  : (hold.drink && p.drink) ? 'BOTH HAVE A DRINK' : null;
+        if (clash) { nope(clash, ci); return; }
+        if (hold.stack.length) p.stack = hold.stack;
+        if (hold.side) { p.side = hold.side; p.sideCook = hold.sideCook; }
+        if (hold.drink) p.drink = hold.drink;
         me.holding = null;
         Sfx.tap();
         return;
@@ -1561,13 +1620,37 @@
      * a memory test wearing a kitchen's clothes, and the fry timer is already
      * carrying the skill on this side of the room.
      */
+    /*
+     * The fountain. Pick a spout, hold the cup under it, take it when it is
+     * full.
+     *
+     * It used to hand over a finished cup of whatever the board wanted, in one
+     * tap, with no choice and no cost - which made three flavours a decoration
+     * and left the machine's own levers doing nothing. Now the lever you press
+     * is the flavour you get, and filling a cup takes POUR_TIME of the cook's
+     * time the way chopping does.
+     */
     if (t.kind === 'tap') {
       if (hold) { nope('HANDS FULL', ci); return; }
-      var want = nextDrinkWanted();
-      if (!want) { nope('NOBODY WANTS A DRINK', ci); return; }
-      me.holding = { kind: 'cup', flavor: want };
-      S.tapPour = nowMs();          // the paddle leans and the stream runs
-      Sfx.lift();
+      var vw = dispenserView();
+
+      // a full cup comes off the spout that poured it
+      if (S.pour && S.pour.t >= POUR_TIME) {
+        me.holding = { kind: 'cup', flavor: S.pour.flavor };
+        S.pour = null;
+        Sfx.lift();
+        buzz(8);
+        return;
+      }
+      if (S.pour) { nope('STILL POURING', ci); return; }
+
+      var pick = vw.ids[clamp(t.i === undefined ? vw.active : t.i, 0, 2)];
+      if (!pick) { nope('NOTHING PLUMBED THERE', ci); return; }
+      S.pour = { flavor: pick, t: 0 };
+      var tr = tapRect();
+      var dr = Core.drinkById(pick);
+      float((dr ? dr.short : 'DRINK'), tr.x + tr.w / 2, tr.y, C.warm, 10);
+      Sfx.tap();
       buzz(8);
       return;
     }
@@ -1848,6 +1931,25 @@
         float(PREP_PORTIONS > 1 ? PREP_PORTIONS + ' READY' : 'READY',
               brr.x + brr.w / 2, brr.y, K.go, 11);
         Sfx.stack(2);
+      }
+    }
+
+    /*
+     * A cup does not fill itself either. Same gate as the board: the work
+     * happens while somebody is standing at the machine, which is what makes
+     * the bar under it mean something.
+     */
+    if (S.pour && S.pour.t < POUR_TIME) {
+      var pourer = cookAtTap();
+      S.pour.working = pourer >= 0;
+      if (S.pour.working) {
+        chefMoodHold('cook', 0.35, pourer);
+        S.pour.t = Math.min(POUR_TIME, S.pour.t + dt);
+        if (S.pour.t >= POUR_TIME) {
+          var trr = tapRect();
+          float('READY', trr.x + trr.w / 2, trr.y, K.go, 11);
+          Sfx.stack(2);
+        }
       }
     }
 
@@ -2413,27 +2515,22 @@
     return { open: open, grab: grab };
   }
 
-  /** The stream, for the second or so after a cup is pulled. */
-  function tapPour() {
-    var age = (nowMs() - (S.tapPour || -1e9)) / 1000;
-    if (age < 0 || age > 0.9) return 0;
-    return age < 0.6 ? 1 : Math.max(0, 1 - (age - 0.6) / 0.30);
-  }
-
   /*
    * Which three spouts the machine shows.
    *
    * The dispenser is three columns wide and the shop plumbs anywhere from two
-   * flavours to six, so this picks a window of three that always contains the
-   * one the front of the board is waiting for - otherwise the machine would be
-   * pouring a drink off the edge of itself. Short of three, the spare column
-   * comes back undefined and draws as an unplumbed spout.
+   * flavours to six, so this picks a window of three around whatever the
+   * machine is busy with - the cup it is filling if there is one, otherwise the
+   * drink the front of the board is waiting for. Either way the flavour in
+   * question is on the machine rather than off the edge of it. Short of three,
+   * the spare column comes back undefined and draws as an unplumbed spout.
    */
   function dispenserView() {
     var taps = S.drinkTaps || [];
     var want = nextDrinkWanted();
+    var focus = (S.pour && S.pour.flavor) || want;
     if (!taps.length) return { ids: [], active: 0, want: null };
-    var idx = taps.indexOf(want);
+    var idx = taps.indexOf(focus);
     var start = idx < 0 ? 0 : Math.max(0, Math.min(idx - 1, taps.length - 3));
     return {
       ids: [taps[start], taps[start + 1], taps[start + 2]],
@@ -2446,19 +2543,39 @@
     if (!L.tapH || !Art.scene.dispenser) return;
     var r = tapRect();
     var v = dispenserView();
-    var pour = tapPour();
+    var pr = S.pour;
+    var done = pr && pr.t >= POUR_TIME;
+    var filling = pr ? clamp(pr.t / POUR_TIME, 0, 1) : 0;
 
     Art.scene.dispenser(ctx, r.x, r.y, r.w, r.h, {
       flavors: v.ids,
       active: v.active,
-      pour: v.want ? pour : 0,
-      // the cup fills as the stream runs, and stands full while one is waiting
-      fill: pour ? 0.20 + 0.65 * (1 - pour) : 0.80,
-      cup: !!v.want,
+      // the stream only runs while somebody is holding the lever down
+      pour: (pr && !done && pr.working) ? 1 : 0,
+      // a cup appears the moment a spout is pressed and fills as it goes
+      fill: pr ? 0.06 + 0.86 * filling : 0,
+      cup: !!pr,
       t: nowMs() / 1000
     });
 
-    if (v.want) pickRing(r, 8);
+    /*
+     * How much longer. The same bar the board wears, for the same reason: the
+     * work is invisible otherwise, and it stops when the cook walks off - so
+     * green while somebody is on it, amber when nobody is.
+     */
+    if (pr && !done) {
+      var bx = r.x + 5, bw = r.w - 10, by = r.y + r.h - 9, bh = 5;
+      Art.rr(ctx, bx, by, bw, bh, 2.5);
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fill();
+      Art.rr(ctx, bx, by, Math.max(2, bw * filling), bh, 2.5);
+      ctx.fillStyle = pr.working ? K.go : C.warm;
+      ctx.fill();
+    }
+
+    // ready to take, the same yellow ring the crates and the wells use
+    if (done) pickRing(r, 8);
+    else if (!pr && v.want) pickRing(r, 8);
     else if (!(S.drinkTaps || []).length) {
       Art.ui.letters(ctx, 'CLOSED', r.x + r.w / 2, r.y + r.h * 0.70, r.h * 0.055,
         { fill: 'rgba(63,74,80,0.70)', weight: 0.12, track: 0.14, seed: 5520 });
