@@ -2918,6 +2918,43 @@ test('the shift plays the recording, and is never left silent without one', func
   }
 });
 
+test('a new day opens on the first bar, a pause picks up where it stopped', function () {
+  var B = global.Bgm;
+  var realAudio = global.Audio;
+  global.Audio = function () {
+    this.loop = false; this.preload = ''; this.volume = 1; this.currentTime = 0;
+    this.play = function () { return { 'catch': function () {} }; };
+    this.pause = function () {};
+    this.addEventListener = function () {};
+  };
+  var was = { el: B.el, gain: B.gain, fallback: B.fallback, playing: B.playing };
+  B.el = null; B.gain = null; B.fallback = false; B.playing = false;
+
+  try {
+    B.start();
+    B.el.currentTime = 41.5;            // partway through the loop
+
+    // pausing and coming back is the same shift
+    MB.setPaused(true);
+    MB.setPaused(false);
+    assert.strictEqual(B.el.currentTime, 41.5,
+      'a pause restarted the music; it should pick up where it stopped');
+
+    // ...and so is the tab going away and coming back
+    B.stop(); B.start();
+    assert.strictEqual(B.el.currentTime, 41.5, 'a plain stop/start should not rewind');
+
+    // opening a new day is not
+    MB.startDay(3);
+    assert.strictEqual(B.el.currentTime, 0,
+      'RESTART THE DAY carried on from the middle of the track');
+  } finally {
+    if (realAudio === undefined) delete global.Audio; else global.Audio = realAudio;
+    B.stop();
+    B.el = was.el; B.gain = was.gain; B.fallback = was.fallback; B.playing = was.playing;
+  }
+});
+
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');
 
 

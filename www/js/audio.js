@@ -368,6 +368,22 @@
       this._level();
     },
 
+    /*
+     * Back to the first bar.
+     *
+     * stop()/start() deliberately pick up where they left off - a pause, a
+     * mute, or the tab going to the background is the same shift interrupted,
+     * and dropping the player back at the top of the track every time reads as
+     * a glitch. Opening a NEW day is not that, so startDay asks for this.
+     */
+    rewind: function () {
+      if (this.el) {
+        // seeking before metadata arrives throws; it would have started at 0
+        try { this.el.currentTime = 0; } catch (e) { /* nothing to seek yet */ }
+      }
+      Synth.step = 0;
+    },
+
     /** Build the element once. False where there is no DOM to build one in. */
     _open: function () {
       if (this.el) return true;

@@ -997,6 +997,16 @@
     hideModal(el.pause);
     S.userPaused = false;
 
+    /*
+     * A new shift opens on the first bar.
+     *
+     * The track deliberately survives a pause, a mute and the tab going to the
+     * background - all of those are the same shift interrupted, and restarting
+     * the music each time reads as a glitch. RESTART THE DAY and closing up for
+     * the night are not that, and both come through here.
+     */
+    Bgm.rewind();
+
     S.day = day;
     S.cfg = Core.dayConfig(day);
     S.rent = Core.dayGoal(day);
