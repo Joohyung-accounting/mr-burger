@@ -3647,7 +3647,18 @@
     var rowH = Math.min(B.ph * 0.128, n ? B.ph * (SHOP_ROWS_END - uyF) / n : B.ph * 0.128);
     var buys = [];
     for (var i = 0; i < (n || 0); i++) {
-      buys.push({ x: x0 + iw * 0.70, y: uy + i * rowH, w: iw * 0.30, h: rowH * 0.72 });
+      /*
+       * The price oval: standing, hard against the right edge.
+       *
+       * Its width is capped by the ROW, not by the sheet - a share of the
+       * width alone came out 135x38 on a tablet, which is a lozenge lying
+       * down, the opposite of what a standing oval is. Tied to the row it
+       * stays taller than it is wide at every size, and on a wide sheet the
+       * space it does not take goes to the upgrade's name.
+       */
+      var oh = rowH * 0.86;
+      var ow = Math.min(iw * 0.225, oh * 0.86);
+      buys.push({ x: x0 + iw - ow, y: uy + i * rowH + rowH * 0.03, w: ow, h: oh });
     }
     return {
       sheet: B, rowH: rowH, x0: x0, iw: iw, uy: uy, unlockY: B.py + B.ph * 0.190,
@@ -3745,10 +3756,20 @@
         o.upgrade(ctx, up.id, 0, 0, iw * 0.135, iw * 0.135);
         ctx.restore();
       }
-      penLetters(ctx, up.t, x0 + iw * 0.180, ry + rowH * 0.20, rowH * 0.205, {
-        fill: '#3f2a1c', weight: 0.125, track: 0.07, align: 'left', seed: 8350 + i
+      /*
+       * The name and the line under it, bigger and fitted.
+       *
+       * They were 0.205 and 0.140 of the row, which on a phone is about six
+       * and four pixels of hand lettering - grit rather than words. The oval
+       * moving right freed the width to set them properly; fitLetters keeps a
+       * long name out of it rather than trusting the sizes to be safe.
+       */
+      // derived from where the oval actually is, so the two cannot drift
+      var textW = BX.buys[i].x - (x0 + iw * 0.180) - iw * 0.030;
+      fitLetters(ctx, up.t, x0 + iw * 0.180, ry + rowH * 0.24, rowH * 0.270, textW, {
+        fill: '#3f2a1c', weight: 0.13, track: 0.07, align: 'left', seed: 8350 + i
       });
-      penLetters(ctx, up.d, x0 + iw * 0.180, ry + rowH * 0.41, rowH * 0.140, {
+      fitLetters(ctx, up.d, x0 + iw * 0.180, ry + rowH * 0.46, rowH * 0.180, textW, {
         fill: '#a08a6e', weight: 0.12, track: 0.07, align: 'left', seed: 8360 + i
       });
       (up.pips || []).forEach(function (p, k) {
@@ -3763,7 +3784,7 @@
         ctx.restore();
       });
       var b = BX.buys[i];
-      UI.priceTagAt(ctx, b.x, b.y + rowH * 0.06, b.w, b.h * 0.80, up.p);
+      UI.priceTagAt(ctx, b.x, b.y, b.w, b.h, up.p);
     });
 
     drawRule(ctx, x0, py + ph * SHOP_RULE, iw, { seed: 8365, alpha: 0.55 });
@@ -4398,20 +4419,37 @@
       ink(ctx, ellPts(w * 0.78, h * 0.66, w * 0.10, h * 0.14, 14, w * 0.005, s2 + 7), '#f7dc7a', { lw: Math.max(1, w * 0.010), line: '#8a6416', lineAlpha: 0.7, seed: s2 + 7 });
     },
 
-    /** A swing tag: notched left edge, punched hole, the price written on it. */
+    /**
+     * The price, in a standing oval.
+     *
+     * This was a swing tag - a notched pentagon with a punched hole - which
+     * read as a label stuck onto the row rather than as a button you press,
+     * and its long flat shape wanted the price set small and wide. An oval
+     * taller than it is wide is a rounder, friendlier target, and it lets the
+     * number be the biggest thing in the row after the upgrade's own name.
+     *
+     * Two rings rather than one: the inner line is what stops a filled ellipse
+     * reading as a flat sticker.
+     */
     priceTag: function (ctx, w, h, text) {
       var s3 = 761;
-      var pts = [[w * 0.16, h * 0.10], [w * 0.94, h * 0.12], [w * 0.92, h * 0.88],
-                 [w * 0.16, h * 0.90], [w * 0.05, h * 0.50]];
-      ink(ctx, pts, '#e8a021', { lw: Math.max(1.4, w * 0.014), off: w * 0.008, line: '#3f2a1c', seed: s3 });
+      var cx = w * 0.50, cy = h * 0.50;
+      // taller than wide, whatever box it is handed
+      var ry = h * 0.47;
+      var rx = Math.min(w * 0.44, ry * 0.84);
+      ink(ctx, ellPts(cx, cy, rx, ry, 22, Math.min(w, h) * 0.010, s3), '#e8a021',
+          { lw: Math.max(1.4, Math.min(w, h) * 0.055), off: Math.min(w, h) * 0.030,
+            line: '#3f2a1c', seed: s3 });
       ctx.save();
-      ctx.fillStyle = '#3f2a1c';
-      ctx.globalAlpha = 0.85;
-      trace(ctx, ellPts(w * 0.19, h * 0.50, w * 0.045, h * 0.075, 12, w * 0.004, s3 + 1));
-      ctx.fill();
+      ctx.strokeStyle = '#fdf0c8';
+      ctx.globalAlpha = 0.55;
+      ctx.lineWidth = Math.max(0.8, Math.min(w, h) * 0.028);
+      trace(ctx, ellPts(cx, cy, rx * 0.80, ry * 0.80, 20, Math.min(w, h) * 0.008, s3 + 1));
+      ctx.stroke();
       ctx.restore();
-      penLetters(ctx, text || '$0', w * 0.58, h * 0.66, h * 0.34,
-                 { fill: '#3f2a1c', weight: 0.14, track: 0.06, seed: s3 + 2 });
+      // fit, so a four-figure price cannot burst the oval it sits in
+      fitLetters(ctx, text || '$0', cx, cy + ry * 0.30, ry * 0.62, rx * 1.42,
+                 { fill: '#3f2a1c', weight: 0.145, track: 0.05, seed: s3 + 2 });
     }
   };
 

@@ -4227,6 +4227,77 @@ test('the day\'s target is not drawn through the takings bar', function () {
   });
 });
 
+/*
+ * A shop row is four things side by side - the icon, the name and its line,
+ * the pips, and the price - and they were laid out against four separate
+ * fractions of the sheet. The price oval's width now comes off the ROW rather
+ * than the sheet, and the text column's width comes off the oval, so the two
+ * cannot drift into each other.
+ */
+test('a shop row lays its icon, name and price out without them touching', function () {
+  var SIZES = [[320, 568], [375, 812], [412, 915], [360, 640], [820, 600], [1280, 800]];
+
+  SIZES.forEach(function (sz) {
+    [1, 3, 5].forEach(function (rows) {
+      [false, true].forEach(function (hasUnlocks) {
+        var B = Art.ui.shopBoxes(0, 0, sz[0], sz[1], rows, hasUnlocks);
+        var where = sz.join('x') + ' ' + rows + ' rows' + (hasUnlocks ? ' +unlocks' : '') + ': ';
+        assert.strictEqual(B.buys.length, rows, where + 'a row lost its price');
+
+        var iconRight = B.x0 + B.iw * 0.135;
+        var textLeft = B.x0 + B.iw * 0.180;
+        assert.ok(iconRight <= textLeft, where + 'the icon runs into the name');
+
+        B.buys.forEach(function (b, i) {
+          var at = where + 'row ' + i + ': ';
+          // the oval stands rather than lies down - that is the whole look
+          assert.ok(b.h > b.w, at + 'the price oval is ' + b.w.toFixed(0) + 'x' +
+            b.h.toFixed(0) + ' - lying down, not standing');
+          // it stays on the sheet
+          assert.ok(b.x + b.w <= B.x0 + B.iw + 0.01, at + 'the oval runs off the sheet');
+          assert.ok(b.x >= B.x0, at + 'the oval is off the left of the sheet');
+          // and there is real room left for the words beside it
+          var textW = b.x - textLeft - B.iw * 0.030;
+          assert.ok(textW > B.iw * 0.35,
+            at + 'the name has only ' + textW.toFixed(0) + 'px, ' +
+            (textW / B.iw * 100).toFixed(0) + '% of the row');
+          // rows do not sit on each other
+          if (i) {
+            var prev = B.buys[i - 1];
+            assert.ok(prev.y + prev.h <= b.y + 0.01,
+              at + 'this row overlaps the one above by ' + (prev.y + prev.h - b.y).toFixed(1));
+          }
+        });
+
+        // the stack of rows ends above the footer
+        if (rows) {
+          var last = B.buys[rows - 1];
+          assert.ok(last.y + last.h <= B.primary.y + 0.01,
+            where + 'the rows run into the START THE DAY button');
+        }
+      });
+    });
+  });
+
+  // and it draws, at every size, with and without the unlock slip
+  SIZES.forEach(function (sz) {
+    [0, 4].forEach(function (n) {
+      assert.doesNotThrow(function () {
+        Art.ui.shop(makeCtx(), 0, 0, sz[0], sz[1], {
+          title: 'THE SHOP', day: 'DAY 12 · CLOSED', till: '$142.80',
+          unlocks: n ? [{ id: 'bacon', name: 'Bacon', price: '$1.30' }] : [],
+          upgrades: Array.from({ length: n }, function (_, i) {
+            return { id: 'grill', t: 'ONE MORE BURNER', d: 'A fourth pan on the line',
+                     p: '$1,240', pips: ['#e8a021', '#e8a021'] };
+          }),
+          tomorrow: 'TOMORROW: 12 CUSTOMERS', rent: 'RENT DUE $70.50',
+          link: 'CHANGE THE COOK’S OUTFIT', primary: 'START DAY 13'
+        });
+      }, sz.join('x') + ' with ' + n + ' upgrades threw');
+    });
+  });
+});
+
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');
 
 
