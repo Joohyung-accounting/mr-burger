@@ -3434,21 +3434,41 @@ test('taking a basket opens the freezer, and it shuts itself again', function ()
   S.fryGrab = was;
 });
 
-test('the fry column stacks the freezer above the fryer without overlapping it', function () {
+/*
+ * The grill wall reads top to bottom in the order the food moves: freezer,
+ * fryer, burners. The freezer is pinned to the top-left corner of the room -
+ * it used to be drawn inside the fry box's own top third, which made it a
+ * decoration on another machine rather than a place you go.
+ */
+test('the grill wall runs freezer, fryer, then burners, top to bottom', function () {
   var w0 = stage.clientWidth, h0 = stage.clientHeight;
-  [[375, 812], [412, 915], [820, 600]].forEach(function (sz) {
+  [[375, 812], [412, 915], [820, 600], [412, 430], [360, 640]].forEach(function (sz) {
     stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
     startShift(8);
     pump(0.3);
-    var r = MB.fryerRect();
+    var r = MB.fryerRect(), fz = MB.freezerRect(), L2 = MB.layout;
     var at = sz.join('x') + ': ';
-    assert.ok(r.h > 0, at + 'setup: there should be a fry box');
-    // the two wells live in the lower band; the freezer owns the upper one
+    assert.ok(r.h > 0 && fz.h > 0, at + 'setup: day 8 should have a fry line');
+
+    // top-left corner, on the grill wall, above the fryer
+    assert.strictEqual(fz.x, L2.grillX, at + 'the freezer left the grill wall');
+    assert.ok(fz.x < L2.W / 2, at + 'the grill wall is not on the left');
+    assert.ok(fz.y >= L2.cratesBottom, at + 'the freezer climbed into the crate shelf');
+    assert.ok(fz.y + fz.h <= r.y + 0.01,
+      at + 'the freezer overlaps the fryer: ends ' + (fz.y + fz.h).toFixed(0) +
+      ' vs fryer at ' + r.y.toFixed(0));
+
+    // the burners are under the fryer, at the bottom of the band
+    var g0 = MB.slotRect(0), gN = S.grill.length;
+    var gLast = MB.slotRect(gN - 1);
+    assert.ok(g0.y >= r.y + r.h - 0.01,
+      at + 'the burners climbed into the fryer: ' + g0.y.toFixed(0) + ' vs ' + (r.y + r.h).toFixed(0));
+    assert.ok(gLast.y + gLast.h <= L2.midBottom + 0.01, at + 'the burners run past the band');
+
     for (var i = 0; i < S.fryer.length; i++) {
       var wr = MB.fryWellRect(i);
-      assert.ok(wr.y >= r.y + r.h * 0.30,
-        at + 'well ' + i + ' reaches up into the freezer row');
-      assert.ok(wr.y + wr.h <= r.y + r.h + 0.01, at + 'well ' + i + ' hangs out of the box');
+      assert.ok(wr.y >= r.y - 0.01 && wr.y + wr.h <= r.y + r.h + 0.01,
+        at + 'well ' + i + ' hangs out of the fry box');
     }
     // and drawing the whole station throws at none of these sizes
     var g = makeCtx();
@@ -3552,6 +3572,7 @@ test('no two fixtures in the room stand in the same place', function () {
       for (i = 0; i < S.grill.length; i++) boxes.push(['grill' + i, MB.slotRect(i)]);
       for (i = 0; i < S.plates.length; i++) boxes.push(['plate' + i, MB.plateRect(i)]);
       if (MB.layout.fryH) boxes.push(['fryer', MB.fryerRect()]);
+      if (MB.layout.freezerH) boxes.push(['freezer', MB.freezerRect()]);
       if (MB.layout.tapH) boxes.push(['tap', MB.tapRect()]);
       if (MB.layout.board) boxes.push(['board', MB.boardRect()]);
       boxes.push(['hatch', MB.hatchRect()], ['bin', MB.binRect()]);

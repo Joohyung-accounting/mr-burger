@@ -348,7 +348,7 @@
   // burner. Splitting it here rather than floating the sack and the cutter over
   // the grill: at 28px wide over a 68px column they collided with each other
   // and with the burner above, and an illegible label is worse than none.
-  var FRYER_H = 78, TAP_H = 54;
+  var FRYER_H = 78, TAP_H = 54, FREEZER_H = 46;
   /*
    * One vegetable, one portion.
    *
@@ -687,7 +687,13 @@
     L.midBottom = L.hatchY - 10 * k;
     L.colW = clamp(W * 0.19, 62, 92);
     var leftX = L.pad, rightX = W - L.pad - L.colW;
-    var grillLeft = room.plain || room.grill === 'left';
+    /*
+     * The grill wall is the left one, always. The freezer is pinned to the
+     * top-left corner and the fryer hangs under it, so the wall they stand on
+     * cannot be the one that flips - the whole fry line would change sides
+     * with it. Variety lives in the palette, the crate line and the walls.
+     */
+    var grillLeft = true;
     L.grillX = grillLeft ? leftX : rightX;
     L.plateX = grillLeft ? rightX : leftX;
 
@@ -747,7 +753,18 @@
     // what is left, which is what makes the plate stack shrink and sit lower
     var boardBand = S.board ? L.boardH + gap + 4 : 0;
     var plateSpace = midH - boardBand;
-    L.slotH = Math.min(SLOT_H * k, (midH - gap * (gN + fryN - 1)) / (gN + fryN));
+    /*
+     * The left wall reads top to bottom in the order the food moves: the
+     * freezer, the fryer under it, and the grill at the bottom. The freezer
+     * used to be drawn inside the fry box's own top third, which made it a
+     * decoration on another machine rather than a place; it has its own band
+     * now and is pinned to the top-left corner of the room.
+     */
+    L.freezerH = fryN ? Math.min(FREEZER_H * k, midH * 0.24) : 0;
+    var coldBand = fryN ? L.freezerH + gap : 0;
+    var leftSpace = midH - coldBand;
+    L.slotH = Math.min(SLOT_H * k,
+                       (leftSpace - gap * (gN + fryN - 1)) / (gN + fryN * 1.35));
     /*
      * The fountain is budgeted at 1.55 slots because that is what it takes -
      * tapH is plateH * 1.55. Dividing by (pN + tapN) gave it one slot and the
@@ -773,7 +790,16 @@
     L.fryH = fryN ? Math.min(FRYER_H * k, L.slotH * 1.35) : 0;
     var gTotal = gN * L.slotH + (gN - 1) * gap + (fryN ? gap + L.fryH : 0);
     var pTotal = pN * L.plateH + (pN - 1) * gap + (tapN ? gap + L.tapH : 0);
-    L.grillTop = L.midTop + (midH - gTotal) / 2;
+    /*
+     * The burners sit at the BOTTOM of the wall, hard against the bottom of
+     * the band, with whatever slack the column has left opening up between
+     * them and the fryer above. Clamped so they can never climb into it.
+     */
+    var burners = gN * L.slotH + (gN - 1) * gap;
+    L.freezerTop = L.midTop + 2;
+    L.fryTop = L.midTop + coldBand;
+    L.grillTop = Math.max(L.fryTop + (fryN ? L.fryH + gap : 0),
+                          L.midBottom - burners);
     /*
      * Centred in the space under the board, then nudged down a little further -
      * a stack pinned right under the board reads as one tall fixture rather
@@ -787,7 +813,6 @@
      */
     L.plateTop = L.midTop + boardBand - (L.midTop - (L.cratesBottom + 8)) +
                  Math.max(0, Math.min((plateSpace - pTotal) / 2, plateSpace - pTotal));
-    L.fryTop = L.grillTop + gN * (L.slotH + gap);
 
     // --- the walkable floor: whatever is left between the two walls. The board
     // is the widest thing on the plate side, so it sets that edge.
@@ -890,12 +915,15 @@
 
   function fryerRect() { return { x: L.grillX, y: L.fryTop, w: L.colW, h: L.fryH }; }
 
+  /** The freezer, pinned to the top of the grill wall. Scenery, not a target. */
+  function freezerRect() { return { x: L.grillX, y: L.freezerTop, w: L.colW, h: L.freezerH }; }
+
   /** One well of the two, side by side inside the fry box. */
   function fryWellRect(i) {
     var r = fryerRect(), pad = r.w * 0.10, gap = r.w * 0.06;
     var ww = (r.w - pad * 2 - gap) / 2;
-    var below = r.y + r.h * FRY_SUPPLY;
-    var bh = r.h * (1 - FRY_SUPPLY);
+    var below = r.y;
+    var bh = r.h;
     return { x: r.x + pad + i * (ww + gap), y: below + bh * 0.30, w: ww, h: bh * 0.44 };
   }
 
@@ -2489,6 +2517,24 @@
   /** Seconds-based wrapper, for anything not driven by a vegetable. */
   function chopSwing(t) { return chopCurve(t * 1.55); }
 
+  /*
+   * The freezer, in the top-left corner on its own. It used to be drawn into
+   * the fry box's top third, where it was a decoration on another machine and
+   * shrank with it; it is a fixture of the room now, with the fryer under it.
+   */
+  function drawFreezerUnit() {
+    if (!L.freezerH) return;
+    var r = freezerRect(), t = nowMs() / 1000;
+    if (Art.scene.freezer) {
+      var pose = freezerPose();
+      Art.scene.freezer(ctx, r.x, r.y, r.w, r.h, { open: pose.open, grab: pose.grab, t: t });
+    } else if (Art.scene.sack) {
+      // art-freezer-dispenser.js is a separate file; if it never loaded, the
+      // sack it replaced still stands rather than leaving a hole
+      Art.scene.sack(ctx, r.x + r.w * 0.20, r.y, r.w * 0.60, r.h, { open: 1, count: 4 });
+    }
+  }
+
   function drawFryStation() {
     // art-fries-drinks.js is a separate file. If it ever fails to load, the
     // station simply is not drawn - the room should not die with it.
@@ -2497,30 +2543,7 @@
     var busy = S.fryer.some(function (w) { return !!w; });
     var t = nowMs() / 1000;   // the oil bubbles and the crank turn on real time
 
-    /*
-     * Supply across the top of the box: a chest freezer of frozen bags.
-     *
-     * It replaces the sack and the hand cutter that used to share this row.
-     * Two machines in 71x36px were always going to crowd, and one of them said
-     * "we peel our own potatoes" - a different restaurant from the one with a
-     * fountain beside it. The freezer is one machine across the whole row, so
-     * it gets twice the width either of them had.
-     */
-    var supH = r.h * FRY_SUPPLY * 0.96;
-    if (Art.scene.freezer) {
-      var pose = freezerPose();
-      Art.scene.freezer(ctx, r.x + r.w * 0.02, r.y, r.w * 0.96, supH,
-                        { open: pose.open, grab: pose.grab, t: t });
-    } else if (Art.scene.sack) {
-      // art-freezer-dispenser.js is a separate file; if it never loaded, the
-      // row it replaced still stands rather than leaving a hole
-      Art.scene.sack(ctx, r.x + r.w * 0.03, r.y, r.w * 0.40, supH, { open: 1, count: 4 });
-      Art.scene.cutter(ctx, r.x + r.w * 0.50, r.y, r.w * 0.46, supH,
-        { spin: busy ? (t * 1.6) % 1 : 0, load: busy ? 1 : 0.35, out: busy ? 0.7 : 0 });
-    }
-
-    var fy = r.y + r.h * FRY_SUPPLY, fh = r.h * (1 - FRY_SUPPLY);
-    Art.scene.fryer(ctx, r.x, fy, r.w, fh, {
+    Art.scene.fryer(ctx, r.x, r.y, r.w, r.h, {
       // o.temp is the TEXT on the dial, not a 0..1 heat - passing a fraction
       // wrote "0.82°" across the machine's own name. The default reads 180°.
       hot: 1, t: t,
@@ -3102,6 +3125,7 @@
     // a wall fitting now, like the plates it sits above - always behind the cook
     drawPrepBoard();
     drawGrill();
+    drawFreezerUnit();
     drawFryStation();
     drawPlates();
     drawFountain();
@@ -5148,7 +5172,7 @@
     chopCurve: chopCurve, drawPrepBoard: drawPrepBoard, drawCarried: drawCarried,
     drawPlates: drawPlates, drawSet: drawSet, setExtras: setExtras,
     dispenserView: dispenserView, freezerPose: freezerPose, drawFryStation: drawFryStation,
-    tapColRect: tapColRect, tapColAt: tapColAt,
+    tapColRect: tapColRect, tapColAt: tapColAt, freezerRect: freezerRect,
     drawFountain: drawFountain,
     showLeaderboard: showLeaderboard, showAccount: showAccount, lbMap: lbMap,
     paintAccount: paintAccount, accountNote: function () { return acct.note; },
