@@ -435,16 +435,22 @@
    * whole life, or the sweet spot arrives while the player is still walking
    * over and the rest of the cook is dead time.
    *
-   * Pushing the burnt verdict three seconds later therefore cannot be done on
-   * BURN_TIME alone - that stretches only the tail and drags the sweet spot
-   * back to the halfway point this was moved away from. The cook lengthens
-   * with it: 11.4 + 0.8 + 3.0 = 15.2s of life, perfect at 75% of it, and the
-   * verdict at 13.7s where it used to be 10.7s.
+   * Pushing the burnt verdict later therefore cannot be done on BURN_TIME
+   * alone - that stretches only the tail and drags the sweet spot back to the
+   * halfway point this was moved away from. The cook lengthens with it, and
+   * the pair is solved rather than guessed: with the verdict at
+   * COOK_TIME + w/2 + BURN_TIME/2 and the sweet spot pinned at 75% of
+   * COOK_TIME + w/2 + BURN_TIME, asking for a verdict at time T gives
+   * COOK_TIME = (T - w/4) * 6/7 and BURN_TIME = COOK_TIME/3 - w/2.
+   *
+   * The verdict has moved twice by request: 10.7s -> 13.7s -> 16.7s. This is
+   * the third set of numbers, and 18.6s is now the patty's whole life - long
+   * enough that the grill is a slow station rather than a reflex test.
    *
    * The fry wells read the same curve, so a basket gets the same grace.
    */
-  var COOK_TIME = 11.4;  // seconds to the middle of the perfect zone
-  var BURN_TIME = 3.0;   // seconds from leaving the zone to fully ruined
+  var COOK_TIME = 14.0;  // seconds to the middle of the perfect zone
+  var BURN_TIME = 3.86;  // seconds from leaving the zone to fully ruined
   var TIP_RATE = 0.70;   // tip ceiling as a fraction of the ticket
   var BASE_WINDOW = 1.6; // seconds of perfect zone before upgrades
   var EXTRA_PENALTY = 0.20; // accuracy lost per unwanted filling on the plate
