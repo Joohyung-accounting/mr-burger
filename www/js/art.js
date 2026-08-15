@@ -2647,10 +2647,24 @@
    * Same contract as titleBoxes: drawHUD reads it too, so the drawn square and
    * the tap target are the same square.
    */
+  /*
+   * The HUD's own geometry, so the drawing and anything measuring it read the
+   * same numbers.  and  are here because they collided: the target
+   * was drawn at a baseline whose cap height reached down into the takings
+   * bar, and nothing in the file connected the two constants.
+   */
   function hudBoxes(x, y, w, h) {
     var pad = h * 0.13, px = x + pad, pw = w - pad * 2, ph = h - pad * 2;
     var bs = ph * 0.52;
-    return { pause: { x: px + pw * 0.028, y: y + h / 2 - bs / 2, w: bs, h: bs } };
+    var capBase = y + h * 0.235, capH = ph * 0.125;
+    var amtBase = y + h * 0.425, amtH = ph * 0.200;
+    return {
+      pause: { x: px + pw * 0.028, y: y + h / 2 - bs / 2, w: bs, h: bs },
+      need: { x: px, y: capBase - capH, w: pw, h: amtBase - (capBase - capH) },
+      bar: { x: px, y: y + h * 0.52, w: pw, h: ph * 0.20 },
+      capBase: capBase, capH: capH, amtBase: amtBase, amtH: amtH,
+      right: px + pw * 0.972
+    };
   }
 
   function drawHUD(ctx, x, y, w, h, o) {
@@ -2723,15 +2737,23 @@
      */
     var need = o.need === undefined ? 0 : o.need;
     var needTxt = need > 0 ? '$' + need.toFixed(2) : 'CLEAR';
-    var capSize = ph * 0.125, needSize = ph * 0.200;
-    var needRight = px + pw * 0.972;
+    var HB = hudBoxes(x, y, w, h);
+    var capSize = HB.capH, needSize = HB.amtH;
+    var needRight = HB.right;
     var needW = Math.max(penTextWidth(needTxt, needSize, 0.06),
                          penTextWidth(need > 0 ? 'STILL NEED' : 'RENT', capSize, 0.16));
     var hLeft = needRight - needW;
-    penLetters(ctx, need > 0 ? 'STILL NEED' : 'RENT', needRight, y + h * 0.300, capSize, {
+    /*
+     * Both lines live in the band the hearts had, ABOVE the thermometer.
+     *
+     * The amount was at 0.560 of the HUD's height with a cap of 0.148, so it
+     * spanned 0.412 to 0.560 - and the takings bar starts at 0.520. The number
+     * the whole day is judged by was being drawn through the bar.
+     */
+    penLetters(ctx, need > 0 ? 'STILL NEED' : 'RENT', needRight, HB.capBase, capSize, {
       fill: '#a08a6e', weight: 0.125, track: 0.16, align: 'right', seed: s + 40
     });
-    penLetters(ctx, needTxt, needRight, y + h * 0.560, needSize, {
+    penLetters(ctx, needTxt, needRight, HB.amtBase, needSize, {
       fill: need > 0 ? '#c0392b' : '#3f7a2a', line: need > 0 ? null : '#2c5a1e',
       weight: 0.145, track: 0.06, align: 'right', seed: s + 41
     });
@@ -2788,7 +2810,7 @@
     });
 
     // takings thermometer: hatched fill with a torn leading edge
-    var barY = y + h * 0.52, barH = ph * 0.20;
+    var barY = HB.bar.y, barH = HB.bar.h;
     var barW = cx1 - cx0;
     var track = rectPts(cx0, barY, barW, barH, barH * 0.42, barH * 0.06, s + 20);
     ink(ctx, track, '#efe3cc', { lw: lw * 0.85, off: 0, line: '#8a7259', seed: s + 20 });

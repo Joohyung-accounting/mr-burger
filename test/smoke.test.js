@@ -4194,6 +4194,39 @@ test('a shift is won or lost on the till, and the bin counts against it', functi
     'a shift that binned everything it made should fail');
 });
 
+/*
+ * The number the whole day is judged by must not be drawn through the bar
+ * that measures the same thing. It was: the target sat on a baseline whose
+ * cap height reached down into the takings thermometer, because nothing in
+ * the file connected the two constants. They come from hudBoxes now.
+ */
+test('the day\'s target is not drawn through the takings bar', function () {
+  [[320, 48], [375, 58], [412, 58], [560, 72]].forEach(function (sz) {
+    var B = Art.ui.hudBoxes(0, 0, sz[0], sz[1]);
+    var where = sz.join('x') + ': ';
+    ['need', 'bar', 'pause'].forEach(function (k) {
+      var r = B[k];
+      assert.ok(r && isFinite(r.x) && r.w > 0 && r.h > 0, where + k + ' is not a box');
+      assert.ok(r.y >= -0.5 && r.y + r.h <= sz[1] + 0.5, where + k + ' hangs off the HUD');
+    });
+    assert.ok(B.need.y + B.need.h <= B.bar.y + 0.01,
+      where + 'the target overlaps the takings bar by ' +
+      (B.need.y + B.need.h - B.bar.y).toFixed(1) + 'px');
+    // the pause square is on the left, the target on the right - never both
+    assert.ok(B.pause.x + B.pause.w <= B.right - 1, where + 'the pause square reaches the target');
+  });
+
+  // and the HUD draws at every state without throwing
+  [[12.34, 2.5], [0, 0], [0.01, 99.9]].forEach(function (st) {
+    assert.doesNotThrow(function () {
+      Art.ui.hud(makeCtx(), 0, 0, 412, 58, {
+        day: 12, time: '1:20', earned: 58.66, goal: 71, pct: 0.82, tip: 0.5,
+        need: st[0], waste: st[1]
+      });
+    }, 'the HUD threw with need=' + st[0]);
+  });
+});
+
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');
 
 
