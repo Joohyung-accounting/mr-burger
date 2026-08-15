@@ -1270,9 +1270,6 @@
   function reserveBoard(day) {
     var cfg = Core.dayConfig(day);
     var rows = cfg.maxExtras + ((day >= 8 && cfg.maxExtras >= 2) ? 1 : 0);
-    // ...plus the tray's own two lines, once the day can ask for them.
-    if (day >= Core.SIDE_DAY) rows += 1;
-    if (Core.drinkMenu(day).length) rows += 1;
     try {
       document.documentElement.style.setProperty('--order-rows', Math.max(1, rows));
     } catch (e) { /* a stubbed DOM has no style object; the board just flows */ }
@@ -2426,18 +2423,7 @@
         ctx.restore();
       }
 
-      var bx = r.x + 6, bw = r.w - 12, by = r.y + r.h - 10, bh = 5;
-      Art.rr(ctx, bx, by, bw, bh, 2.5);
-      ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fill();
-      var ps = (Core.COOK_TIME - win / 2) / tMax, pe = (Core.COOK_TIME + win / 2) / tMax;
-      Art.rr(ctx, bx + bw * ps, by, bw * (pe - ps), bh, 2.5);
-      ctx.fillStyle = 'rgba(174,191,146,0.6)';
-      ctx.fill();
-      Art.rr(ctx, bx, by, Math.max(2, bw * clamp(g.t / tMax, 0, 1)), bh, 2.5);
-      ctx.fillStyle = stage === 'perfect' ? K.go
-        : (stage === 'raw' ? '#7fb6e8' : (stage === 'over' ? C.warm : K.hot));
-      ctx.fill();
+      cookBar(r, g.t);
     }
   }
 
@@ -2609,6 +2595,40 @@
     }
   }
 
+  /*
+   * The doneness bar: a track, the green window marked on it, and a fill
+   * coloured by where the clock actually is - blue while raw, green in the
+   * window, amber past it, red once it is written off.
+   *
+   * The grill has worn this from the beginning. The fry wells were asking the
+   * player to read the same four states off the colour of the fries alone,
+   * which is a far finer distinction than a bar and one the basket half
+   * covers. Same curve, same window, same bar - so a basket and a patty are
+   * read the same way.
+   */
+  function cookBar(r, t) {
+    var win = S.fx.perfectWindow;
+    var tMax = Core.COOK_TIME + win / 2 + Core.BURN_TIME;
+    var stage = Core.cookStage(t, win);
+    var pad = Math.min(6, r.w * 0.14);
+    var bx = r.x + pad, bw = r.w - pad * 2;
+    var bh = Math.max(3, Math.min(5, r.h * 0.14));
+    var by = r.y + r.h - bh - Math.min(5, r.h * 0.10);
+    if (bw <= 2) return;
+
+    Art.rr(ctx, bx, by, bw, bh, bh / 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fill();
+    var ps = (Core.COOK_TIME - win / 2) / tMax, pe = (Core.COOK_TIME + win / 2) / tMax;
+    Art.rr(ctx, bx + bw * ps, by, bw * (pe - ps), bh, bh / 2);
+    ctx.fillStyle = 'rgba(174,191,146,0.6)';
+    ctx.fill();
+    Art.rr(ctx, bx, by, Math.max(2, bw * clamp(t / tMax, 0, 1)), bh, bh / 2);
+    ctx.fillStyle = stage === 'perfect' ? K.go
+      : (stage === 'raw' ? '#7fb6e8' : (stage === 'over' ? C.warm : K.hot));
+    ctx.fill();
+  }
+
   function drawFryStation() {
     // art-fries-drinks.js is a separate file. If it ever fails to load, the
     // station simply is not drawn - the room should not die with it.
@@ -2632,7 +2652,9 @@
     // same way everywhere in the room
     S.fryer.forEach(function (w, i) {
       if (!w) return;
-      if (Core.cookStage(w.t, S.fx.perfectWindow) === 'perfect') pickRing(fryWellRect(i), 10);
+      var wr = fryWellRect(i);
+      cookBar(wr, w.t);
+      if (Core.cookStage(w.t, S.fx.perfectWindow) === 'perfect') pickRing(wr, 10);
     });
   }
 
@@ -3421,15 +3443,18 @@
       var ing = Core.byId(r.id);
       return { n: r.n > 1 ? ing.short + ' x' + r.n : ing.short, c: ing.swatch };
     });
-    // PLAIN only means a plain BURGER - a slip with fries on it is not blank.
-    if (!out.length && !side && !drink) return [{ n: 'PLAIN', c: '#e0cba6' }];
-    if (side && Core.SIDES[side]) {
-      out.push({ n: Core.SIDES[side].short, c: Core.SIDES[side].swatch });
-    }
-    if (drink) {
-      var dr = Core.drinkById(drink);
-      if (dr) out.push({ n: dr.short, c: dr.swatch });
-    }
+    // The list describes the BURGER, so PLAIN means a plain burger - whether
+    // or not a carton and a cup are riding beside it in the picture.
+    if (!out.length) return [{ n: 'PLAIN', c: '#e0cba6' }];
+    /*
+     * The tray's own two lines are gone.
+     *
+     * drawTraySet already draws the carton and the cup beside the burger, in
+     * their own colours, at a size you can read across the room - and then the
+     * list underneath wrote FRIES and COLA again. Two of the five lines on a
+     * busy slip were captioning a picture. What is left is the thing the
+     * picture genuinely cannot say: which fillings go in the burger.
+     */
     return out;
   }
 

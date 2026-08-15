@@ -250,7 +250,7 @@ body:not(.no-clock) #stage { flex-grow: 40; }
  */
 .board-wrap {
   flex: 0 0 auto;
-  --board-h: calc(104px + var(--order-rows) * 12px);
+  --board-h: calc(104px + var(--order-rows) * 18px);
 }
 .board-art {
   display: block;

@@ -3296,13 +3296,13 @@
       if (o.face) o.face(ctx, t.who, tx + tw * 0.20, ty + th * 0.075, tw * 0.60, th * 0.235);
       if (o.food) o.food(ctx, t, tx + tw * 0.14, ty + th * 0.325, tw * 0.72, th * 0.255);
 
-      var rows = t.rows || [], ry = ty + th * 0.665, rs = th * 0.068;
+      var rows = t.rows || [], ry = ty + th * 0.655, rs = th * 0.082;
       // From day nine an order can call for five lines. At the drawn pitch the
       // list runs past the bottom of the paper and through the patience stroke
       // - and nothing here is clipped, so it would simply spill onto the batten
       // below. Tighten the pitch, and only the pitch, once it has to: one, two
       // and three lines still sit exactly where they were drawn.
-      var room = th * (0.900 - 0.665);
+      var room = th * (0.910 - 0.655);
       // the trailing term is the glyph's own height - keep it in step with the
       // size below, or a five-line slip budgets for letters it no longer draws
       if (rows.length && (rows.length - 1) * rs * 1.15 + rs * 0.86 > room) {

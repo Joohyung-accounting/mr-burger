@@ -2709,17 +2709,27 @@ test('an unknown side or drink draws nothing, and never throws', function () {
     'an unnamed side or drink was still drawn on the slip');
 });
 
-test('the slip has a line for the fries and a line for the cup', function () {
-  var rows = MB.orderRows(['bun', 'patty', 'cheese'], 'fries', 'cola');
-  var names = rows.map(function (r) { return r.n; });
-  assert.ok(names.indexOf('FRIES') >= 0, 'no fries on the slip: ' + names.join(','));
-  assert.ok(names.indexOf('COLA') >= 0, 'no drink on the slip: ' + names.join(','));
-  rows.forEach(function (r) { assert.ok(r.c && r.n, 'a row is missing its swatch or label'); });
+/*
+ * The slip names the fillings and nothing else.
+ *
+ * drawTraySet already draws the carton and the cup beside the burger, in
+ * their own colours; the list underneath used to write FRIES and COLA again,
+ * so two of the five lines on a busy slip were captioning a picture.
+ */
+test('the slip names the fillings, and leaves the tray to the picture', function () {
+  var names = MB.orderRows(['bun', 'patty', 'cheese'], 'fries', 'cola')
+    .map(function (r) { return r.n; });
+  assert.deepStrictEqual(names, ['Cheese'],
+    'the slip is still captioning the tray: ' + names.join(','));
 
-  // a bare burger with a side is not PLAIN
-  var bare = MB.orderRows(['bun', 'patty'], 'fries', null).map(function (r) { return r.n; });
-  assert.ok(bare.indexOf('PLAIN') < 0, 'a tray with fries on it was called PLAIN');
+  // a burger with nothing on it is PLAIN, tray or no tray
   assert.strictEqual(MB.orderRows(['bun', 'patty'], null, null)[0].n, 'PLAIN');
+  assert.strictEqual(MB.orderRows(['bun', 'patty'], 'fries', 'cola')[0].n, 'PLAIN',
+    'a plain burger stopped being plain because a drink came with it');
+
+  // every row still carries the swatch the chip beside it is drawn in
+  MB.orderRows(['bun', 'patty', 'cheese', 'lettuce'], 'fries', 'cola')
+    .forEach(function (r) { assert.ok(r.c && r.n, 'a row is missing its swatch or label'); });
 });
 
 test('the board still reserves enough lines once the tray is on it', function () {
@@ -3927,6 +3937,65 @@ test('the fryer will not run without a bag carried over from the freezer', funct
   // over the wire too
   var back = MB.unpackHold(MB.packHold({ kind: 'fryBag' }));
   assert.strictEqual(back.kind, 'fryBag', 'a bag came back as ' + JSON.stringify(back));
+});
+
+/*
+ * The fry wells wear the grill's doneness bar.
+ *
+ * They used to ask the player to read raw / perfect / over / burnt off the
+ * colour of the fries alone - a far finer distinction than a bar, and one the
+ * basket half covers. Same curve, same window, same bar, so a basket and a
+ * patty are read the same way.
+ */
+test('a basket in the oil shows how done it is, the way a patty does', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  var g = stage.getContext('2d');
+
+  [[375, 812], [412, 430], [820, 600]].forEach(function (sz) {
+    stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+    startShift(8);
+    pump(0.3);
+    var where = sz.join('x') + ': ';
+    assert.ok(S.fryer.length, where + 'setup: day 8 should have a fry line');
+
+    /*
+     * Count the rounded rects each station paints inside one cooking slot: a
+     * track, the green window marked on it, and the fill. The colour mapping
+     * is one line shared with the grill, so what this has to prove is that the
+     * bar is THERE - the wells had none.
+     */
+    function barsIn(rect, paint) {
+      var seen = [], realRR = Art.rr;
+      Art.rr = function (c, x, y, w, h) { seen.push({ x: x, y: y, w: w, h: h }); };
+      try { paint(); } finally { Art.rr = realRR; }
+      return seen.filter(function (b) {
+        return b.w > 0 && b.h > 0 &&
+               b.x >= rect.x - 0.6 && b.x + b.w <= rect.x + rect.w + 0.6 &&
+               b.y >= rect.y - 0.6 && b.y + b.h <= rect.y + rect.h + 0.6;
+      });
+    }
+
+    [1, Core.COOK_TIME, Core.COOK_TIME + 2.4, Core.COOK_TIME * 2].forEach(function (t) {
+      S.fryer[0] = { t: t };
+      var n = barsIn(MB.fryWellRect(0), MB.drawFryStation).length;
+      assert.ok(n >= 3, where + 'a basket at ' + t.toFixed(1) + 's drew ' + n +
+        ' bars in its well - it needs a track, a window and a fill');
+    });
+    S.fryer[0] = null;
+
+    // an empty well has nothing to say
+    assert.strictEqual(barsIn(MB.fryWellRect(0), MB.drawFryStation).length, 0,
+      where + 'an empty well drew a doneness bar');
+
+    // and the patty still has its own
+    S.grill[0] = { id: 'patty', t: Core.COOK_TIME };
+    var gn = barsIn(MB.slotRect(0), MB.drawGrill).length;
+    S.grill[0] = null;
+    assert.ok(gn >= 3, where + 'the grill lost its bar: ' + gn);
+  });
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.3);
 });
 
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');
