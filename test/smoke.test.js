@@ -1446,11 +1446,42 @@ test('pausing is refused outside a shift', function () {
   S.screen = 'title';
 });
 
-test('progress is saved and reloaded', function () {
+/*
+ * CONTINUE has to offer the shift you walked out of.
+ *
+ * The only save was at the end of a shift and it wrote down the day that had
+ * just been COMPLETED, so quitting during day 8 came back offering day 7 - a
+ * day already cleared and banked. Two writes fix it between them: the day you
+ * are about to play, and on a clean finish the day after it.
+ */
+test('the save holds the shift you would come back to', function () {
+  startShift(6);
+  var saved = function () { return JSON.parse(storeData['mb_save_v2']); };
+
   assert.ok(storeData['mb_save_v2'], 'nothing was written to storage');
-  var saved = JSON.parse(storeData['mb_save_v2']);
-  assert.strictEqual(saved.day, 1);
-  assert.strictEqual(saved.money, S.money);
+  assert.strictEqual(saved().day, 6,
+    'starting day 6 wrote down day ' + saved().day + ' - a quit mid-shift would replay it');
+  assert.strictEqual(saved().money, S.money);
+
+  // walking out mid-shift changes nothing: the day is already written down
+  MB.quitToTitle();
+  assert.strictEqual(saved().day, 6, 'quitting rewound the save to day ' + saved().day);
+
+  // clear a shift and the save moves on, so the shop screen is not a trap
+  startShift(6);
+  S.hearts = Core.START_HEARTS;
+  S.sales = S.rent + 1000;
+  S.tips = 0;
+  MB.endDay();
+  assert.strictEqual(saved().day, 7,
+    'a cleared day 6 left the save on ' + saved().day + ' - closing the app at the shop replays it');
+  assert.strictEqual(S.day, 6, 'endDay moved the shift itself, not just the bookmark');
+
+  // ...and a shift that was NOT cleared stays where it is
+  startShift(9);
+  S.hearts = 0;
+  MB.endDay();
+  assert.strictEqual(saved().day, 9, 'a failed day 9 wrote down ' + saved().day);
 });
 
 test('upgrades cost money, raise the level, and stop at max', function () {

@@ -1283,6 +1283,23 @@
     S.userPaused = false;
 
     /*
+     * Write down the day you are about to PLAY.
+     *
+     * The only save was at the end of a shift, and it stored the day that had
+     * just been completed - so quitting during day 8 came back offering day 7,
+     * the one you had already cleared. Saving here means CONTINUE always
+     * resumes the shift you walked out of, whether you quit from the pause
+     * sheet, closed the tab, or the phone killed the app mid-service.
+     *
+     * It costs one write per day, which is what the end of a shift already
+     * cost - the shift itself is not saved, only which one it is.
+     */
+    S.day = day;
+    S.saved = true;
+    save();
+    if (el.continueDay) el.continueDay.textContent = day;
+
+    /*
      * A new shift opens on the first bar.
      *
      * The track deliberately survives a pause, a mute and the tab going to the
@@ -1370,7 +1387,17 @@
       S.money += total - S.rent;
       S.lifetime = (S.lifetime || 0) + total;
       S.bestDay = Math.max(S.bestDay, S.day);
+      /*
+       * The shift you cleared is behind you, so what gets written down is the
+       * NEXT one. Between here and the shop screen the player may close the
+       * app, and coming back to replay a day they had already banked is the
+       * bug this pairs with startDay's own save.
+       */
+      S.day += 1;
       save();
+      S.day -= 1;
+      if (el.continueDay) el.continueDay.textContent = S.day + 1;
+      S.saved = true;
       Sfx.fanfare();
     } else {
       Sfx.fail();
@@ -2423,7 +2450,7 @@
         ctx.restore();
       }
 
-      cookBar(r, g.t);
+      cookBar(r, g.t, 0.80);
     }
   }
 
@@ -2606,13 +2633,21 @@
    * covers. Same curve, same window, same bar - so a basket and a patty are
    * read the same way.
    */
-  function cookBar(r, t) {
+  function cookBar(r, t, scale) {
     var win = S.fx.perfectWindow;
     var tMax = Core.COOK_TIME + win / 2 + Core.BURN_TIME;
     var stage = Core.cookStage(t, win);
+    /*
+     *  trims the bar without moving it. The burner is the roomiest slot
+     * in the kitchen and its bar was reading as a component of the machine
+     * rather than a readout on it; the fry wells are half the size and keep
+     * the full-width bar, which is why this is a knob and not a new constant.
+     */
+    scale = scale === undefined ? 1 : scale;
     var pad = Math.min(6, r.w * 0.14);
-    var bx = r.x + pad, bw = r.w - pad * 2;
-    var bh = Math.max(3, Math.min(5, r.h * 0.14));
+    var bw = (r.w - pad * 2) * scale;
+    var bx = r.x + (r.w - bw) / 2;
+    var bh = Math.max(3, Math.min(5, r.h * 0.14) * scale);
     var by = r.y + r.h - bh - Math.min(5, r.h * 0.10);
     if (bw <= 2) return;
 
