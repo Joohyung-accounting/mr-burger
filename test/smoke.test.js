@@ -4349,6 +4349,201 @@ test('a shop row lays its icon, name and price out without them touching', funct
   });
 });
 
+/*
+ * ── the lying-down room ──────────────────────────────────────────────────
+ *
+ * A phone on its side hands the kitchen about 620x313, and the standing-up
+ * layout cannot use it: two columns of stations down the sides need height
+ * the room does not have, and the left one alone wants a freezer, a fryer
+ * and five burners. Measured before the bands existed, EVERY landscape phone
+ * went cramped - the smallest by day 2.
+ *
+ * So the walls lie down: the fry line and the burners in a band along the
+ * top, the board and the plates along the bottom, the floor between them.
+ * These three tests are the ones that would have caught the version that did
+ * not fit, and the ones that stop it drifting back.
+ */
+function wideRooms(fn) {
+  // real landscape handsets, less the HUD and the board column beside the room
+  [[620, 313], [652, 328], [548, 298], [475, 313], [832, 538]].forEach(function (sz) {
+    stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+    for (var day = 1; day <= 25; day++) {
+      S.levels = { plate: 2, burner: 2, grill: 3, shoes: 3 };
+      MB.startDay(day); MB.resize();
+      fn(sz.join('x') + ' day ' + day, sz);
+    }
+  });
+}
+
+/** Every box the room draws, by the name it should be reported under. */
+function roomBoxes() {
+  var R = [], i, n = S.grill.length, p = S.plates.length;
+  for (i = 0; i < n; i++) R.push(['burner' + i, MB.slotRect(i)]);
+  for (i = 0; i < p; i++) R.push(['plate' + i, MB.plateRect(i)]);
+  if (S.fryer.length) R.push(['fryer', MB.fryerRect()], ['freezer', MB.freezerRect()]);
+  if (S.board) R.push(['board', MB.boardRect()]);
+  R.push(['hatch', MB.hatchRect()], ['bin', MB.binRect()]);
+  if (L.tapH) R.push(['fountain', MB.tapRect()]);
+  for (i = 0; i < L.crates.length; i++) R.push(['crate' + i, L.crates[i]]);
+  // the counters the slots are recessed into, which is what actually gets
+  // drawn - the slots alone never caught a bench running into its neighbour
+  R.push(['grillBench', {
+    x: MB.slotRect(0).x - 3, y: L.grillTop - L.gPadTop,
+    w: (MB.slotRect(n - 1).x + L.colW) - MB.slotRect(0).x + 6,
+    h: L.slotH + L.gPadTop + L.gPadBot
+  }], ['plateBench', {
+    x: MB.plateRect(0).x - 3, y: L.plateTop - L.pPadTop,
+    w: (MB.plateRect(p - 1).x + L.plateW) - MB.plateRect(0).x + 6,
+    h: L.plateH + L.pPadTop + L.pPadBot
+  }], ['floor', {
+    x: L.floor.x0, y: L.floor.y0,
+    w: L.floor.x1 - L.floor.x0, h: L.floor.y1 - L.floor.y0
+  }]);
+  return R;
+}
+
+test('a room lying down fits its kitchen in, on every landscape phone', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  var worst = null;
+  wideRooms(function (where) {
+    assert.ok(L.wide, where + ': should have laid out as a wide room');
+    if (S.cramped) worst = worst || where;
+    // the floor is not a leftover - the cook has to stand in it
+    assert.ok(L.floor.y1 - L.floor.y0 >= L.chefS * 0.95,
+      where + ': floor is ' + (L.floor.y1 - L.floor.y0).toFixed(0) +
+      'px for a ' + L.chefS.toFixed(0) + 'px cook');
+  });
+  assert.strictEqual(worst, null,
+    'a landscape phone should never ask the player to turn it back; first: ' + worst);
+  stage.clientWidth = w0; stage.clientHeight = h0; MB.resize();
+});
+
+test('nothing in a lying-down room overlaps anything else, or leaves it', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  var clashes = [], escaped = [];
+  wideRooms(function (where, sz) {
+    var R = roomBoxes();
+    for (var i = 0; i < R.length; i++) {
+      var a = R[i][0], r = R[i][1];
+      if (r.x < -1 || r.y < -1 || r.x + r.w > sz[0] + 1 || r.y + r.h > sz[1] + 1) {
+        escaped.push(where + ' ' + a);
+      }
+      for (var j = i + 1; j < R.length; j++) {
+        var b = R[j][0];
+        // a slot inside its own counter is the point of the counter
+        if (/^crate/.test(a) && /^crate/.test(b)) continue;
+        if (a === 'grillBench' && /^burner/.test(b)) continue;
+        if (b === 'grillBench' && /^burner/.test(a)) continue;
+        if (a === 'plateBench' && /^plate\d/.test(b)) continue;
+        if (b === 'plateBench' && /^plate\d/.test(a)) continue;
+        var ox = Math.min(r.x + r.w, R[j][1].x + R[j][1].w) - Math.max(r.x, R[j][1].x);
+        var oy = Math.min(r.y + r.h, R[j][1].y + R[j][1].h) - Math.max(r.y, R[j][1].y);
+        if (ox > 0.5 && oy > 0.5) {
+          clashes.push(where + ' ' + a + ' x ' + b + ' by ' + Math.min(ox, oy).toFixed(0) + 'px');
+        }
+      }
+    }
+  });
+  assert.deepStrictEqual(escaped, [], 'these left the room');
+  assert.deepStrictEqual(clashes.slice(0, 6), [], 'these stand in each other');
+  stage.clientWidth = w0; stage.clientHeight = h0; MB.resize();
+});
+
+test('a lying-down room is worked from in front of the counter, not the end of it', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  var reaches = [], misses = [];
+  wideRooms(function (where) {
+    var T = [], i;
+    for (i = 0; i < S.grill.length; i++) T.push(['grill', i, MB.slotRect(i)]);
+    for (i = 0; i < S.plates.length; i++) T.push(['plate', i, MB.plateRect(i)]);
+    if (S.fryer.length) T.push(['fryer', null, MB.fryerRect()]);
+    if (S.board) T.push(['board', null, MB.boardRect()]);
+    T.forEach(function (t) {
+      var p = MB.standPoint({ kind: t[0], i: t[1] || 0 }), r = t[2];
+      /*
+       * The cook belongs in FRONT of the fixture, which in a band means their
+       * x is inside its span. Left on the standing-up axis this came out at
+       * the end of the band, so working the fifth burner meant standing past
+       * the fourth and reaching sideways over three more.
+       */
+      if (p.x < r.x - 2 || p.x > r.x + r.w + 2) {
+        reaches.push(where + ' ' + t[0] + t[1] + ' stands off the end of its band');
+      }
+      var probe = MB.stationAt(r.x + r.w * 0.28, r.y + r.h * 0.4);
+      if (!probe || probe.kind !== t[0]) {
+        misses.push(where + ' tap on ' + t[0] + t[1] + ' hit ' + (probe ? probe.kind : 'nothing'));
+      }
+    });
+  });
+  assert.deepStrictEqual(reaches.slice(0, 6), [], 'these are worked from the wrong side');
+  assert.deepStrictEqual(misses.slice(0, 6), [], 'these could not be tapped');
+  stage.clientWidth = w0; stage.clientHeight = h0; MB.resize();
+});
+
+test('a room standing up still stands up', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  [[375, 576], [412, 679], [360, 560]].forEach(function (sz) {
+    stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+    for (var day = 1; day <= 25; day++) {
+      S.levels = { plate: 2, burner: 2, grill: 3, shoes: 3 };
+      MB.startDay(day); MB.resize();
+      var where = sz.join('x') + ' day ' + day;
+      assert.ok(!L.wide, where + ': a tall room should not lie down');
+      assert.strictEqual(S.cramped, false, where + ': should not be cramped');
+      // the columns: two slots on the same wall share an x and differ in y
+      if (S.grill.length > 1) {
+        assert.strictEqual(MB.slotRect(0).x, MB.slotRect(1).x, where + ': the grill is a column');
+        assert.ok(MB.slotRect(1).y > MB.slotRect(0).y, where + ': and it runs downwards');
+      }
+      // and the fry line still hangs off the top of that same column
+      if (S.fryer.length) {
+        assert.strictEqual(MB.fryerRect().x, MB.slotRect(0).x, where + ': the fryer shares the wall');
+        assert.ok(MB.freezerRect().y < MB.fryerRect().y, where + ': freezer above fryer');
+      }
+    }
+  });
+  stage.clientWidth = w0; stage.clientHeight = h0; MB.resize();
+});
+
+test('a shift costs the same walking whichever way the room is lying', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  /*
+   * Walking time IS the difficulty, and the day's targets are one curve for
+   * every device - so a kitchen laid out in bands has to cost what one laid
+   * out in columns costs, or landscape is a different game at the same target.
+   *
+   * It did not, at first. The speed was normalised against the floor's
+   * diagonal, which in a 600x67 room is basically its width, while the trips
+   * are short hops across it: serving came out three to five times cheaper.
+   */
+  function shiftCost(sz, day) {
+    stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+    S.levels = { plate: 2, burner: 2, grill: 3, shoes: 3 };
+    MB.startDay(day); MB.resize();
+    function leg(a, b) {
+      var p = MB.standPoint(a), q = MB.standPoint(b);
+      return Math.hypot(p.x - q.x, p.y - q.y) / L.walkScale;
+    }
+    // the round trip a burger actually makes: shelf, grill, plate, pass
+    return (leg({ kind: 'crate', i: 0 }, { kind: 'grill', i: 0 }) +
+            leg({ kind: 'grill', i: S.grill.length - 1 }, { kind: 'plate', i: 0 }) +
+            leg({ kind: 'plate', i: 0 }, { kind: 'hatch', i: 0 })) / 3;
+  }
+
+  [5, 12, 20].forEach(function (day) {
+    var tall = shiftCost([375, 576], day);
+    [[620, 313], [548, 298], [832, 538]].forEach(function (sz) {
+      var wide = shiftCost(sz, day);
+      var off = Math.abs(wide - tall) / tall;
+      assert.ok(off <= 0.18,
+        'day ' + day + ' on ' + sz.join('x') + ' costs ' + wide.toFixed(0) +
+        ' against a portrait kitchen’s ' + tall.toFixed(0) +
+        ' - ' + (off * 100).toFixed(0) + '% out');
+    });
+  });
+  stage.clientWidth = w0; stage.clientHeight = h0; MB.resize();
+});
+
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');
 
 

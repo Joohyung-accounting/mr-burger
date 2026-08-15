@@ -4,7 +4,7 @@
   "description": "Build every order exactly right, before the customer walks out.",
   "start_url": "./index.html",
   "display": "fullscreen",
-  "orientation": "any",
+  "orientation": "landscape",
   "background_color": "#150e0c",
   "theme_color": "#1b1210",
   "categories": [

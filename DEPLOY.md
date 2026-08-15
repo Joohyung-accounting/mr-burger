@@ -35,6 +35,24 @@ Organic 스킨은 **Caprasimo**(디스플레이)와 **Figtree**(본문)를 씁�
 `www/_headers`에 `/fonts/*`를 `public, max-age=2592000`으로 추가하면
 웹 쪽 캐시도 아이콘과 같아집니다.
 
+### 화면 방향 — 매니페스트만으로는 Android에서 안 걸립니다
+
+게임은 가로 화면 기준입니다. `www/manifest.json`의
+`"orientation": "landscape"`가 **웹과 PWA 설치본**에는 적용되지만,
+브라우저 탭과 **Capacitor 네이티브 빌드에는 적용되지 않습니다.**
+
+`npx cap add android` 이후 생성되는
+`android/app/src/main/AndroidManifest.xml`의 `<activity>`에 직접 넣어야 합니다.
+
+```
+android:screenOrientation="landscape"
+```
+
+세로로 들어와도 게임이 깨지지는 않습니다 — 방은 화면 비율을 보고 스스로
+눕거나 서고(`L.wide`), 두 배치 모두 테스트로 지키고 있습니다. 다만 세로는
+주문판이 주방 위를 차지해서 주방이 좁아지므로, 스토어 빌드는 가로로
+고정하는 편이 낫습니다.
+
 ---
 
 ## 인앱 구매를 붙이기 전에

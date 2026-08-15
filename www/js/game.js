@@ -377,6 +377,12 @@
   // Every other screen scales its walking speed relative to this.
   var REF_FLOOR_DIAG = 282;
   /*
+   * The traverse the walking speed is calibrated against - see L.walkScale.
+   * 282 * 0.60, the ratio the old floor-diagonal measure held across every
+   * portrait phone, so switching to a real measurement changed no balance.
+   */
+  var REF_TRAVERSE = 169;
+  /*
    * Strides it takes to walk the floor's diagonal.
    *
    * Measured against the cook's own height instead, the cadence came out at
@@ -422,18 +428,35 @@
    *
    * Never three rows. That is a shelf with a kitchen attached.
    */
-  function crateSize(W, k, roomH) {
+  function crateSize(W, k, roomH, wide) {
     var n = menuLen();
     var gap = Math.min(GAP, (W - 16) * 0.02);
     var floor = 54 * clamp(k || 1, 1, 1.34);
+    var cap = 92;
+    /*
+     * In a lying-down room the shelf is the one thing that can give.
+     *
+     * Everything else on that axis has a hard minimum - two bands of stations
+     * that have to stay tappable, a floor the cook has to fit inside, and the
+     * hatch - and the shelf has none: a crate is a wide box that reads fine
+     * squashed, because what identifies it is the ingredient drawn on the
+     * front, not its height. Left at its standing-up size it took 83 of the
+     * 303px a phone on its side gives the kitchen.
+     */
+    if (wide && roomH) {
+      floor = 38;
+      cap = Math.max(floor, roomH * 0.17);
+    }
 
     function fit(per) {
       var w = Math.min((W - 16 - gap * (per - 1)) / per, CRATE_MAX_W);
-      return { w: w, h: clamp(w * 1.02, floor, 92) };
+      return { w: w, h: clamp(w * 1.02, floor, cap) };
     }
 
     var rows = 1, per = n, f = fit(n);
-    if (n > 1 && roomH && f.w < CRATE_MIN_W) {
+    // wrapping is a height-for-width trade, and a lying-down room has width to
+    // spare and no height to buy with
+    if (n > 1 && roomH && !wide && f.w < CRATE_MIN_W) {
       var two = fit(Math.ceil(n / 2));
       /*
        * Only if the columns can still stand up afterwards.
@@ -568,6 +591,25 @@
      * in, so nothing can grow past its own wall.
      */
     var k = clamp(Math.round(H / 24) * 24 / compactHeight(), 0.72, 1.85);
+    /*
+     * Which way the room is lying.
+     *
+     * Standing up, the two working walls are COLUMNS down the sides and the
+     * floor is the corridor between them - which is the right shape when there
+     * is height to stack in. A phone on its side gives the kitchen about
+     * 618x303, and columns do not fit in 303px: the left wall alone wants a
+     * freezer, a fryer and five burners, and they come out at 15px each.
+     *
+     * So a wide room turns its walls on their side. The fry line and the
+     * burners run along the top in one band, the board and the plates along
+     * the bottom in another, and the floor is the strip between them - the
+     * cook walks left and right, which is the axis the room actually has.
+     *
+     * 1.5 rather than 1.0: a square-ish window still stacks better than it
+     * spreads, and the threshold wants to sit clear of the ratio a tablet in
+     * portrait lands on so a few pixels of address bar cannot flip the room.
+     */
+    L.wide = W >= H * 1.5;
     var gap = GAP * k;
     L.gap = gap;
     L.k = k;
@@ -583,7 +625,7 @@
        stays organised left to right without needing labelled sections. */
     // Crates size themselves off the screen width, not off k - they are already
     // width-constrained, and scaling them again just made them enormous.
-    var box = crateSize(W, k, H);
+    var box = crateSize(W, k, H, L.wide);
     L.crateW = box.w;
     L.crateH = box.h;
     L.crates = [];
@@ -831,6 +873,10 @@
     var each = Math.max(0, midH - used) / 2;
     L.freezerTop = L.midTop + 2;
     L.fryTop = L.midTop + coldBand;
+    // standing up, the fry line shares the grill column's x - said out loud
+    // here because the rect functions no longer assume it
+    L.freezerX = L.fryX = L.grillX;
+    L.freezerW = L.fryW = L.colW;
     // the reserved chrome is split the way the bench draws it, 16 above to 6
     // below - offsetting by the full 16 while only reserving 4 ran the stack
     // out of the band by the difference
@@ -855,6 +901,118 @@
     L.pPadBot = pChrome - L.pPadTop;
     L.plateTop = boardFoot + pEach + L.pPadTop;
 
+    /*
+     * ═══ the lying-down room ═══════════════════════════════════════════════
+     *
+     * Everything above laid out two COLUMNS with a corridor between them. On a
+     * phone turned sideways that does not fit and cannot be made to: the left
+     * column alone wants a freezer, a fryer and five burners inside 164px.
+     *
+     * So the walls turn ninety degrees. The fry line and the burners become a
+     * BAND along the top, the board and the plates a band along the bottom,
+     * and the floor is the strip between them. The equipment keeps its reading
+     * order - cold, then hot, then the pass - it is just read left-to-right
+     * instead of top-to-bottom, and it now divides the axis the room has 618px
+     * of rather than the one it has 303px of.
+     *
+     * The bottom wall does not move: bin left, hatch centre, fountain right,
+     * exactly as standing up. Those three were pinned deliberately and a
+     * rotation is not a reason to unpin them.
+     *
+     * This runs after the standing-up arithmetic rather than instead of it, so
+     * the room that ships on phones is reached by the same code path it always
+     * was and cannot be broken from here.
+     */
+    if (L.wide) {
+      var runW = W - L.pad * 2;
+      var vTop = L.cratesBottom + 8, vBot = L.hatchY - 8;
+      L.midTop = vTop; L.midBottom = vBot;
+
+      /*
+       * The floor is claimed FIRST, before either band is sized.
+       *
+       * It is the one thing in the room with a hard physical minimum - the
+       * cook is drawn chefS tall and has to stand inside it - and it is the
+       * one thing with no art of its own to argue for it. Sized last it lost
+       * every time, and the bands grew into a room with no room to walk in.
+       */
+      var FLOOR_MIN = Math.max(46, L.chefS * 1.05);
+      /*
+       * Bounded above and not below. Clamping up to MIN_TAPPABLE was the
+       * obvious move and the wrong one: on a room too short to hold a 22px
+       * band it reported 22 anyway, the bench drew straight through the floor,
+       * and showCramped - which reads these two numbers to decide whether the
+       * player can reach anything - stopped being able to see the problem.
+       * A band that comes out at 14px is a room that has to say so.
+       */
+      var rowH = Math.max(4, Math.min(SLOT_H * k,
+                          (vBot - vTop - FLOOR_MIN - CHROME * 2) / 2));
+      L.slotH = L.plateH = rowH;
+
+      /*
+       * Widths. The fry line keeps the proportions it had hanging off the
+       * grill column - the fryer half again the width of a burner, the
+       * freezer a shade under one - because those came from the art, not from
+       * which way the wall ran.
+       */
+      var fryUnits = fryN ? 0.90 + 1.35 : 0;
+      var topN = gN + fryN * 2;
+      L.colW = Math.min(SLOT_H * k * 1.45,
+                        (runW - gap * (topN - 1)) / (gN + fryUnits));
+      var boardUnits = S.board ? 1.25 : 0;
+      var botN = pN + (S.board ? 1 : 0);
+      L.plateW = Math.min(PLATE_H * k * 1.45,
+                          (runW - gap * (botN - 1)) / (pN + boardUnits));
+      L.boardW = S.board ? L.plateW * 1.25 : 0;
+
+      // both bands centre on the room, so a sparse day reads as a tidy line
+      // rather than a run shoved into one corner
+      var topW = gN * L.colW + fryN * (L.colW * 0.90 + L.colW * 1.35) + gap * (topN - 1);
+      var botW = pN * L.plateW + L.boardW + gap * (botN - 1);
+      var topX = L.pad + Math.max(0, (runW - topW) / 2);
+      var botX = L.pad + Math.max(0, (runW - botW) / 2);
+
+      L.gPadTop = gChrome * (BENCH_TOP / CHROME); L.gPadBot = gChrome - L.gPadTop;
+      L.pPadTop = pChrome * (BENCH_TOP / CHROME); L.pPadBot = pChrome - L.pPadTop;
+      L.grillTop = vTop + L.gPadTop;
+      L.plateTop = vBot - L.pPadBot - rowH;
+
+      // cold, then hot, then the burners - the order food moves in, left to right
+      L.freezerW = fryN ? L.colW * 0.90 : 0;
+      L.fryW = fryN ? L.colW * 1.35 : 0;
+      /*
+       * The fry line stands a little taller than the burners it sits beside.
+       *
+       * It can, because the bench only wraps the burners - the freezer and the
+       * fryer are free-standing machines next to it, not slots recessed into
+       * it. And it has to: the fryer splits its width into two wells, so at
+       * band height the wells came out 22x13 and the doneness bar inside them,
+       * which is the whole point of the fry timing, was four pixels tall. They
+       * take the bench's chrome as height instead and stand on the same line.
+       */
+      L.freezerH = L.fryH = fryN ? rowH + CHROME * 0.75 : 0;
+      L.freezerX = topX;
+      L.freezerTop = L.fryTop = vTop + CHROME + rowH - L.fryH;
+      L.fryX = topX + (fryN ? L.freezerW + gap : 0);
+      L.grillX = topX + (fryN ? L.freezerW + gap + L.fryW + gap : 0);
+
+      // the plates run from the left and the board takes the far end, which
+      // puts the two things the cook alternates between - the fry line and the
+      // prep board - in opposite corners rather than on top of each other
+      L.plateX = botX;
+      L.boardX = botX + pN * L.plateW + gap * pN;
+      L.boardH = S.board ? rowH + CHROME * 0.6 : 0;
+      L.board = S.board
+        ? { x: L.boardX, y: vBot - L.boardH, w: L.boardW, h: L.boardH } : null;
+
+      // the strip between the two bands, wall to wall
+      L.floor = {
+        x0: L.pad + 10,
+        x1: W - L.pad - 10,
+        y0: vTop + CHROME + rowH + 4,
+        y1: vBot - CHROME - rowH - 4
+      };
+    } else {
     // --- the walkable floor: whatever is left between the two walls. The board
     // is the widest thing on the plate side, so it sets that edge.
     var plateBandW = Math.max(L.plateW, L.boardW || 0);
@@ -864,6 +1022,7 @@
       y0: L.cratesBottom + 16,
       y1: L.hatchY - 14
     };
+    }
 
     /*
      * Walking speed is quoted in pixels, but a kitchen on a tablet is nearly
@@ -883,13 +1042,40 @@
      * standing on it. drawPrepBoard splits it.
      */
     var fw = L.floor.x1 - L.floor.x0, fh2 = L.floor.y1 - L.floor.y0;
-    // top of the plate band, against the wall - the plates start below it
-    L.board = S.board ? {
-      x: L.boardX, y: L.cratesBottom + 8, w: L.boardW, h: L.boardH
-    } : null;
+    // top of the plate band, against the wall - the plates start below it.
+    // A lying-down room already placed its board at the end of the bottom
+    // band; this is the standing-up one.
+    if (!L.wide) {
+      L.board = S.board ? {
+        x: L.boardX, y: L.cratesBottom + 8, w: L.boardW, h: L.boardH
+      } : null;
+    }
 
     var diag = Math.hypot(L.floor.x1 - L.floor.x0, L.floor.y1 - L.floor.y0);
-    L.walkScale = clamp(diag / REF_FLOOR_DIAG, 0.6, 2.2);
+    /*
+     * Walking time is the difficulty model, so the speed is normalised against
+     * how far the cook actually has to walk - otherwise the same shift is a
+     * different game on every screen.
+     *
+     * That used to be measured with the floor's DIAGONAL, which is a fine
+     * stand-in for a room laid out in columns: across four phone sizes the
+     * real average traverse came out at 0.57-0.61 of it, near enough constant
+     * to calibrate against. It is not a stand-in for a room laid out in bands.
+     * A lying-down floor is 600x67, so its diagonal is essentially its width,
+     * while the trips that matter are short hops across it - the plate bench
+     * to the pass is 72px of a 588px diagonal. The ratio collapsed to 0.28,
+     * the cook was handed speed for a walk he never takes, and serving became
+     * three to five times cheaper than the day's targets are written for.
+     *
+     * So measure the thing itself: the mean distance between the places the
+     * cook works. It is the same number the diagonal was approximating, it
+     * costs twenty hypots per relayout, and it cannot be fooled by the shape
+     * of the room. REF is the old 282 times that 0.60, so a standing-up
+     * kitchen keeps the speed it has always had.
+     */
+    L.walkScale = clamp(meanTraverse() / REF_TRAVERSE, 0.6, 2.2);
+    // ...but the stride stays on the diagonal. That one is not about time, it
+    // is about how big a step should LOOK in a room this size.
     L.stride = Math.max(10, diag / STRIDES_PER_DIAG);
 
     /*
@@ -958,20 +1144,55 @@
     return L.crates[i] || { x: 0, y: 0, w: 0, h: 0 };
   }
 
+  /*
+   * A wall is a RUN of slots, and the run has a direction.
+   *
+   * Standing up, the run goes down the wall and every slot shares an x; lying
+   * down - a phone on its side - it goes along the wall and they share a y.
+   * That is the whole difference between the two rooms at this level, so it is
+   * one ternary rather than two sets of rect functions that can drift apart.
+   */
   function slotRect(i) {
-    return { x: L.grillX, y: L.grillTop + i * (L.slotH + L.gap), w: L.colW, h: L.slotH };
+    var d = i * ((L.wide ? L.colW : L.slotH) + L.gap);
+    return { x: L.grillX + (L.wide ? d : 0), y: L.grillTop + (L.wide ? 0 : d),
+             w: L.colW, h: L.slotH };
   }
 
   function plateRect(i) {
-    return { x: L.plateX, y: L.plateTop + i * (L.plateH + L.gap), w: L.plateW || L.colW, h: L.plateH };
+    var pw = L.plateW || L.colW;
+    var d = i * ((L.wide ? pw : L.plateH) + L.gap);
+    return { x: L.plateX + (L.wide ? d : 0), y: L.plateTop + (L.wide ? 0 : d),
+             w: pw, h: L.plateH };
   }
 
   function boardRect() { return L.board || { x: 0, y: 0, w: 0, h: 0 }; }
 
-  function fryerRect() { return { x: L.grillX, y: L.fryTop, w: L.colW, h: L.fryH }; }
+  // The fry line reads its own box rather than deriving one from the grill
+  // column: lying down it sits BESIDE the burners, not above them, so there is
+  // no longer a shared x to borrow.
+  function fryerRect() { return { x: L.fryX, y: L.fryTop, w: L.fryW, h: L.fryH }; }
 
-  /** The freezer, pinned to the top of the grill wall. Scenery, not a target. */
-  function freezerRect() { return { x: L.grillX, y: L.freezerTop, w: L.colW, h: L.freezerH }; }
+  /** The freezer, pinned to the head of the fry line. Scenery, not a target. */
+  function freezerRect() {
+    return { x: L.freezerX, y: L.freezerTop, w: L.freezerW, h: L.freezerH };
+  }
+
+  /*
+   * The counter a run of slots is recessed into, from the run's two ends.
+   *
+   * drawGrill and drawPlates both used to walk from the first slot to the last
+   * down the y axis by hand; there is only one shape here and it is the union
+   * of the two ends, grown by the chrome the layout actually reserved. The
+   * chrome stays vertical in both rooms because it is the counter's lip.
+   */
+  function benchBody(first, last, padTop, padBot) {
+    if (L.wide) {
+      return { x: first.x - 3, y: first.y - padTop,
+               w: (last.x + last.w) - first.x + 6, h: first.h + padTop + padBot };
+    }
+    return { x: first.x - 3, y: first.y - padTop,
+             w: first.w + 6, h: (last.y + last.h) - first.y + padTop + padBot };
+  }
 
   /** One well of the two, side by side inside the fry box. */
   function fryWellRect(i) {
@@ -1056,6 +1277,36 @@
    * the left edge - where the plates now were - and the grill's business was
    * then done from in front of the plates. Ask the rect which wall it is on.
    */
+  /*
+   * How far apart the places the cook works actually are, on average.
+   *
+   * The ends of each run rather than every slot: a five-burner bench would
+   * otherwise swamp the average with ten short hops between neighbouring
+   * burners and read as a smaller kitchen than a two-burner one. What is
+   * wanted is the shape of the round trip, and the ends describe that.
+   */
+  function meanTraverse() {
+    var p = [
+      standPoint({ kind: 'grill', i: 0 }),
+      standPoint({ kind: 'grill', i: S.grill.length - 1 }),
+      standPoint({ kind: 'plate', i: 0 }),
+      standPoint({ kind: 'plate', i: S.plates.length - 1 }),
+      standPoint({ kind: 'hatch', i: 0 })
+    ];
+    if (L.crates.length) {
+      p.push(standPoint({ kind: 'crate', i: 0 }));
+      p.push(standPoint({ kind: 'crate', i: L.crates.length - 1 }));
+    }
+    var sum = 0, n = 0;
+    for (var i = 0; i < p.length; i++) {
+      for (var j = i + 1; j < p.length; j++) {
+        sum += Math.hypot(p[i].x - p[j].x, p[i].y - p[j].y);
+        n++;
+      }
+    }
+    return n ? sum / n : REF_TRAVERSE;
+  }
+
   function standPoint(t) {
     var f = L.floor, r;
     if (t.kind === 'crate') {
@@ -1068,6 +1319,17 @@
         : t.kind === 'plate' ? plateRect(t.i)
         : t.kind === 'fryer' ? fryerRect()
         : t.kind === 'freezer' ? freezerRect() : boardRect();
+      /*
+       * You stand at the open side of a counter, and which side that is
+       * depends on how the counter is hung. A column is worked from beside it;
+       * a band along the wall is worked from in front of it - the same
+       * relationship, read on the other axis. Left on 'x' in a lying-down
+       * room the cook walked to the END of the band and reached sideways past
+       * four burners to get at the fifth.
+       */
+      if (L.wide) {
+        return { x: clamp(r.x + r.w / 2, f.x0, f.x1), y: nearEdge(r, f, 'y') };
+      }
       return { x: nearEdge(r, f, 'x'), y: clamp(r.y + r.h / 2, f.y0, f.y1) };
     }
     if (t.kind === 'hatch' || t.kind === 'bin' || t.kind === 'tap') {
@@ -2420,11 +2682,7 @@
   function drawGrill() {
     // one grill unit with the burners recessed into its top
     var n = S.grill.length;
-    var last = slotRect(n - 1);
-    var body = {
-      x: L.grillX - 3, y: L.grillTop - L.gPadTop,
-      w: L.colW + 6, h: (last.y + last.h) - L.grillTop + L.gPadTop + L.gPadBot
-    };
+    var body = benchBody(slotRect(0), slotRect(n - 1), L.gPadTop, L.gPadBot);
     // the chassis, in the same ink as the counters but in cast-iron colours
     Art.scene.counter(ctx, body.x, body.y, body.w, body.h, DEPTH.grill * (L.k || 1),
       { top: K.grillTop, top2: K.grillTop2, side: K.grillSide });
@@ -2847,11 +3105,7 @@
   function drawPlates() {
     // one plating bench with the plates sitting on it
     var n = S.plates.length;
-    var last = plateRect(n - 1);
-    var body = {
-      x: L.plateX - 3, y: L.plateTop - L.pPadTop,
-      w: (L.plateW || L.colW) + 6, h: (last.y + last.h) - L.plateTop + L.pPadTop + L.pPadBot
-    };
+    var body = benchBody(plateRect(0), plateRect(n - 1), L.pPadTop, L.pPadBot);
     Art.scene.counter(ctx, body.x, body.y, body.w, body.h, DEPTH.plate * (L.k || 1),
       { top: K.plateTop, top2: K.plateTop2, side: K.plateSide });
 
