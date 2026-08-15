@@ -3715,6 +3715,56 @@ test('the lever you pressed wears the ring, and the levers do not overlap', func
   pump(0.3);
 });
 
+/*
+ * No wall may have a void on it.
+ *
+ * Both walls keep their fixtures in a fixed order and let the day decide how
+ * many there are, so on a light day there is a lot of leftover height - and
+ * whichever gap it all lands in becomes blank plaster. Bottom-aligning the
+ * burners put 418px of nothing above a day-1 grill and 217px between the
+ * fryer and the burners on day 5. The rule is that the slack is SHARED: the
+ * gaps on a wall stay within sight of each other, whatever the day stocks.
+ */
+test('neither wall leaves a void above or below its fixtures', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+
+  [[375, 812], [412, 915], [360, 640], [412, 430], [820, 600]].forEach(function (sz) {
+    stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+    for (var day = 1; day <= 25; day++) {
+      MB.startDay(day);
+      pump(0.25);
+      var L2 = MB.layout, where = sz.join('x') + ' day ' + day + ': ';
+      var band = L2.midBottom - L2.midTop;
+
+      // --- the grill wall: [fry line] gapMid [burners] gapBot
+      var gN = S.grill.length;
+      var burners = gN * L2.slotH + (gN - 1) * L2.gap;
+      var aboveEnd = L2.fryH ? L2.fryTop + L2.fryH : L2.midTop;
+      var gMid = L2.grillTop - aboveEnd;
+      var gBot = L2.midBottom - (L2.grillTop + burners);
+      assert.ok(gMid >= -0.5 && gBot >= -0.5,
+        where + 'the grill wall overflows its band: ' + gMid.toFixed(0) + '/' + gBot.toFixed(0));
+      assert.ok(Math.abs(gMid - gBot) <= Math.max(6, band * 0.06),
+        where + 'the grill wall dumped its slack into one gap: ' +
+        gMid.toFixed(0) + 'px above the burners, ' + gBot.toFixed(0) + 'px below');
+
+      // --- the plate wall: [board] gapMid [plates] gapBot
+      var pN = S.plates.length;
+      var stack = pN * L2.plateH + (pN - 1) * L2.gap;
+      var pAbove = L2.board ? L2.board.y + L2.board.h : L2.midTop;
+      var pMid = L2.plateTop - pAbove;
+      var pBot = L2.midBottom - (L2.plateTop + stack);
+      assert.ok(pBot >= -0.5, where + 'the plate wall overflows its band by ' + (-pBot).toFixed(0));
+      assert.ok(Math.abs(pMid - pBot) <= Math.max(8, band * 0.10),
+        where + 'the plate wall dumped its slack into one gap: ' +
+        pMid.toFixed(0) + 'px above the plates, ' + pBot.toFixed(0) + 'px below');
+    }
+  });
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.3);
+});
+
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');
 
 

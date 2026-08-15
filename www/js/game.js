@@ -791,15 +791,22 @@
     var gTotal = gN * L.slotH + (gN - 1) * gap + (fryN ? gap + L.fryH : 0);
     var pTotal = pN * L.plateH + (pN - 1) * gap + (tapN ? gap + L.tapH : 0);
     /*
-     * The burners sit at the BOTTOM of the wall, hard against the bottom of
-     * the band, with whatever slack the column has left opening up between
-     * them and the fryer above. Clamped so they can never climb into it.
+     * The wall keeps its order - freezer, fryer, burners - and the leftover
+     * height is SHARED between the two gaps rather than dumped into one.
+     *
+     * Hard bottom-alignment looked right on a full day 20 wall and wrong
+     * everywhere else: on day 1 the grill is the only thing on that wall, and
+     * pinning it to the floor left 418px of blank plaster above it. On day 5
+     * it put 217px between the fryer and the burners. Splitting the slack in
+     * two centres a sparse wall and still walks the burners down to the floor
+     * as the wall fills up, which is where they belong when it matters.
      */
     var burners = gN * L.slotH + (gN - 1) * gap;
+    var used = (fryN ? L.freezerH + gap + L.fryH : 0) + burners;
+    var each = Math.max(0, midH - used) / 2;
     L.freezerTop = L.midTop + 2;
     L.fryTop = L.midTop + coldBand;
-    L.grillTop = Math.max(L.fryTop + (fryN ? L.fryH + gap : 0),
-                          L.midBottom - burners);
+    L.grillTop = L.midTop + (fryN ? coldBand + L.fryH : 0) + each;
     /*
      * Centred in the space under the board, then nudged down a little further -
      * a stack pinned right under the board reads as one tall fixture rather
