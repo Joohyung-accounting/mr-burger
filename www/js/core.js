@@ -443,12 +443,13 @@
    * COOK_TIME + w/2 + BURN_TIME, asking for a verdict at time T gives
    * COOK_TIME = (T - w/4) * 6/7 and BURN_TIME = COOK_TIME/3 - w/2.
    *
-   * The verdict has moved twice by request: 10.7s -> 13.7s -> 16.7s, and the
-   * green has now been pulled forward on top of that, from 14.0s to 12.5s.
-   * Those two pull in opposite directions, so the 75% rule has given way: the
-   * sweet spot sits at 62% of a 20.1s life, with the green at 11.7-13.3s and
-   * the verdict still at 16.7s. That is a 3.4s band of overcooked-but-servable
-   * after the green closes, which is where the forgiveness now lives.
+   * The whole curve has now been pulled in: 20.1s of patty was a long time to
+   * stand about, and most of it was the wait BEFORE the green. That wait is
+   * what shrank - 11.7s to 8.7s - while the forgiveness after the green is
+   * nearly untouched, 3.4s to 3.0s. Life 20.1s -> 16.3s.
+   *
+   * Where it has landed: green 8.7-10.3s, burnt from 13.3s, written off at
+   * 16.3s, with the sweet spot at 58% of the patty's life.
    *
    * The rule that remains is the one the 75% was protecting: the sweet spot
    * must not land in the first half of the cook, or it arrives while the
@@ -456,8 +457,8 @@
    *
    * The fry wells read the same curve, so a basket gets the same grace.
    */
-  var COOK_TIME = 12.5;  // seconds to the middle of the perfect zone
-  var BURN_TIME = 6.8;   // seconds from leaving the zone to fully ruined
+  var COOK_TIME = 9.5;   // seconds to the middle of the perfect zone
+  var BURN_TIME = 6.0;   // seconds from leaving the zone to fully ruined
   var TIP_RATE = 0.70;   // tip ceiling as a fraction of the ticket
   var BASE_WINDOW = 1.6; // seconds of perfect zone before upgrades
   var EXTRA_PENALTY = 0.20; // accuracy lost per unwanted filling on the plate

@@ -2450,7 +2450,7 @@
         ctx.restore();
       }
 
-      cookBar(r, g.t, 0.80);
+      cookBar(r, g.t);
     }
   }
 
@@ -2644,10 +2644,10 @@
      * the full-width bar, which is why this is a knob and not a new constant.
      */
     scale = scale === undefined ? 1 : scale;
-    var pad = Math.min(6, r.w * 0.14);
+    var pad = Math.min(5, r.w * 0.10);
     var bw = (r.w - pad * 2) * scale;
     var bx = r.x + (r.w - bw) / 2;
-    var bh = Math.max(3, Math.min(5, r.h * 0.14) * scale);
+    var bh = Math.max(4, Math.min(7, r.h * 0.18) * scale);
     var by = r.y + r.h - bh - Math.min(5, r.h * 0.10);
     if (bw <= 2) return;
 
