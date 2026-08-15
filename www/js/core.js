@@ -59,13 +59,13 @@
 
     // The line has one spare crate on day 2, and ties on unlock day are broken
     // by this order - so lettuce is the first thing the player learns to add.
-    { id: 'lettuce', name: 'Lettuce', short: 'Lettuce', group: 'topping', kind: 'topping', price: 40, day: 1, swatch: '#93d33d' },
+    { id: 'lettuce', name: 'Lettuce', short: 'Lettuce', group: 'topping', kind: 'topping', chop: true, price: 40, day: 1, swatch: '#93d33d' },
     { id: 'cheese', name: 'Cheese', short: 'Cheese', group: 'topping', kind: 'topping', price: 70, day: 1, swatch: '#ff8e1d' },
-    { id: 'tomato', name: 'Tomato', short: 'Tomato', group: 'topping', kind: 'topping', price: 50, day: 3, swatch: '#ff3e51' },
-    { id: 'onion', name: 'Onion', short: 'Onion', group: 'topping', kind: 'topping', price: 40, day: 4, swatch: '#bc9acd' },
-    { id: 'pickle', name: 'Pickles', short: 'Pickle', group: 'topping', kind: 'topping', price: 45, day: 6, swatch: '#6b7e21' },
+    { id: 'tomato', name: 'Tomato', short: 'Tomato', group: 'topping', kind: 'topping', chop: true, price: 50, day: 3, swatch: '#ff3e51' },
+    { id: 'onion', name: 'Onion', short: 'Onion', group: 'topping', kind: 'topping', chop: true, price: 40, day: 4, swatch: '#bc9acd' },
+    { id: 'pickle', name: 'Pickles', short: 'Pickle', group: 'topping', kind: 'topping', chop: true, price: 45, day: 6, swatch: '#6b7e21' },
     { id: 'bacon', name: 'Bacon', short: 'Bacon', group: 'topping', kind: 'topping', price: 130, day: 7, swatch: '#df6e73' },
-    { id: 'jalapeno', name: 'Jalapeño', short: 'Chilli', group: 'topping', kind: 'topping', price: 55, day: 9, swatch: '#37a954' },
+    { id: 'jalapeno', name: 'Jalapeño', short: 'Chilli', group: 'topping', kind: 'topping', chop: true, price: 55, day: 9, swatch: '#37a954' },
     { id: 'egg', name: 'Fried Egg', short: 'Egg', group: 'topping', kind: 'topping', price: 90, day: 11, swatch: '#f6c158' },
     { id: 'avocado', name: 'Avocado', short: 'Avo', group: 'topping', kind: 'topping', price: 110, day: 12, swatch: '#e0e89b' },
 
@@ -99,22 +99,30 @@
     var shelf = extrasOnShelf(day);
     return {
       day: day,
-      customers: Math.min(4 + Math.floor(day * 0.9), 16),
+      /*
+       * Fewer, richer tickets. A tray with fries and a drink on it is three
+       * more station visits than a burger alone, and the shift clock did not
+       * move - at the old count day 15 needed 207s of walking against a 175s
+       * clock. Twenty-five per cent fewer customers, each worth about half
+       * again as much, lands the rent within a few dollars of where it was
+       * and hands the walking budget back.
+       */
+      customers: Math.min(4 + Math.floor(day * 0.7), 12),
       patience: Math.max(30, 62 - day * 1.4),          // seconds, before upgrades
       /*
-       * The gap between customers. This used to open at 9-14 seconds, which is
-       * a long time to stand in an empty kitchen waiting for something to do -
-       * the board was the pace-setter rather than the cooking. The whole curve
-       * is about a third quicker now and bottoms out lower, so the line keeps
-       * coming instead of trickling.
+       * The first days used to open at six to ten seconds between customers,
+       * which on a seventy-second clock is half the shift spent watching an
+       * empty hatch. The curve starts about a third tighter now and lands in
+       * the same place from day 8 on, so learning the job is done by cooking
+       * rather than by waiting for something to cook.
        */
-      spawnMin: Math.max(2.6, 6.2 - day * 0.26),
-      spawnMax: Math.max(4.6, 10.0 - day * 0.42),
+      spawnMin: Math.max(2.3, 5.0 - day * 0.26),
+      spawnMax: Math.max(4.0, 7.6 - day * 0.44),
       // Extras are everything past the bun and the first patty. Never fewer
       // than one once the line stocks anything, or the new crate is decoration.
       minExtras: Math.min(Math.floor(day / 5), 3, shelf),
       maxExtras: Math.min(Math.max(1, Math.floor(day / 2.2)), shelf, 4),
-      concurrent: Math.min(2 + Math.floor(day / 2.5), 5) // tickets on the board
+      concurrent: Math.min(2 + Math.floor(day / 3), 4)   // tickets on the board
     };
   }
 
@@ -167,9 +175,11 @@
     return seenCache[day];
   }
 
-  function dayMenu(day) {
-    if (menuCache[day]) return menuCache[day];
-    var rng = seeded(day * 2654435761 + 7);
+  function dayMenu(day, seed) {
+    var run = (day >= 2) ? (Math.floor(Number(seed) || 0) | 0) : 0;
+    var key = day + (run ? ":" + run : "");
+    if (menuCache[key]) return menuCache[key];
+    var rng = seeded(day * 2654435761 + 7 + Math.imul(run, 2654435761));
     var pool = unlockedAt(day);
     var toppings = pool.filter(function (i) { return i.group === 'topping'; });
     var sauces = pool.filter(function (i) { return i.group === 'sauce'; });
@@ -205,13 +215,13 @@
     }
 
     var menu = ['bun', 'patty'].concat(take(toppings, wantTop), take(sauces, wantSauce));
-    menuCache[day] = menu;
+    menuCache[key] = menu;
     return menu;
   }
 
   /** The day's crates split into the sections the kitchen line is drawn in. */
-  function menuSections(day) {
-    var menu = dayMenu(day);
+  function menuSections(day, seed) {
+    var menu = dayMenu(day, seed);
     return GROUPS.map(function (g) {
       return {
         id: g.id,
@@ -223,10 +233,64 @@
 
   /* ------------------------------------------------------------ orders */
   /** A ticket: a multiset of ingredient ids. Every burger is a bun and a patty. */
-  function makeOrder(day, rng, customer) {
+  /* ------------------------------------------------------ the other half
+   * Fries and a drink ride on the tray beside the burger. They are NOT in
+   * `items`: that array is the multiset evaluate() scores the built stack
+   * against, and anything in it that never lands on the plate counts as a
+   * missing ingredient. They get their own fields, and their own check.
+   */
+  // TRAY_SIDES, not SIDES: the room already has  for
+  // which wall the grill is on, and var hoists to function scope - so naming
+  // this SIDES silently replaced it with an array and every fries lookup
+  // became undefined. Nothing threw; the side just stopped existing.
+  var TRAY_SIDES = {
+    fries: { id: 'fries', name: 'Fries', short: 'FRIES', swatch: '#e8a021', price: 150, day: 5 }
+  };
+
+  // The six the fountain pours, in the order Art.FLAVOR_IDS draws them.
+  var DRINKS = [
+    { id: 'cola', name: 'Cola', short: 'COLA', swatch: '#4a2c1e', price: 110, day: 3 },
+    { id: 'cider', name: 'Cider', short: 'CIDER', swatch: '#d9a441', price: 110, day: 3 },
+    { id: 'orange', name: 'Orange', short: 'ORANGE', swatch: '#e2711d', price: 110, day: 3 },
+    { id: 'lemon', name: 'Lemon', short: 'LEMON', swatch: '#e8d44d', price: 110, day: 3 },
+    { id: 'root', name: 'Root Beer', short: 'ROOT', swatch: '#5b3a2b', price: 110, day: 3 },
+    { id: 'tea', name: 'Iced Tea', short: 'ICE TEA', swatch: '#a8622a', price: 110, day: 3 }
+  ];
+  var DRINK_BY_ID = {};
+  DRINKS.forEach(function (d) { DRINK_BY_ID[d.id] = d; });
+
+  var SIDE_DAY = 5, DRINK_DAY = 3;
+
+  /**
+   * How often an order asks for each, by day. It ramps rather than switching
+   * on: the shift that introduces fries should not be the shift where every
+   * ticket needs them.
+   */
+  function attachRates(day) {
+    return {
+      side: day < SIDE_DAY ? 0 : Math.min(0.70, 0.25 + (day - SIDE_DAY) * 0.045),
+      drink: day < DRINK_DAY ? 0 : Math.min(0.75, 0.30 + (day - DRINK_DAY) * 0.040)
+    };
+  }
+
+  /** Which drinks the fountain is plumbed for today - two, then all six. */
+  function drinkMenu(day) {
+    if (day < DRINK_DAY) return [];
+    return DRINKS.slice(0, clamp(2 + Math.floor((day - DRINK_DAY) / 3), 2, DRINKS.length))
+      .map(function (d) { return d.id; });
+  }
+
+  /*
+   *  is the run, and it only reaches the SHELF - sampleGoal deliberately
+   * calls this without one. Rent is a published curve that a player can learn
+   * and a leaderboard can compare; pricing it off a basket that rerolls every
+   * run would make the same day cost different money on different attempts.
+   * The run varies which crates are out, not what the landlord wants.
+   */
+  function makeOrder(day, rng, customer, seed) {
     rng = rng || Math.random;
     var cfg = dayConfig(day);
-    var extras = dayMenu(day).filter(function (id) {
+    var extras = dayMenu(day, seed).filter(function (id) {
       return id !== 'bun' && id !== 'patty';
     });
 
@@ -244,16 +308,63 @@
     var pool = shuffle(extras.slice(), rng);
     for (var i = 0; i < count && i < pool.length; i++) items.push(pool[i]);
 
-    return { items: items };
+    var rates = attachRates(day);
+    var side = rng() < rates.side ? 'fries' : null;
+    var taps = drinkMenu(day);
+    var drink = (taps.length && rng() < rates.drink)
+      ? taps[Math.floor(rng() * taps.length)] : null;
+
+    return { items: items, side: side, drink: drink };
   }
 
-  function menuPrice(items) {
+  /**
+   * What an order is worth. sampleGoal() runs this over real orders to set the
+   * rent, so the tray's other half has to be priced here or every day's rent
+   * would be set as though nobody ever ordered fries.
+   */
+  function menuPrice(items, side, drink) {
     var sum = 0;
     for (var i = 0; i < items.length; i++) {
       var ing = BY_ID[items[i]];
       if (ing) sum += ing.price;
     }
+    if (side && TRAY_SIDES[side]) sum += TRAY_SIDES[side].price;
+    if (drink && DRINK_BY_ID[drink]) sum += DRINK_BY_ID[drink].price;
     return sum;
+  }
+
+  /**
+   * The tray's other half, checked. evaluate() owns the burger and never sees
+   * these; this owns these and never sees the burger.
+   *   checkExtras({side, drink}, {side, drink}) -> { faults, ok, asked }
+   */
+  function checkExtras(want, got) {
+    want = want || {}; got = got || {};
+    var faults = [], asked = 0, ok = 0;
+    // Total by construction: a ticket carrying an id this build has never heard
+    // of must score as "no side asked for", not throw inside the delivery.
+    var wantSide = TRAY_SIDES[want.side] ? want.side : null;
+    var wantDrink = DRINK_BY_ID[want.drink] ? want.drink : null;
+
+    if (wantSide) {
+      asked++;
+      if (got.side === wantSide) ok++;
+      else faults.push({ kind: 'side', label: 'NO ' + TRAY_SIDES[wantSide].short });
+    } else if (got.side) {
+      faults.push({ kind: 'side', label: 'FRIES NOBODY ORDERED' });
+    }
+    if (wantDrink) {
+      asked++;
+      if (got.drink === wantDrink) ok++;
+      else if (got.drink) {
+        faults.push({ kind: 'drink', label: 'WRONG DRINK' });
+      } else {
+        faults.push({ kind: 'drink', label: 'NO ' + DRINK_BY_ID[wantDrink].short });
+      }
+    } else if (got.drink) {
+      faults.push({ kind: 'drink', label: 'A DRINK NOBODY ORDERED' });
+    }
+    return { faults: faults, ok: ok, asked: asked };
   }
 
   /**
@@ -274,11 +385,11 @@
 
   /* --------------------------------------------------------- customers */
   var CUSTOMERS = [
-    { id: 'regular', emoji: '🙂', name: 'Regular', patience: 1.00, tip: 1.0, weight: 5 },
-    { id: 'rush', emoji: '🧑‍💼', name: 'Rush', patience: 0.75, tip: 1.6, weight: 3 },
-    { id: 'chill', emoji: '😎', name: 'Chill', patience: 1.45, tip: 0.8, weight: 3 },
-    { id: 'foodie', emoji: '🤓', name: 'Foodie', patience: 1.05, tip: 2.2, weight: 2, strict: true },
-    { id: 'kid', emoji: '🧒', name: 'Kid', patience: 1.25, tip: 0.6, weight: 3, simple: true }
+    { id: 'regular', name: 'Regular', patience: 1.00, tip: 1.0, weight: 5 },
+    { id: 'rush', name: 'Rush', patience: 0.75, tip: 1.6, weight: 3 },
+    { id: 'chill', name: 'Chill', patience: 1.45, tip: 0.8, weight: 3 },
+    { id: 'foodie', name: 'Foodie', patience: 1.05, tip: 2.2, weight: 2, strict: true },
+    { id: 'kid', name: 'Kid', patience: 1.25, tip: 0.6, weight: 3, simple: true }
   ];
 
   function pickCustomer(day, rng) {
@@ -299,7 +410,54 @@
   }
 
   /* --------------------------------------------------------- the grill */
-  var COOK_TIME = 5.0;   // seconds to the middle of the perfect zone
+  /*
+   * Where the sweet spot sits along a patty's life.
+   *
+   * A patty runs raw -> perfect -> ruined, and the thing a player feels is not
+   * either number below but the RATIO between them: how far into the cook the
+   * window opens. It used to open at 36% and close at 49%, so the perfect
+   * moment was a little under halfway and most of a patty's life was spent
+   * slowly turning to charcoal - you learned to grab it early and the back
+   * half of the timeline taught you nothing.
+   *
+   * Now the window is three quarters of the way along. Same total life, same
+   * 1.6s of window, so the precision the game asks for has not changed: what
+   * changed is that waiting is the skill and being late is punished quickly,
+   * rather than the reverse.
+   *
+   *   raw ............................ perfect .... ruined
+   *   0s                          8.0s   8.8s  9.6s      11.8s
+   *   0%                           68%    75%   81%       100%
+   */
+  /*
+   * The grill's clock, and the one constraint that is not obvious: the perfect
+   * moment has to sit about three quarters of the way through the patty's
+   * whole life, or the sweet spot arrives while the player is still walking
+   * over and the rest of the cook is dead time.
+   *
+   * Pushing the burnt verdict later therefore cannot be done on BURN_TIME
+   * alone - that stretches only the tail and drags the sweet spot back to the
+   * halfway point this was moved away from. The cook lengthens with it, and
+   * the pair is solved rather than guessed: with the verdict at
+   * COOK_TIME + w/2 + BURN_TIME/2 and the sweet spot pinned at 75% of
+   * COOK_TIME + w/2 + BURN_TIME, asking for a verdict at time T gives
+   * COOK_TIME = (T - w/4) * 6/7 and BURN_TIME = COOK_TIME/3 - w/2.
+   *
+   * The whole curve has now been pulled in: 20.1s of patty was a long time to
+   * stand about, and most of it was the wait BEFORE the green. That wait is
+   * what shrank - 11.7s to 8.7s - while the forgiveness after the green is
+   * nearly untouched, 3.4s to 3.0s. Life 20.1s -> 16.3s.
+   *
+   * Where it has landed: green 8.7-10.3s, burnt from 13.3s, written off at
+   * 16.3s, with the sweet spot at 58% of the patty's life.
+   *
+   * The rule that remains is the one the 75% was protecting: the sweet spot
+   * must not land in the first half of the cook, or it arrives while the
+   * player is still walking over and the rest of the patty's life is dead.
+   *
+   * The fry wells read the same curve, so a basket gets the same grace.
+   */
+  var COOK_TIME = 9.5;   // seconds to the middle of the perfect zone
   var BURN_TIME = 6.0;   // seconds from leaving the zone to fully ruined
   var TIP_RATE = 0.70;   // tip ceiling as a fraction of the ticket
   var BASE_WINDOW = 1.6; // seconds of perfect zone before upgrades
@@ -364,7 +522,9 @@
     underdone: { label: 'UNDERCOOKED', cost: 0.18 },
     overdone: { label: 'OVERCOOKED', cost: 0.18 },
     raw: { label: 'THAT PATTY IS RAW', cost: 0.55 },
-    burnt: { label: 'THAT PATTY IS BURNT', cost: 0.55 }
+    burnt: { label: 'THAT PATTY IS BURNT', cost: 0.55 },
+    // the vegetables' version of `raw`: it skipped the board
+    whole: { label: 'THAT ISN\'T CHOPPED', cost: 0.55 }
   };
 
   function faultLabel(code) {
@@ -432,7 +592,21 @@
     var cooked = [];
     for (i = 0; i < built.length; i++) {
       var ing = BY_ID[built[i].id];
-      if (!ing || !ing.grill) continue;
+      if (!ing) continue;
+      /*
+       * The backstop the patty has always had, finally given to the
+       * vegetables. The plate refuses an unchopped one, so in ordinary play
+       * this never fires - it is here so that a hole in that gate costs the
+       * player a score rather than passing silently.
+       *
+       * Explicitly false, not falsy: a stack saved before plates carried the
+       * flag has `undefined`, and old saves should not be punished for it.
+       */
+      if (ing.chop && built[i].prepped === false) {
+        tally.whole = (tally.whole || 0) + 1;
+        cookPenalty += FAULT.whole.cost;
+      }
+      if (!ing.grill) continue;
       cooked.push(built[i]);
       f = cookFault(built[i]);
       if (f) {
@@ -483,14 +657,43 @@
   }
 
   /** opts: { orderItems, built, patienceRatio, customer, tipMult } */
+  /*
+   * What a binned plate costs the shop, as a share of what it would have sold
+   * for - the cost of goods, not the menu price.
+   *
+   * Charging the full price makes the early days brutal and the late ones
+   * cheap: a wasted bun and patty is a third of day one's rent and a fifteenth
+   * of day twenty's. Measured against the balance sim, 0.45 is the heaviest
+   * this can be while the difficulty ramp stays flat across twenty-five days -
+   * 0.60 already swings sloppy play from x0.31 to x0.61 of rent.
+   */
+  var WASTE_RATE = 0.45;
+  function wasteOf(built) { return Math.round(menuPrice(builtIdsOf(built)) * WASTE_RATE); }
+
+  /** The ids on a built plate, whether it holds ids or {id} objects. */
+  function builtIdsOf(built) {
+    var out = [];
+    for (var i = 0; i < (built || []).length; i++) {
+      var it = built[i];
+      out.push(typeof it === 'string' ? it : it.id);
+    }
+    return out;
+  }
+
   function payout(opts) {
     var price = menuPrice(opts.orderItems);
     var ev = evaluate(opts.orderItems, opts.built);
     var verdict = verdictOf(ev);
 
     if (verdict === 'bad') {
+      /*
+       * A plate that goes back is not a life lost, it is food in the bin. The
+       * shop pays for what was on it - which is the pressure the hearts used
+       * to carry, expressed in the only currency the day is judged in.
+       */
       return {
-        verdict: verdict, pay: 0, tip: 0, total: 0, heartLoss: 1,
+        verdict: verdict, pay: 0, tip: 0, total: 0,
+        waste: wasteOf(opts.built),
         accuracy: ev.accuracy, cookScore: ev.cookScore, quality: ev.quality,
         exact: ev.exact, faults: ev.faults
       };
@@ -506,7 +709,7 @@
     tip = Math.round(tip);
 
     return {
-      verdict: verdict, pay: pay, tip: tip, total: pay + tip, heartLoss: 0,
+      verdict: verdict, pay: pay, tip: tip, total: pay + tip, waste: 0,
       accuracy: ev.accuracy, cookScore: ev.cookScore, quality: ev.quality,
       exact: ev.exact, faults: ev.faults
     };
@@ -527,7 +730,11 @@
     var sum = 0, N = 240;
     for (var i = 0; i < N; i++) {
       var c = pickCustomer(day, rng);
-      sum += menuPrice(makeOrder(day, rng, c).items);
+      var o = makeOrder(day, rng, c);
+      // The tray, not just the burger: rent is sampled from what orders really
+      // cost, so leaving the fries out here would price every day as though
+      // nobody ever asked for them.
+      sum += menuPrice(o.items, o.side, o.drink);
     }
     return Math.round(cfg.customers * (sum / N) * RENT_RATIO / 50) * 50;
   }
@@ -560,11 +767,11 @@
 
   /* ---------------------------------------------------------- upgrades */
   var UPGRADES = [
-    { id: 'shoes', name: 'Running Shoes', desc: 'The chef moves faster', icon: '👟', max: 3, base: 1600, mult: 2.0 },
-    { id: 'plate', name: 'Plating Station', desc: '+1 plate to build on', icon: '🍽️', max: 2, base: 3000, mult: 2.25 },
-    { id: 'grill', name: 'Pro Grill', desc: 'Wider perfect window', icon: '🔥', max: 3, base: 1900, mult: 2.0 },
-    { id: 'burner', name: 'Extra Burner', desc: '+1 grill slot', icon: '🍳', max: 2, base: 3200, mult: 2.3 },
-    { id: 'sign', name: 'Neon Sign', desc: 'Bigger tips', icon: '💡', max: 3, base: 2200, mult: 2.0 }
+    { id: 'shoes', name: 'Running Shoes', desc: 'The chef moves faster', max: 3, base: 1600, mult: 2.0 },
+    { id: 'plate', name: 'Plating Station', desc: '+1 plate to build on', max: 2, base: 3000, mult: 2.25 },
+    { id: 'grill', name: 'Pro Grill', desc: 'Wider perfect window', max: 3, base: 1900, mult: 2.0 },
+    { id: 'burner', name: 'Extra Burner', desc: '+1 grill slot', max: 2, base: 3200, mult: 2.3 },
+    { id: 'sign', name: 'Neon Sign', desc: 'Bigger tips', max: 3, base: 2200, mult: 2.0 }
   ];
 
   var UPGRADE_BY_ID = {};
@@ -578,6 +785,94 @@
 
   var STATION_CAP = 5;
   var MAX_MONEY = 1e12;      // a bound on a tampered save, not on a good run
+
+  /* --------------------------------------------------------------- store */
+  /*
+   * What real money can buy, and - more importantly - what it deliberately
+   * cannot.
+   *
+   * The 25-day curve in this file was not guessed; it was simulated, and there
+   * are tests that fail if it drifts. So nothing sold here invents a new
+   * ability or raises a ceiling. There are exactly three shapes:
+   *
+   *   skin   pure cosmetic. The cook is drawn from an eleven-colour palette,
+   *          so an outfit costs a palette rather than a sprite sheet. No
+   *          effect on anything the simulation measures.
+   *
+   *   gear   grants a level in an upgrade track that already exists, and stops
+   *          at that track's existing `max`. Buying Non-slip Clogs is buying
+   *          the Running Shoes level you would have earned - sooner, not
+   *          bigger. `effects()` is unchanged, so the ceiling the tests assert
+   *          is the same ceiling. A player who bought everything reaches the
+   *          top of a track a few days early and then the game is the game.
+   *
+   *   till   in-game cash. Same argument: the shop's total is fixed and the
+   *          station cap is five, so money buys pace and nothing else.
+   *
+   * That is the line. If something ever needs to be sold that moves a number
+   * the simulation reads, it has to be simulated first - see the fryer note in
+   * the README for what that costs.
+   *
+   * `sku` is what the platform store knows the product as. Nothing in here is
+   * a price: prices come from the billing layer, because the store owns them
+   * per territory and a hard-coded "$2.99" is wrong somewhere on day one.
+   */
+  var STORE = [
+    { id: 'skin_garden', kind: 'skin', skin: 'garden', name: 'Garden Line',
+      desc: 'Sage whites and an olive apron', sku: 'mrb.skin.garden', tier: 1 },
+    { id: 'skin_berry', kind: 'skin', skin: 'berry', name: 'Milkshake',
+      desc: 'For the counter, not the grill', sku: 'mrb.skin.berry', tier: 1 },
+    { id: 'skin_head', kind: 'skin', skin: 'head', name: 'Head Chef',
+      desc: 'Cocoa and brass. You run this line', sku: 'mrb.skin.head', tier: 2 },
+    { id: 'skin_night', kind: 'skin', skin: 'night', name: 'Night Shift',
+      desc: 'Charcoal blacks, one warm scarf', sku: 'mrb.skin.night', tier: 2 },
+    { id: 'skin_gold', kind: 'skin', skin: 'gold', name: 'Golden Toque',
+      desc: 'The top of the menu', sku: 'mrb.skin.gold', tier: 3 },
+
+    { id: 'gear_clogs', kind: 'gear', track: 'shoes', name: 'Non-slip Clogs',
+      desc: 'Skips you a Running Shoes level', sku: 'mrb.gear.clogs', tier: 2 },
+    { id: 'gear_thermo', kind: 'gear', track: 'grill', name: 'Probe Thermometer',
+      desc: 'Skips you a Pro Grill level', sku: 'mrb.gear.thermo', tier: 2 },
+    { id: 'gear_awning', kind: 'gear', track: 'sign', name: 'Striped Awning',
+      desc: 'Skips you a Neon Sign level', sku: 'mrb.gear.awning', tier: 2 },
+
+    { id: 'till_small', kind: 'till', cents: 15000, name: 'Float',
+      desc: 'Puts $150.00 in the till', sku: 'mrb.till.small', tier: 1, repeat: true },
+    { id: 'till_big', kind: 'till', cents: 60000, name: "Week's Takings",
+      desc: 'Puts $600.00 in the till', sku: 'mrb.till.big', tier: 3, repeat: true }
+  ];
+
+  var STORE_BY_ID = {};
+  STORE.forEach(function (p) { STORE_BY_ID[p.id] = p; });
+
+  /**
+   * The upgrade levels a set of purchases is worth, folded into whatever the
+   * player has earned. Capped by the track's own max, which is the whole point:
+   * paid levels and earned levels land in the same bucket and that bucket does
+   * not get bigger.
+   */
+  function levelsWithGear(levels, owned) {
+    var out = {};
+    Object.keys(levels || {}).forEach(function (k) { out[k] = levels[k]; });
+    (owned || []).forEach(function (id) {
+      var p = STORE_BY_ID[id];
+      if (!p || p.kind !== 'gear') return;
+      var u = UPGRADE_BY_ID[p.track];
+      if (!u) return;
+      out[p.track] = Math.min((out[p.track] || 0) + 1, u.max);
+    });
+    return out;
+  }
+
+  /** Every skin the player may wear, free one first. */
+  function skinsOwned(owned) {
+    var list = ['classic'];
+    (owned || []).forEach(function (id) {
+      var p = STORE_BY_ID[id];
+      if (p && p.kind === 'skin') list.push(p.skin);
+    });
+    return list;
+  }
 
   /**
    * How long the shift runs, in seconds.
@@ -599,7 +894,12 @@
   var CLOCK_SLACK = 1.45;
 
   function dayLength(day) {
-    var sharp = clamp(40 + Math.max(1, Math.floor(day)) * 7.5, 45, 120);
+    // The ceiling went up with the tray: 120 -> 130 is 175s -> 190s at day 25,
+    // which is the 34s of headroom the burger-only shift used to have.
+    // Steeper early, same ceiling. Days 1-3 lose the dead tail; day 12 on is
+    // untouched. The floor is what the first shift is really worth: below it a
+    // player cannot finish four orders however fast they walk.
+    var sharp = clamp(33 + Math.max(1, Math.floor(day)) * 8.6, 45, 130);
     return Math.round(sharp * CLOCK_SLACK / 5) * 5;
   }
 
@@ -631,25 +931,69 @@
   var LINES = ['centre', 'left', 'right', 'split'];
   var PALETTES = 6;
 
-  function dayRoom(day) {
+  /**
+   * How much of the room a given day is allowed to move.
+   *
+   * A player who has run the game five times should not be able to walk into
+   * day 9 already knowing the grill is on the left. But re-reading a whole
+   * floor plan while you are still learning to time a patty is not difficulty,
+   * it is noise - so the room opens up a piece at a time:
+   *
+   *   day 1      nothing moves. The tutorial kitchen.
+   *   day 2-3    the paint and the crate order.
+   *   day 4-6    ...and which wall the burners are on.
+   *   day 7+     ...and which end the bin is at. Everything is in play.
+   */
+  function roomChurn(d) {
+    return {
+      palette: d >= 2,
+      line: d >= 2,
+      walls: d >= 4,
+      bin: d >= 7
+    };
+  }
+
+  /**
+   * The kitchen for a day of a given run.
+   *
+   * `seed` is the RUN, not the day: it changes when somebody starts over from
+   * day 1 and never within a run. So a failed night is still a fair rematch in
+   * the same room, and the layout you learned on your last run is worth
+   * nothing on this one - which is the point. It travels in the co-op
+   * snapshot, because a guest only knows the day and both machines have to
+   * arrive at the same room.
+   */
+  function dayRoom(day, seed) {
     var d = Math.max(1, Math.floor(Number(day) || 1));
-    var rng = seeded(d * 2246822519 + 3266489917);
+    var run = Math.floor(Number(seed) || 0) | 0;
+    var rng = seeded(d * 2246822519 + 3266489917 + Math.imul(run, 40503));
     // burn one so neighbouring days do not share a first draw
     rng();
+    var churn = roomChurn(d);
     var grill = SIDES[Math.floor(rng() * SIDES.length) % SIDES.length];
     var line = LINES[Math.floor(rng() * LINES.length) % LINES.length];
     var binSide = SIDES[Math.floor(rng() * SIDES.length) % SIDES.length];
+    var palette = Math.floor(rng() * PALETTES) % PALETTES;
+    if (!churn.walls) grill = 'left';
+    if (!churn.line) line = 'centre';
+    if (!churn.bin) binSide = 'right';
+    if (!churn.palette) palette = 0;
     return {
       day: d,
       grill: grill,                                  // which wall the burners are on
       plates: grill === 'left' ? 'right' : 'left',   // plates always face them
       line: line,                                    // how the crate row is arranged
       bin: binSide,                                  // which end of the hatch the bin is
-      palette: Math.floor(rng() * PALETTES) % PALETTES,
+      palette: palette,
       // Day 1 is the tutorial: leave it in the plainest room so the first
       // shift is about learning the job, not reading a new floor plan.
       plain: d === 1
     };
+  }
+
+  /** A fresh run's seed. Kept small and integral so it survives a save. */
+  function newRunSeed(rnd) {
+    return Math.floor((rnd || Math.random)() * 0x7ffffffe) + 1;
   }
 
   /**
@@ -691,12 +1035,33 @@
       });
     }
 
+    /*
+     * Entitlements go through the same door as everything else: only ids this
+     * build actually sells, deduplicated, and a chosen skin only if it is one
+     * the player owns. This is tidiness, not security - a local save is the
+     * player's file. What stops a forged purchase mattering is the receipt
+     * check on the server; see billing.js.
+     */
+    var owned = [];
+    if (Array.isArray(raw.owned)) {
+      raw.owned.forEach(function (id) {
+        if (STORE_BY_ID[id] && owned.indexOf(id) < 0) owned.push(id);
+      });
+    }
+    var skins = skinsOwned(owned);
+    var skin = skins.indexOf(raw.skin) >= 0 ? raw.skin : 'classic';
+
     return {
       day: day,
       bestDay: Math.floor(num(raw.bestDay, day, 0, MAX_DAY)),
       money: Math.floor(num(raw.money, 0, 0, MAX_MONEY)),
       lifetime: Math.floor(num(raw.lifetime, 0, 0, MAX_MONEY)),
+      // 0 means "a save from before runs had seeds": the base kitchen, which is
+      // exactly the room those players already know.
+      runSeed: Math.floor(num(raw.runSeed, 0, 0, 0x7fffffff)),
       levels: levels,
+      owned: owned,
+      skin: skin,
       muted: !!raw.muted
     };
   }
@@ -732,6 +1097,38 @@
     };
   }
 
+  /**
+   * Would the next level of this upgrade actually change anything on `day`?
+   *
+   * It is not always yes, and the shop used to charge as if it were. The
+   * kitchen grows on its own as the shifts get heavier and the whole room is
+   * capped at STATION_CAP, so from day 19 the line already runs four burners
+   * and a second Extra Burner is a burner that can never be installed -
+   * 2 + 2 + 2 clamped back down to 5. The button was still lit and still took
+   * the money, and the burner never appeared. Same for the second Plating
+   * Station from day 17.
+   *
+   * Asked of the whole effects object rather than of one field, so a cap added
+   * to some future upgrade cannot reintroduce this quietly. Once an upgrade is
+   * blocked it stays blocked: the day term only ever grows.
+   */
+  function upgradeGains(id, day, levels) {
+    var u = UPGRADE_BY_ID[id];
+    if (!u) return false;
+    levels = levels || {};
+    var lv = levels[id] || 0;
+    if (lv >= u.max) return false;
+
+    var next = {};
+    Object.keys(levels).forEach(function (k) { next[k] = levels[k]; });
+    next[id] = lv + 1;
+
+    var a = effects(levels, day), b = effects(next, day);
+    return a.speed !== b.speed || a.plates !== b.plates ||
+      a.grillSlots !== b.grillSlots || a.perfectWindow !== b.perfectWindow ||
+      a.tipMult !== b.tipMult;
+  }
+
   /* ------------------------------------------------------------ format */
   function money(cents) {
     var neg = cents < 0;
@@ -745,17 +1142,22 @@
     GROUPS: GROUPS,
     CUSTOMERS: CUSTOMERS,
     UPGRADES: UPGRADES,
+    STORE: STORE,
+    storeItem: function (id) { return STORE_BY_ID[id] || null; },
+    levelsWithGear: levelsWithGear,
+    upgradeGains: upgradeGains,
+    skinsOwned: skinsOwned,
     COOK_TIME: COOK_TIME,
     BURN_TIME: BURN_TIME,
     BASE_WINDOW: BASE_WINDOW,
     MENU_MAX: MENU_MAX,
     STATION_CAP: STATION_CAP,
-    START_HEARTS: 5,
+
     stationsAt: stationsAt,
     byId: byId,
     MAX_DAY: MAX_DAY,
     sanitiseSave: sanitiseSave,
-    dayRoom: dayRoom,
+    dayRoom: dayRoom, roomChurn: roomChurn, newRunSeed: newRunSeed,
     PALETTES: PALETTES,
     dayLength: dayLength,
     clockText: clockText,
@@ -767,7 +1169,10 @@
     displayStack: displayStack,
     dayGoal: dayGoal,
     makeOrder: makeOrder,
-    menuPrice: menuPrice,
+    menuPrice: menuPrice, wasteOf: wasteOf,
+    SIDES: TRAY_SIDES, DRINKS: DRINKS, drinkById: function (id) { return DRINK_BY_ID[id]; },
+    drinkMenu: drinkMenu, attachRates: attachRates, checkExtras: checkExtras,
+    SIDE_DAY: SIDE_DAY, DRINK_DAY: DRINK_DAY,
     pickCustomer: pickCustomer,
     cookQuality: cookQuality,
     cookStage: cookStage,

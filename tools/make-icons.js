@@ -67,17 +67,38 @@ function mix(a, b, t) {
 }
 function clamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
 
+/*
+ * The Organic ground the app is skinned from, in the numbers the CSS uses:
+ * cream to sand, a terracotta blob behind the mark, and a sand disc under it so
+ * the burger has something to sit on instead of floating in a pale field.
+ * The dark variant is the same recipe on the deep end of the same ramps - it is
+ * only ever the dark-mode splash, so it should read as the same brand at night
+ * rather than as the old app.
+ */
+var GROUND = {
+  /* The disc is sage, not sand: a warm mark on a warm ground had nothing to
+     push against, and the second voice is exactly what the system keeps for
+     this. Cream square, soft sage circle, terracotta-lit burger. */
+  light: { top: [245, 234, 216], bottom: [235, 221, 197], glow: [198, 113, 57], disc: [225, 238, 204], glowT: 0.20 },
+  dark:  { top: [64, 35, 16],    bottom: [46, 43, 37],    glow: [140, 73, 26],  disc: [61, 71, 43],    glowT: 0.45 }
+};
+
 /** Warm diner backdrop, matching the app's CSS background. */
-function paintBackground(img) {
+function paintBackground(img, dark) {
+  var P = dark ? GROUND.dark : GROUND.light;
   var w = img.w, h = img.h;
-  var top = [74, 42, 28], bottom = [15, 9, 8], glow = [122, 58, 30];
   var gx = w * 0.5, gy = h * 0.30, gr = w * 0.72;
+  var dcx = w * 0.5, dcy = h * 0.5, dr = w * 0.44;
   for (var y = 0; y < h; y++) {
     for (var x = 0; x < w; x++) {
-      var c = mix(top, bottom, clamp01(x / w * 0.25 + y / h * 0.85));
+      var c = mix(P.top, P.bottom, clamp01(x / w * 0.25 + y / h * 0.85));
       var dx = x - gx, dy = y - gy;
       var d = Math.sqrt(dx * dx + dy * dy) / gr;
-      if (d < 1) c = mix(c, glow, Math.pow(1 - d, 2.0) * 0.5);
+      if (d < 1) c = mix(c, P.glow, Math.pow(1 - d, 2.0) * P.glowT);
+      // the disc, antialiased over one pixel of edge
+      var ex = x - dcx, ey = y - dcy;
+      var e = dr - Math.sqrt(ex * ex + ey * ey);
+      if (e > -1) c = mix(c, P.disc, clamp01(e + 1) * 0.85);
       var i = (y * w + x) * 4;
       img.data[i] = Math.round(c[0]);
       img.data[i + 1] = Math.round(c[1]);
@@ -114,7 +135,7 @@ var BUN_TOP = [[240, 192, 129], [201, 133, 69]];
 var BUN_BOT = [[233, 181, 113], [192, 127, 61]];
 var CHEESE = [[255, 210, 74], [240, 169, 31]];
 var PATTY = [[124, 69, 39], [74, 39, 22]];
-var LETTUCE = [[142, 215, 101], [79, 158, 52]];
+var LETTUCE = [[168, 200, 138], [104, 130, 80]];   // shifted toward the sage voice
 var SEED = [255, 246, 223];
 
 /**
@@ -189,17 +210,17 @@ function composite(dst, mark, ox, oy) {
   }
 }
 
-function makeIcon(size) {
+function makeIcon(size, dark) {
   var img = canvas(size, size);
-  paintBackground(img);
+  paintBackground(img, dark);
   var m = Math.round(size * 0.76);
   composite(img, renderMark(m), Math.round((size - m) / 2), Math.round((size - m) / 2));
   return img;
 }
 
-function makeSplash(size) {
+function makeSplash(size, dark) {
   var img = canvas(size, size);
-  paintBackground(img);
+  paintBackground(img, dark);
   var m = Math.round(size * 0.26);
   composite(img, renderMark(m), Math.round((size - m) / 2), Math.round((size - m) / 2));
   return img;
@@ -217,10 +238,10 @@ function write(rel, img) {
 }
 
 console.log('\nGenerating assets...');
-write('resources/icon.png', makeIcon(1024));
-write('resources/splash.png', makeSplash(2732));
-write('resources/splash-dark.png', makeSplash(2732));
-write('www/icons/icon-512.png', makeIcon(512));
-write('www/icons/icon-192.png', makeIcon(192));
-write('www/icons/icon-180.png', makeIcon(180));
+write('resources/icon.png', makeIcon(1024, true));
+write('resources/splash.png', makeSplash(2732, true));
+write('resources/splash-dark.png', makeSplash(2732, true));
+write('www/icons/icon-512.png', makeIcon(512, true));
+write('www/icons/icon-192.png', makeIcon(192, true));
+write('www/icons/icon-180.png', makeIcon(180, true));
 console.log('Done.\n');

@@ -97,26 +97,27 @@ stage.getBoundingClientRect = function () {
 };
 
 var elements = { stage: stage };
-['dayNum', 'goalText', 'goalFill', 'hearts', 'board', 'pauseBtn',
-  'pause', 'pauseDay', 'pauseEarned', 'pauseRent', 'pauseSoundBtn',
+['hudArt', 'hudRead', 'boardArt', 'boardRead', 'pauseBtn',
+  'pause', 'pauseSoundBtn',
   'resumeBtn', 'restartBtn', 'quitBtn',
   'start', 'playBtn', 'continueBtn', 'continueDay',
-  'dayEnd', 'dayEndTitle', 'dayEndBtn', 'dayEndNote', 'rSales', 'rTips', 'rTotal',
-  'rRent', 'rNet', 'rNetLabel', 'rPerfect', 'rServed', 'rWalked',
-  'coopBtn', 'netState', 'boardBtn', 'accountBtn', 'howBtn', 'how', 'howClose',
+  'dayEnd', 'dayEndBtn',
+  'titleArt', 'coopBtn', 'netState', 'boardBtn', 'accountBtn',
+  'howBtn', 'howBtn2', 'how', 'howClose',
   'leaderboard', 'lbList', 'lbNote', 'lbClose',
   'account', 'nameInput', 'nameSave', 'makeCodeBtn', 'codeOut',
   'claimInput', 'claimBtn', 'accountNote', 'accountClose',
   'coop', 'hostBtn', 'roomOut', 'joinInput', 'joinBtn', 'coopNote', 'coopClose',
-  'shop', 'walletText', 'unlockBox', 'unlockList', 'upgradeList', 'nextRent', 'nextKitchen',
-  'nextDayBtn', 'nextDayNum', 'over', 'overTitle', 'overReason', 'overDay',
+  'shop', 'nextDayBtn', 'over', 'overTitle', 'overReason', 'overDay',
   'overBest', 'retryBtn', 'retryDay', 'wipeBtn',
-  'clockText', 'clockFill', 'clockBox'
+  'store', 'storeTabs', 'storeList', 'storeNote', 'storeRestore', 'storeClose',
+  'shopStoreBtn', 'shopArt', 'shopRead', 'shopBuys', 'dayEndArt', 'dayEndRead',
+  'pauseArt', 'pauseRead', 'pauseMusicBtn', 'signArt', 'rotate', 'rotateArt'
 ].forEach(function (id) { elements[id] = makeEl('div'); });
 
 // Mirror index.html: the flow sheets carry the `hidden` attribute.
-['dayEnd', 'shop', 'over', 'pause', 'continueBtn', 'unlockBox',
-  'leaderboard', 'account', 'coop', 'codeOut', 'roomOut', 'how'].forEach(function (id) {
+['dayEnd', 'shop', 'over', 'pause', 'continueBtn',
+  'leaderboard', 'account', 'coop', 'codeOut', 'roomOut', 'how', 'store'].forEach(function (id) {
   elements[id].hidden = true;
 });
 
@@ -130,10 +131,19 @@ var madeCanvases = [];
 
 global.self = global;
 global.window = global;
+// The board reserves its height by writing --order-rows on the root element,
+// so the stub has to have one for that promise to be testable at all.
+var rootProps = {};
 global.document = {
   readyState: 'complete',
   hidden: false,
   body: makeEl('body'),
+  documentElement: {
+    style: {
+      setProperty: function (k, v) { rootProps[k] = String(v); },
+      getPropertyValue: function (k) { return rootProps[k] || ''; }
+    }
+  },
   getElementById: function (id) { return elements[id] || null; },
   createElement: function (tag) {
     var e = makeEl(tag);
@@ -192,7 +202,15 @@ global.Net = {
 var Core = require('../www/js/core.js');
 global.Core = Core;
 require('../www/js/art.js');
+// index.html loads this straight after art.js, and the kitchen draws from it.
+require('../www/js/art-fries-drinks.js');
+require('../www/js/art-freezer-dispenser.js');
+require('../www/js/art-prep.js');
+require('../www/js/art-title.js');
 require('../www/js/audio.js');
+// The real billing seam, sandbox adapter and all - so the store screen is
+// exercised against what actually ships rather than a stub of it.
+global.Billing = require('../www/js/billing.js');
 require('../www/js/game.js');
 
 var MB = global.MrBurger;
@@ -217,6 +235,23 @@ function work(rect) {
   assert.strictEqual(S.chef.target, null, 'the chef never reached the station');
 }
 
+/*
+ * Press one of the fountain's three spouts, stand there while the cup fills,
+ * and take it. The machine no longer hands over a finished drink in one tap -
+ * the lever you press is the flavour you get, and it costs the cook's time.
+ */
+function pourCup(col) {
+  var r = MB.tapRect();
+  var w3 = r.w * 0.283;
+  var cx = r.x + r.w * (0.217 + 0.283 * (col || 0));
+  work({ x: cx - w3 / 2, y: r.y, w: w3, h: r.h });
+  for (var i = 0; i < 200 && S.pour && !held(); i++) {
+    pump(0.05);
+    if (S.pour && S.pour.t >= 1.5) MB.arrive({ kind: 'tap', i: col || 0 }, 0);
+  }
+  return held();
+}
+
 function crateOf(id) {
   var i = S.menu.indexOf(id);
   assert.ok(i >= 0, id + ' is not on the line today');
@@ -235,11 +270,31 @@ function fetchCookedPatty(slot) {
   work(MB.slotRect(slot));
 }
 
-/** Build `items` onto plate `p`, grilling whatever needs grilling. */
+/**
+ * Take one portion of `id` off the board, loading and chopping a fresh
+ * vegetable first if the board has none left. This is what a player does.
+ */
+function fetchChopped(id) {
+  if (!S.board.portions || S.board.id !== id) {
+    assert.ok(!S.board.id || !S.board.portions,
+      'the board still has ' + S.board.id + ' on it');
+    work(crateOf(id));
+    work(MB.boardRect());              // whole vegetable down, knife starts
+    for (var i = 0; i < 400 && !S.board.portions; i++) pump(0.05);
+    assert.ok(S.board.portions, id + ' never finished chopping');
+  }
+  work(MB.boardRect());                // and take a portion off it
+  assert.ok(held() && held().prepped, id + ' came off the board unchopped');
+}
+
+/** Build `items` onto plate `p`, grilling and chopping whatever needs it. */
 function buildPlate(p, items) {
   items.forEach(function (id) {
-    if (Core.byId(id).grill) {
+    var ing = Core.byId(id);
+    if (ing.grill) {
       fetchCookedPatty(S.grill.indexOf(null));
+    } else if (ing.chop) {
+      fetchChopped(id);
     } else {
       work(crateOf(id));
     }
@@ -267,19 +322,76 @@ test('the whole line sits on one row, ordered buns then toppings then sauces', f
     prev = g;
   }
 
-  // one row: same y, strictly increasing x, nothing overlapping or off-canvas
+  /*
+   * The shelf runs in one row, or two when a single row would squeeze the
+   * boxes too narrow to read. Either way it is a grid: every box the same
+   * size, laid out left to right and then down, nothing overlapping and
+   * nothing off the canvas.
+   */
   var first = MB.crateRect(0);
+  var ys = {};
   for (i = 0; i < S.menu.length; i++) {
     var r = MB.crateRect(i);
-    assert.strictEqual(r.y, first.y, 'crate ' + i + ' is on a second row');
+    ys[r.y.toFixed(2)] = 1;
+    assert.strictEqual(r.w, first.w, 'crate ' + i + ' is a different width');
     assert.strictEqual(r.h, first.h, 'crate ' + i + ' is a different height');
     assert.ok(r.w > 20, 'crate ' + i + ' shrank to ' + r.w.toFixed(1) + 'px');
     assert.ok(r.x >= 0 && r.x + r.w <= VIEW_W + 0.01, 'crate ' + i + ' is off-canvas');
     if (i > 0) {
       var p = MB.crateRect(i - 1);
-      assert.ok(p.x + p.w <= r.x + 0.01, 'crates ' + (i - 1) + ' and ' + i + ' overlap');
+      // reading order: further right, or the start of the next row down
+      assert.ok(p.x + p.w <= r.x + 0.01 || r.y > p.y + 0.01,
+        'crates ' + (i - 1) + ' and ' + i + ' are out of reading order');
+    }
+    for (var j = 0; j < i; j++) {
+      var q = MB.crateRect(j);
+      assert.ok(!(q.x < r.x + r.w - 0.01 && r.x < q.x + q.w - 0.01 &&
+                  q.y < r.y + r.h - 0.01 && r.y < q.y + q.h - 0.01),
+        'crates ' + j + ' and ' + i + ' overlap');
     }
   }
+  assert.ok(Object.keys(ys).length <= 2,
+    'the shelf ran to ' + Object.keys(ys).length + ' rows; two is the limit');
+});
+
+/*
+ * The shelf is the thing that gets crowded as the menu grows: eight boxes
+ * across a phone is 40px each, too narrow for the name and under the 62px
+ * drawCrate needs before it will draw the grill flame or the chop blade - so
+ * the two markers that teach the game vanish exactly when the game gets
+ * complicated. It wraps to a second row instead, but only where the columns
+ * below can still stand up.
+ */
+test('a crowded line gets a second row rather than eight thin boxes', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+
+  [[375, 812], [412, 915], [360, 640]].forEach(function (sz) {
+    stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+    [14, 20, 25].forEach(function (d) {
+      MB.startDay(d);
+      pump(0.3);
+      var where = sz.join('x') + ' day ' + d + ': ';
+      assert.ok(S.menu.length >= 7, where + 'setup: expected a busy line');
+      var w = MB.crateRect(0).w;
+      assert.ok(w >= 62, where + 'crates are ' + w.toFixed(0) + 'px, too narrow for their markers');
+      assert.strictEqual(S.cramped, false, where + 'the shelf squeezed the kitchen out of the room');
+      assert.ok(MB.layout.slotH >= 22 && MB.layout.plateH >= 22,
+        where + 'a station fell under a tappable size: ' +
+        MB.layout.slotH.toFixed(0) + '/' + MB.layout.plateH.toFixed(0));
+    });
+  });
+
+  // ...and a screen that cannot pay for the row keeps its single line
+  stage.clientWidth = 412; stage.clientHeight = 430;
+  MB.startDay(20);
+  pump(0.3);
+  var rows = {};
+  for (var i = 0; i < S.menu.length; i++) rows[MB.crateRect(i).y.toFixed(2)] = 1;
+  assert.strictEqual(Object.keys(rows).length, 1,
+    'a short screen took a second row it did not have the height for');
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.3);
 });
 
 test('taking from a box kicks off an animation without changing the outcome', function () {
@@ -448,6 +560,24 @@ test('the cooks keep their place in the room when the viewport changes', functio
   assert.ok(Math.abs(nx - relX) < 0.25 && Math.abs(ny - relY) < 0.35,
     'the cook slid from ' + relX.toFixed(2) + ',' + relY.toFixed(2) +
     ' to ' + nx.toFixed(2) + ',' + ny.toFixed(2) + ' of the floor');
+
+  /*
+   * The settle may have let the walk finish - how long a crossing takes is a
+   * property of the room, not of this test - so make sure there is a live
+   * target before asking where it points. Send it to whichever crate it is
+   * furthest from.
+   */
+  if (!S.chef.target) {
+    var far = 0, best = -1;
+    for (var ci = 0; ci < S.menu.length; ci++) {
+      var sp = MB.standPoint({ kind: 'crate', i: ci });
+      var d = Math.hypot(sp.x - S.chef.x, sp.y - S.chef.y);
+      if (d > best) { best = d; far = ci; }
+    }
+    tapRect(MB.crateRect(far));
+    pump(0.05);
+    assert.ok(S.chef.target, 'the cook refused a fresh walk after the relayout');
+  }
 
   // and it is aiming at where the crate is now, not where it used to be
   var want = MB.standPoint(S.chef.target);
@@ -852,17 +982,20 @@ test('a patty put back on the grill carries on cooking, it does not reset', func
   startShift(6);
   work(crateOf('patty'));
   work(MB.slotRect(0));
-  S.grill[0].t = 3.0;
+  // Two thirds of the way to seared - derived, because a literal 3.0 seconds
+  // only meant "part-cooked" while the window happened to open at 4.2s.
+  var partway = Math.round((Core.COOK_TIME - Core.BASE_WINDOW / 2) * 0.66 * 100) / 100;
+  S.grill[0].t = partway;
   work(MB.slotRect(0));                       // lift it off, part-cooked
   var lifted = held().done;
   assert.ok(lifted > 0.5 && lifted < 1, 'setup: should be part-cooked, got ' + lifted);
-  assert.strictEqual(held().grillT, 3.0, 'the time on the grill has to ride along');
+  assert.strictEqual(held().grillT, partway, 'the time on the grill has to ride along');
 
   // and back down on another burner. It keeps ticking from the frame it lands,
-  // so allow for that rather than demanding an exact 3.0.
+  // so allow for that rather than demanding an exact match.
   work(MB.slotRect(1));
-  assert.ok(S.grill[1].t >= 3.0 && S.grill[1].t < 3.4,
-    'the burner restarted from ' + S.grill[1].t.toFixed(2) + ' instead of 3.0');
+  assert.ok(S.grill[1].t >= partway && S.grill[1].t < partway + 0.4,
+    'the burner restarted from ' + S.grill[1].t.toFixed(2) + ' instead of ' + partway);
   assert.strictEqual(S.grill[0], null);
 
   // a moment more and it is properly seared, not raw
@@ -927,8 +1060,7 @@ test('an empty burner gives nothing back', function () {
 test('fillings land on the plate the chef was sent to', function () {
   startShift(6);
   var topping = S.menu.filter(function (id) { return id !== 'patty' && id !== 'bun'; })[0];
-  work(crateOf(topping));
-  work(MB.plateRect(1));
+  buildPlate(1, [topping]);
   assert.deepStrictEqual(plateIds(1), [topping]);
   assert.deepStrictEqual(plateIds(0), [], 'the other plate should be untouched');
   assert.strictEqual(held(), null);
@@ -938,10 +1070,8 @@ test('two plates fill independently', function () {
   startShift(8);
   var a = S.menu.filter(function (id) { return id !== 'patty' && id !== 'bun'; })[0];
   var b = S.menu.filter(function (id) { return id !== 'patty' && id !== 'bun'; })[1] || a;
-  work(crateOf(a));
-  work(MB.plateRect(0));
-  work(crateOf(b));
-  work(MB.plateRect(1));
+  buildPlate(0, [a]);
+  buildPlate(1, [b]);
   assert.deepStrictEqual(plateIds(0), [a]);
   assert.deepStrictEqual(plateIds(1), [b]);
 });
@@ -949,8 +1079,7 @@ test('two plates fill independently', function () {
 test('a loaded plate can be picked up, put down, and picked up again', function () {
   startShift(6);
   var topping = S.menu.filter(function (id) { return id !== 'patty' && id !== 'bun'; })[0];
-  work(crateOf(topping));
-  work(MB.plateRect(0));
+  buildPlate(0, [topping]);
 
   work(MB.plateRect(0));
   assert.strictEqual(held().kind, 'plate', 'the chef should be carrying the plate');
@@ -964,10 +1093,8 @@ test('a loaded plate can be picked up, put down, and picked up again', function 
 test('a carried plate cannot be dumped on an occupied station', function () {
   startShift(8);
   var a = S.menu.filter(function (id) { return id !== 'patty' && id !== 'bun'; })[0];
-  work(crateOf(a));
-  work(MB.plateRect(0));
-  work(crateOf(a));
-  work(MB.plateRect(1));
+  buildPlate(0, [a]);
+  buildPlate(1, [a]);
 
   work(MB.plateRect(0));                 // pick plate 0 up
   work(MB.plateRect(1));                 // plate 1 is busy
@@ -1006,7 +1133,7 @@ test('a correct plate delivered to the hatch pays out', function () {
   assert.ok(S.tips > 0, 'a fast perfect burger should earn a tip');
   assert.strictEqual(S.perfect, 1);
   assert.strictEqual(S.served, 1);
-  assert.strictEqual(S.hearts, Core.START_HEARTS, 'a perfect burger must not cost a heart');
+  assert.strictEqual(S.waste, 0, 'a perfect burger threw food away');
   assert.strictEqual(held(), null, 'the plate should be gone');
   assert.strictEqual(MB.ticketOf(t.uid), null, 'the ticket should be off the board');
 });
@@ -1063,7 +1190,7 @@ test('serving a burger nobody ordered costs a heart', function () {
   work(MB.hatchRect());
 
   assert.strictEqual(S.sales + S.tips, before, 'a rejected burger must not pay');
-  assert.strictEqual(S.hearts, Core.START_HEARTS - 1);
+  assert.ok(S.waste > 0, 'a rejected plate went in the bin for free');
   assert.strictEqual(S.served, 0);
 });
 
@@ -1074,13 +1201,17 @@ test('the shift clock counts down and shows the time left', function () {
   var full = Core.dayLength(5);
   assert.strictEqual(S.dayLength, full, 'the shift did not take its length from the day');
   assert.ok(S.timeLeft > full - 2, 'the clock did not start full: ' + S.timeLeft.toFixed(1));
-  assert.strictEqual(elements.clockText.textContent, Core.clockText(S.timeLeft),
-    'the display does not match the clock');
+  // The clock is drawn on the HUD canvas now, so the readable surface is
+  // #hudRead - the line a screen reader gets, and the only place the game
+  // still says the time in text.
+  assert.ok(elements.hudRead.textContent.indexOf(Core.clockText(S.timeLeft)) >= 0,
+    'the display does not match the clock: ' + elements.hudRead.textContent);
 
   pump(10);
   assert.ok(S.timeLeft < full - 9 && S.timeLeft > full - 12,
     'ten seconds of play took ' + (full - S.timeLeft).toFixed(1) + 's off the clock');
-  assert.strictEqual(elements.clockText.textContent, Core.clockText(S.timeLeft));
+  assert.ok(elements.hudRead.textContent.indexOf(Core.clockText(S.timeLeft)) >= 0,
+    'the display fell behind the clock: ' + elements.hudRead.textContent);
 });
 
 test('a paused shift is not a shift on the clock', function () {
@@ -1158,15 +1289,19 @@ test('a guest reads the clock off the host rather than running its own', functio
 });
 
 /* --------------------------------------------------------------- the day */
-test('an impatient ticket walks out and takes a heart with it', function () {
+test('an impatient ticket walks out and takes the sale with it', function () {
   startShift(1);
   pump(2);
   var t = S.tickets[0];
+  var took = S.sales + S.tips;
   t.patience = 0.02;
   pump(0.3);
   assert.strictEqual(S.walked, 1);
-  assert.strictEqual(S.hearts, Core.START_HEARTS - 1);
   assert.strictEqual(MB.ticketOf(t.uid), null);
+  assert.strictEqual(S.sales + S.tips, took, 'a walkout paid something');
+  // nothing was cooked for them, so nothing goes in the bin - the cost of a
+  // walkout is the money that never arrived, which the rent already measures
+  assert.strictEqual(S.waste, 0, 'a walkout binned food that was never made');
 });
 
 /*
@@ -1188,33 +1323,62 @@ test('the day ends even if the last customer walks out instead of being served',
     pump(0.5);
   }
 
-  assert.ok(S.hearts > 0, 'day 1 should not be losable on hearts - that is the point of the case');
+  assert.strictEqual(S.waste, 0, 'nothing was cooked, so nothing should have been binned');
   assert.strictEqual(S.walked, Core.dayConfig(1).customers, 'every customer should have walked');
   assert.notStrictEqual(S.screen, 'service',
     'the shift never ended: ' + S.spawned + '/' + Core.dayConfig(1).customers +
-    ' customers in, ' + S.tickets.length + ' left on the board, ' + S.hearts + ' hearts');
+    ' customers in, ' + S.tickets.length + ' left on the board');
 });
 
-test('day 1 cannot be lost on hearts - there are fewer customers than lives', function () {
-  assert.ok(Core.dayConfig(1).customers < Core.START_HEARTS,
-    'day 1 should be impossible to fail out of; it is the tutorial');
-  assert.ok(Core.dayConfig(6).customers > Core.START_HEARTS,
-    'by day 6 there should be enough customers to actually lose');
-});
-
-test('running out of hearts shuts the day down', function () {
+/*
+ * There is one failure condition now: the day has to cover its rent. The
+ * hearts used to be a second one running alongside it - five mistakes shut the
+ * shop whatever the till said - and a shift could end before the clock did.
+ */
+test('a shift runs to the clock however badly it goes', function () {
   startShift(6);
   pump(2);
-  for (var i = 0; i < Core.START_HEARTS + 4 && S.screen === 'service'; i++) {
+  for (var i = 0; i < 12 && S.screen === 'service'; i++) {
     if (!S.tickets.length) pump(20);
     if (!S.tickets.length) break;
     S.tickets[0].patience = 0.02;
     pump(0.3);
   }
-  assert.ok(S.hearts <= 0, 'hearts should be spent, got ' + S.hearts);
+  assert.ok(S.walked >= 5, 'setup: this should have driven several customers out, got ' + S.walked);
+  assert.strictEqual(S.waste, 0, 'walkouts put food in the bin that was never cooked');
+
+  /*
+   * If the shift did end it must be because the day ran out of customers or
+   * clock - never because a counter of mistakes hit zero, which is what the
+   * hearts used to do on the fifth walkout.
+   */
+  if (S.screen !== 'service') {
+    assert.ok(S.spawned >= Core.dayConfig(6).customers || S.timeLeft <= 0,
+      'the shop shut with ' + S.spawned + '/' + Core.dayConfig(6).customers +
+      ' customers in and ' + S.timeLeft.toFixed(1) + 's left - that is a life counter');
+  }
+});
+
+test('a day that does not cover its rent shuts the shop', function () {
+  startShift(6);
+  S.sales = 0; S.tips = 0; S.waste = 0;
+  assert.ok(S.rent > 0, 'setup: there should be rent to miss');
+  MB.endDay();
   assert.strictEqual(S.screen, 'dayEnd');
   assert.strictEqual(elements.over.hidden, false, 'the shut-down sheet should be up');
   assert.strictEqual(elements.dayEnd.hidden, true, 'a failed day is not a receipt');
+
+  // ...and food in the bin is what pushes a near-miss under
+  startShift(6);
+  S.sales = S.rent; S.tips = 0; S.waste = 0;
+  MB.endDay();
+  assert.strictEqual(elements.dayEnd.hidden, false, 'exactly making rent should pass');
+
+  startShift(6);
+  S.sales = S.rent; S.tips = 0; S.waste = 1;
+  MB.endDay();
+  assert.strictEqual(elements.over.hidden, false,
+    'a penny of waste against an exact till should fail the day');
 });
 
 test('taps are ignored once the day is over', function () {
@@ -1280,7 +1444,7 @@ test('restarting the day wipes the shift and closes the pause sheet', function (
   work(crateOf('patty'));
   work(MB.slotRect(0));
   S.sales = 5000;
-  S.hearts = 2;
+  S.waste = 2;
   MB.setPaused(true);
 
   MB.startDay(S.day);
@@ -1288,7 +1452,7 @@ test('restarting the day wipes the shift and closes the pause sheet', function (
   assert.strictEqual(S.userPaused, false, 'restart should unpause');
   assert.strictEqual(elements.pause.hidden, true);
   assert.strictEqual(S.sales, 0, 'takings should reset');
-  assert.strictEqual(S.hearts, Core.START_HEARTS, 'hearts should reset');
+  assert.strictEqual(S.waste, 0, 'the bin should be emptied for a fresh shift');
   assert.strictEqual(S.chef.holding, null, 'the chef should be empty-handed');
   assert.ok(S.grill.every(function (g) { return g === null; }), 'the grill should be clear');
 });
@@ -1315,11 +1479,42 @@ test('pausing is refused outside a shift', function () {
   S.screen = 'title';
 });
 
-test('progress is saved and reloaded', function () {
+/*
+ * CONTINUE has to offer the shift you walked out of.
+ *
+ * The only save was at the end of a shift and it wrote down the day that had
+ * just been COMPLETED, so quitting during day 8 came back offering day 7 - a
+ * day already cleared and banked. Two writes fix it between them: the day you
+ * are about to play, and on a clean finish the day after it.
+ */
+test('the save holds the shift you would come back to', function () {
+  startShift(6);
+  var saved = function () { return JSON.parse(storeData['mb_save_v2']); };
+
   assert.ok(storeData['mb_save_v2'], 'nothing was written to storage');
-  var saved = JSON.parse(storeData['mb_save_v2']);
-  assert.strictEqual(saved.day, 1);
-  assert.strictEqual(saved.money, S.money);
+  assert.strictEqual(saved().day, 6,
+    'starting day 6 wrote down day ' + saved().day + ' - a quit mid-shift would replay it');
+  assert.strictEqual(saved().money, S.money);
+
+  // walking out mid-shift changes nothing: the day is already written down
+  MB.quitToTitle();
+  assert.strictEqual(saved().day, 6, 'quitting rewound the save to day ' + saved().day);
+
+  // clear a shift and the save moves on, so the shop screen is not a trap
+  startShift(6);
+  S.waste = 0;
+  S.sales = S.rent + 1000;
+  S.tips = 0;
+  MB.endDay();
+  assert.strictEqual(saved().day, 7,
+    'a cleared day 6 left the save on ' + saved().day + ' - closing the app at the shop replays it');
+  assert.strictEqual(S.day, 6, 'endDay moved the shift itself, not just the bookmark');
+
+  // ...and a shift that was NOT cleared stays where it is
+  startShift(9);
+  S.sales = 0; S.tips = 0; S.waste = 0;
+  MB.endDay();
+  assert.strictEqual(saved().day, 9, 'a failed day 9 wrote down ' + saved().day);
 });
 
 test('upgrades cost money, raise the level, and stop at max', function () {
@@ -1399,18 +1594,33 @@ test('survives a long, messy run across many days without throwing', function ()
     // Play badly on purpose: skip fillings, mistime the grill, bin things.
     t.items.forEach(function (id) {
       if (Math.random() < 0.15) return;
-      if (Core.byId(id).grill) {
+      var ing = Core.byId(id);
+      if (ing.grill) {
         var slot = S.grill.indexOf(null);
         if (slot < 0) return;
         work(crateOf('patty'));
         work(MB.slotRect(slot));
+        // the put-on is refused if the cook's hands were already full
+        if (!S.grill[slot]) return;
         S.grill[slot].t = Math.random() * 14;
         work(MB.slotRect(slot));
+      } else if (ing.chop) {
+        // through the board, and sometimes abandon it half-chopped
+        if (!S.board.portions && !S.board.id) {
+          work(crateOf(id));
+          work(MB.boardRect());
+        }
+        if (S.board.id === id) {
+          for (var i = 0; i < 200 && !S.board.portions; i++) pump(0.05);
+        }
+        if (S.board.portions && S.board.id === id) work(MB.boardRect());
       } else {
         work(crateOf(id));
       }
       work(MB.plateRect(p));
     });
+    // whatever is still in the cook's hands and cannot be plated goes in the bin
+    if (held() && held().kind === 'ing') work(MB.binRect());
     if (Math.random() < 0.08) { work(MB.plateRect(p)); work(MB.binRect()); continue; }
     work(MB.plateRect(p));
     work(MB.hatchRect());
@@ -1480,7 +1690,7 @@ test('a snapshot round-trips the whole kitchen', function () {
   S.plates[0].stack = [{ id: 'bun', cook: 1 }, { id: 'patty', cook: 0.8, done: 0.9, char: 0 }];
   MB.chefAt(0).holding = { kind: 'ing', id: 'cheese', done: 1, char: 0 };
   MB.chefAt(1).holding = { kind: 'plate', stack: [{ id: 'bun', cook: 1 }] };
-  S.hearts = 3; S.sales = 1234; S.tips = 567;
+  S.waste = 300; S.sales = 1234; S.tips = 567;
   var before = {
     tickets: S.tickets.map(function (t) { return t.uid; }),
     items: S.tickets.map(function (t) { return t.items.slice(); }),
@@ -1501,12 +1711,12 @@ test('a snapshot round-trips the whole kitchen', function () {
   S.grill = [];
   MB.applySnapshot(snap);
 
-  assert.strictEqual(S.hearts, 3);
+  assert.strictEqual(S.waste, 300);
   assert.strictEqual(S.sales, 1234);
   assert.strictEqual(S.tips, 567);
   assert.deepStrictEqual(S.tickets.map(function (t) { return t.uid; }), before.tickets);
   assert.deepStrictEqual(S.tickets.map(function (t) { return t.items; }), before.items);
-  assert.ok(S.tickets.every(function (t) { return t.arch && t.arch.emoji; }), 'archetypes must survive');
+  assert.ok(S.tickets.every(function (t) { return t.arch && t.arch.name; }), 'archetypes must survive');
   assert.strictEqual(S.plates[0].stack.length, before.plate0);
   assert.strictEqual(S.grill[0].t, before.grillT);
   assert.strictEqual(MB.chefAt(0).holding.id, 'cheese');
@@ -1940,7 +2150,9 @@ test('the backing track schedules a groove and keeps time', function () {
     Object.defineProperty(this, 'currentTime', { get: function () { return now; } });
   };
 
-  var Bgm = global.Bgm;
+  // the scheduler lives on the synth, which is the fallback the game drops to
+  // when there is no recording to play
+  var Bgm = global.BgmSynth;
   Bgm.start();
   try {
     assert.ok(Bgm.playing, 'the track never started');
@@ -1984,6 +2196,2157 @@ test('the backing track schedules a groove and keeps time', function () {
     // Never leave a live interval behind - it hangs the whole test process.
     Bgm.stop();
   }
+});
+
+/*
+ * The board commits its height before the first ticket of the day exists, and
+ * everything downstream depends on that being enough: if a slip ever needs a
+ * line the reservation did not buy, the board grows under the first ticket,
+ * the kitchen loses that height in one frame, and the layout watchdog reads
+ * the jump as a rotation and relays the whole room.
+ *
+ * That used to be a CSS min-height calc and is now a canvas height, but it is
+ * the same promise, and nothing was testing it either way.
+ */
+test('the board reserves enough lines for anything the day can order', function () {
+  for (var day = 1; day <= 25; day++) {
+    MB.reserveBoard(day);
+    var reserved = parseInt(rootProps['--order-rows'], 10);
+    assert.ok(reserved >= 1, 'day ' + day + ' reserved nothing');
+
+    // Every order this day can deal, not a sample: makeOrder draws its extras
+    // from a shuffled pool, so a few hundred seeds cover the shapes it makes.
+    var worst = 0, worstOrder = null;
+    for (var i = 0; i < 400; i++) {
+      var seed = i * 2654435761 % 4294967296;
+      var rng = function () { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+      var arch = Core.pickCustomer(day, rng);
+      var order = Core.makeOrder(day, rng, arch);
+      var rows = MB.orderRows(order.items).length;
+      if (rows > worst) { worst = rows; worstOrder = order.items.join('+'); }
+    }
+    assert.ok(worst <= reserved,
+      'day ' + day + ' reserved ' + reserved + ' lines but an order needs ' +
+      worst + ': ' + worstOrder);
+  }
+});
+
+test('a co-op guest reserves the board for the host\'s day, not its own', function () {
+  startShift(3);
+  MB.reserveBoard(3);
+  var mine = parseInt(rootProps['--order-rows'], 10);
+
+  // the host is deep into a run; the guest has only ever played day three
+  var snap = MB.snapshot();
+  snap.day = 14;
+  snap.concurrent = 5;
+  MB.applySnapshot(snap);
+  var theirs = parseInt(rootProps['--order-rows'], 10);
+
+  assert.ok(theirs > mine,
+    'the guest kept its own day-3 reservation (' + mine + ') for a day-14 board (' + theirs + ')');
+});
+
+/* ------------------------------------------------------- the cook's poses */
+
+/*
+ * Every bug in this block was SILENT: a pose computed every frame and thrown
+ * away, a reaction played by the wrong cook, a mode no caller ever asked for.
+ * Nothing threw and nothing looked broken enough to notice, which is exactly
+ * why they need assertions rather than eyes.
+ */
+test('chefPose answers every mode the game asks it for', function () {
+  ['idle', 'walk', 'carry', 'cook', 'cheer', 'sad'].forEach(function (m) {
+    var p = Art.chefPose(m, 1.3);
+    assert.ok(p && typeof p === 'object', m + ' returned nothing');
+    Object.keys(p).forEach(function (k) {
+      assert.ok(typeof p[k] === 'number', m + '.' + k + ' is not a number: ' + p[k]);
+      assert.ok(isFinite(p[k]), m + '.' + k + ' is not finite');
+    });
+  });
+  assert.strictEqual(Art.chefPose('cheer', 1.3).cheer, 1);
+  assert.strictEqual(Art.chefPose('sad', 1.3).droop, 1);
+  assert.ok(Art.chefPose('cook', 1.3).work > 0, 'the cook pose does not move the hands');
+  assert.ok(Art.chefPose('walk', 1.3).walk !== undefined, 'the walk pose does not walk');
+});
+
+test('a reaction is played by the cook who earned it', function () {
+  startShift(6);
+  S.chef.holding = null;
+
+  // a perfect plate from cook 0
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  var t = S.tickets[0];
+  t.items = ['bun', 'patty']; t.side = null; t.drink = null; t.patience = t.max;
+  buildPlate(0, ['bun', 'patty']);
+  work(MB.plateRect(0));
+  work(MB.hatchRect());
+  pump(0.1);
+  assert.ok(S.chefMood, 'a delivery raised no reaction at all');
+  assert.strictEqual(S.chefMood.who, 0, 'cook 0 delivered and cook ' + S.chefMood.who + ' reacted');
+
+  // and the second cook's delivery must not be worn by the first
+  MB.arrive({ kind: 'crate', i: 0 }, 1);          // ci = 1 is the guest cook
+  assert.strictEqual(S.chefMood.who, 0, 'a crate should not change who is reacting');
+  S.levels = {};
+});
+
+test('the board sets the cook chopping', function () {
+  startShift(6);
+  var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; })[0];
+  S.chef.holding = null;
+  S.chefMood = null;
+
+  work(crateOf(veg));
+  work(MB.boardRect());
+  assert.ok(S.chefMood, 'putting a vegetable on the board raised no pose');
+  assert.strictEqual(S.chefMood.mode, 'cook', 'the cook stood still while the knife worked');
+  assert.ok(S.chefMood.until > S.chefMood.at, 'the chopping pose has no duration');
+});
+
+test('carrying moves the hands together, it does not freeze them', function () {
+  // drawChef used to assign the hands outright inside the carry block, after
+  // every other pose had written them - so a carried plate deleted the walk
+  // swing, the droop and the chop. Count the marks: a droop and a chop have to
+  // change the picture even while something is being carried.
+  function marks(opts) {
+    var g = makeCtx(), pts = [];
+    var real = g.moveTo, real2 = g.lineTo;
+    g.moveTo = function (x, y) { pts.push(Math.round(y * 10)); return real && real.apply(g, arguments); };
+    g.lineTo = function (x, y) { pts.push(Math.round(y * 10)); return real2 && real2.apply(g, arguments); };
+    Art.drawChef(g, 100, 200, 100, opts);
+    return pts.join(',');
+  }
+  var carry = function (gg, cx, baseY, w, h, measure) {
+    if (measure) return w * 0.2;
+    gg.moveTo(cx, baseY); gg.lineTo(cx + w * 0.2, baseY);
+    return w * 0.2;
+  };
+  var flat = marks({ carry: carry });
+  assert.notStrictEqual(marks({ carry: carry, droop: 1 }), flat,
+    'a lost order left a cook carrying a plate perfectly level');
+  assert.notStrictEqual(marks({ carry: carry, work: 1 }), flat,
+    'the chop does not move the hands while carrying');
+  assert.notStrictEqual(marks({ carry: carry, walk: 0.25 }), flat,
+    'the waddle does not reach the hands while carrying');
+});
+
+/* --------------------------------------------------------- the prep board */
+
+test('every vegetable the board can slice is flagged for chopping', function () {
+  // Art.VEG_IDS is what art-prep can actually draw a cross-section for. A
+  // `chop: true` on anything else would send the player to a board that cannot
+  // show them what they are cutting.
+  var art = (global.Art && global.Art.VEG_IDS) || [];
+  assert.ok(art.length, 'art-prep never registered its vegetables');
+  var flagged = Core.INGREDIENTS.filter(function (i) { return i.chop; })
+    .map(function (i) { return i.id; }).sort();
+  assert.deepStrictEqual(flagged, art.slice().sort(),
+    'the pantry and the knife disagree about what gets chopped');
+});
+
+test('a whole vegetable is refused by the plate until it has been chopped', function () {
+  startShift(6);
+  var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; })[0];
+  assert.ok(veg, 'day 6 stocks nothing that needs chopping');
+
+  work(crateOf(veg));
+  assert.strictEqual(held().id, veg);
+  assert.ok(!held().prepped, 'it came out of the crate already chopped');
+
+  work(MB.plateRect(0));
+  assert.strictEqual(plateIds(0).length, 0, 'a whole vegetable landed on the plate');
+  assert.ok(held(), 'the cook put it down anyway');
+});
+
+test('a vegetable chops into exactly what PREP_PORTIONS says, and no more', function () {
+  startShift(6);
+  var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; })[0];
+  S.chef.holding = null;
+
+  work(crateOf(veg));
+  work(MB.boardRect());
+  assert.strictEqual(S.board.id, veg, 'it never went on the board');
+  assert.strictEqual(held(), null, 'the cook walked off with it');
+  assert.strictEqual(S.board.portions, 0, 'it was chopped before the knife moved');
+
+  for (var i = 0; i < 400 && !S.board.portions; i++) pump(0.05);
+  var yielded = S.board.portions;
+  assert.ok(yielded >= 1, 'the board never produced anything');
+
+  // every portion comes off prepped, and the board is bare when they run out
+  var got = 0;
+  while (S.board.portions) {
+    work(MB.boardRect());
+    assert.ok(held() && held().prepped, 'portion ' + got + ' came off unchopped');
+    got++;
+    work(MB.plateRect(0));
+  }
+  assert.strictEqual(got, yielded,
+    'the board handed out ' + got + ' portions but only announced ' + yielded);
+  assert.strictEqual(S.board.id, null, 'the board was not cleared when it ran out');
+  assert.strictEqual(plateIds(0).length, yielded);
+
+  // and it is genuinely empty - no fifth portion hiding in it
+  work(MB.boardRect());
+  assert.strictEqual(held(), null, 'the bare board handed out one more');
+});
+
+test('the knife cannot be interrupted, but a finished board can be swept', function () {
+  startShift(8);
+  var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; });
+  if (veg.length < 2) { S.levels = {}; return; }   // nothing to prove today
+  S.chef.holding = null;
+
+  work(crateOf(veg[0]));
+  work(MB.boardRect());
+  assert.strictEqual(S.board.id, veg[0], 'setup: the first vegetable should be on');
+
+  // mid-chop the board is busy - otherwise a slow cut is free to reroll
+  work(crateOf(veg[1]));
+  work(MB.boardRect());
+  assert.strictEqual(S.board.id, veg[0], 'a second vegetable interrupted the knife');
+  assert.ok(held(), 'the cook lost the vegetable he was carrying');
+
+  for (var i = 0; i < 400 && !S.board.portions; i++) pump(0.05);
+  assert.ok(S.board.portions, 'setup: the board should have finished');
+
+  /*
+   * A finished portion is never thrown away to make room for another
+   * vegetable. Loading over a ready board used to sweep it, which made sense
+   * when a board held four portions and emptying it by hand cost three trips
+   * to the bin - it holds ONE now, so a sweep destroys the whole chop, and it
+   * did it silently under a player who had just watched the knife finish.
+   */
+  work(MB.boardRect());
+  assert.strictEqual(S.board.id, veg[0], 'a ready portion was swept away to make room');
+  assert.ok(S.board.portions > 0, 'the portion vanished');
+  assert.ok(held() && held().id === veg[1], 'the cook lost what he was carrying');
+
+  // take it first - one tap - and the board comes free
+  work(MB.binRect());
+  assert.strictEqual(held(), null, 'setup: the bin should have emptied his hands');
+  work(MB.boardRect());
+  assert.ok(held() && held().prepped, 'the chopped portion did not come off the board');
+  assert.strictEqual(S.board.id, null, 'the board should be bare once its portion is taken');
+
+  // ...and now the other vegetable goes on
+  work(MB.binRect());
+  work(crateOf(veg[1]));
+  work(MB.boardRect());
+  assert.strictEqual(S.board.id, veg[1], 'a bare board refused the next vegetable');
+});
+
+/*
+ * "At the board" has to mean he was SENT there, not that he happens to be
+ * near it. The board sits at the top of the plate wall and the crate row runs
+ * along the top of the room, so on a 375px phone two crates have a stand point
+ * 2px from the board's - a cook fetching cheese was chopping the tomato behind
+ * him, and the same held for the fountain.
+ */
+test('a cook at a crate is not secretly working the board', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  stage.clientWidth = 375; stage.clientHeight = 812;
+  startShift(8);
+  pump(0.3);
+  var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; })[0];
+  assert.ok(veg, 'setup: day 8 should stock something to chop');
+
+  S.chef.holding = null;
+  work(crateOf(veg));
+  work(MB.boardRect());
+  assert.strictEqual(S.board.id, veg, 'setup: the vegetable should be on the board');
+  pump(0.4);
+  assert.ok(S.board.cut > 0, 'setup: standing at the board should chop');
+
+  // find the crate whose stand point is nearest the board's - the one that
+  // used to be mistaken for it
+  var bp = MB.standPoint({ kind: 'board' }), best = 0, bestD = Infinity;
+  for (var i = 0; i < S.menu.length; i++) {
+    var cp = MB.standPoint({ kind: 'crate', i: i });
+    var d = Math.hypot(cp.x - bp.x, cp.y - bp.y);
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  assert.ok(bestD < 90, 'setup: expected a crate close enough to be confused for the board');
+
+  work(MB.crateRect(best));
+  var cut = S.board.cut;
+  pump(2.0);
+  assert.strictEqual(S.board.cut, cut,
+    'the board chopped itself while the cook was ' + bestD.toFixed(0) + 'px away at a crate');
+  assert.strictEqual(S.board.working, false, 'and it should know nobody is on it');
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.3);
+});
+
+test('the knife only runs while there is something to cut', function () {
+  startShift(6);
+  S.chef.holding = null;
+  var before = S.board.cut;
+  pump(2);
+  assert.strictEqual(S.board.cut, before, 'an empty board chopped away at nothing');
+
+  var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; })[0];
+  work(crateOf(veg));
+  work(MB.boardRect());
+  pump(1);
+  assert.ok(S.board.cut > 0, 'the knife never started');
+  for (var i = 0; i < 400 && !S.board.portions; i++) pump(0.05);
+  var atRest = S.board.cut;
+  pump(2);
+  assert.strictEqual(S.board.cut, atRest, 'it kept cutting a vegetable that was done');
+});
+
+test('a co-op guest sees the board the host is working', function () {
+  startShift(6);
+  var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; })[0];
+  S.chef.holding = null;
+  work(crateOf(veg));
+  work(MB.boardRect());
+  pump(1);
+
+  var snap = MB.snapshot();
+  assert.ok(snap.board, 'the snapshot dropped the board');
+  assert.strictEqual(snap.board.id, veg);
+
+  S.board = { id: null, cut: 0, portions: 0, wet: 0, juice: null };
+  MB.applySnapshot(snap);
+  assert.strictEqual(S.board.id, veg, 'the guest never saw what was on the board');
+  assert.ok(S.board.cut > 0, 'the guest saw an uncut vegetable');
+  S.role = 'solo'; S.me = 0;
+});
+
+test('a chopped portion survives the trip over the wire', function () {
+  startShift(6);
+  var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; })[0];
+  S.chef.holding = null;
+  fetchChopped(veg);
+  assert.ok(held().prepped);
+
+  var snap = MB.snapshot();
+  MB.applySnapshot(snap);
+  assert.ok(S.chefs[0].holding && S.chefs[0].holding.prepped,
+    'the guest saw a whole vegetable in the cook\'s hands');
+  S.role = 'solo'; S.me = 0;
+});
+
+/* ------------------------------------------------- the fry line & fountain */
+
+/** Put a basket in, run it to the perfect window, and take it back out. */
+/*
+ * The fry line starts at the freezer now: a bag comes out of it and goes into
+ * a well by hand, the same way a patty comes out of a crate before the grill.
+ */
+function loadWell(well) {
+  S.chef.holding = null;
+  work(MB.freezerRect());
+  assert.ok(held() && held().kind === 'fryBag', 'the freezer gave out no bag');
+  work(MB.fryWellRect(well));
+  assert.ok(S.fryer[well], 'the bag never went into the oil');
+  assert.strictEqual(held(), null, 'the bag stayed in his hands');
+}
+
+function fryPerfect(well) {
+  loadWell(well);
+  S.fryer[well].t = Core.COOK_TIME;
+  work(MB.fryWellRect(well));
+}
+
+test('the fry line opens on its own day, not before', function () {
+  startShift(1);
+  assert.strictEqual(S.fryer.length, 0, 'day 1 had a fryer');
+  assert.strictEqual(MB.layout.fryH, 0, 'day 1 reserved height for a fryer');
+  startShift(Core.SIDE_DAY);
+  assert.strictEqual(S.fryer.length, 2, 'the fry station never opened');
+  assert.ok(MB.layout.fryH > 0, 'the fry station has no height');
+});
+
+test('a machine nobody can use yet takes up no room', function () {
+  // An empty tap list is still an array, and an array is truthy - so the
+  // fountain stood in the room from day one with CLOSED on it, holding column
+  // space away from the plates for something no order could ask for.
+  startShift(1);
+  assert.strictEqual(S.drinkTaps.length, 0, 'day 1 had drinks on tap');
+  assert.strictEqual(MB.layout.tapH, 0, 'day 1 gave the fountain column space');
+  var platesEarly = MB.layout.plateH;
+
+  startShift(Core.DRINK_DAY);
+  assert.ok(S.drinkTaps.length >= 2, 'the fountain never opened');
+  assert.ok(MB.layout.tapH > 0, 'the fountain has no height');
+  assert.ok(MB.layout.plateH <= platesEarly + 0.01,
+    'the plates grew when the fountain moved in');
+});
+
+test('a bag out of the freezer goes in the oil, and comes out as fries', function () {
+  startShift(8);
+  S.chef.holding = null;
+
+  // the well will not start itself any more
+  work(MB.fryWellRect(0));
+  assert.strictEqual(S.fryer[0], null, 'the well lit itself with no bag in hand');
+
+  loadWell(0);
+
+  S.fryer[0].t = Core.COOK_TIME;
+  work(MB.fryWellRect(0));
+  assert.strictEqual(S.fryer[0], null, 'the well is still full');
+  assert.strictEqual(held().kind, 'fries', 'the cook is not holding fries');
+  assert.ok(held().cook > 0.9, 'perfectly timed fries scored ' + held().cook);
+});
+
+test('the two wells run independently', function () {
+  startShift(8);
+  loadWell(0);
+  loadWell(1);
+  assert.ok(S.fryer[0] && S.fryer[1], 'the second bag did not go in');
+  S.fryer[0].t = 5; S.fryer[1].t = 1;
+  pump(0.5);
+  assert.ok(S.fryer[0].t > S.fryer[1].t, 'the wells share a clock');
+});
+
+test('fries left in too long come out burnt', function () {
+  startShift(8);
+  loadWell(0);
+  S.fryer[0].t = Core.COOK_TIME * 3;
+  work(MB.fryWellRect(0));
+  assert.strictEqual(held().kind, 'fries');
+  assert.ok(held().cook < 0.5, 'burnt fries scored ' + held().cook);
+});
+
+test('the spout the cook presses is the flavour that comes out', function () {
+  startShift(12);
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].drink = S.drinkTaps[0];
+  S.chef.holding = null;
+  S.pour = null;
+
+  // the machine centres on what the board wants, so column 0..2 maps to real
+  // flavours - press each one and check the cup matches the lever
+  var view = MB.dispenserView();
+  assert.ok(view.ids.filter(Boolean).length >= 2, 'setup: day 12 should plumb three');
+  for (var col = 0; col < 3; col++) {
+    if (!view.ids[col]) continue;
+    S.chef.holding = null;
+    S.pour = null;
+    var got = pourCup(col);
+    assert.ok(got, 'column ' + col + ' never produced a cup');
+    assert.strictEqual(got.kind, 'cup');
+    assert.strictEqual(got.flavor, view.ids[col],
+      'pressing column ' + col + ' poured ' + got.flavor + ', not ' + view.ids[col]);
+  }
+});
+
+test('the fountain will not pour a second cup for the same order', function () {
+  startShift(8);
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].drink = S.drinkTaps[0];
+  S.chef.holding = null;
+  var uid = S.tickets[0].uid;
+  pourCup(0);
+  work(MB.plateRect(0));
+  assert.strictEqual(S.plates[0].drink, S.drinkTaps[0], 'the cup never reached the tray');
+
+  // work() runs the loop, and the loop lets new customers in - so silence
+  // everyone except the order this test is actually about.
+  S.tickets.forEach(function (t) { if (t.uid !== uid) t.drink = null; });
+  assert.strictEqual(MB.nextDrinkWanted(), null,
+    'the fountain offered a second cup for an order already covered');
+});
+
+test('fries and a cup ride on the tray, not inside the burger', function () {
+  startShift(8);
+  S.chef.holding = null;
+  S.plates.forEach(function (p) { p.stack = []; p.side = null; p.drink = null; });
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].drink = S.drinkTaps[0];
+
+  fryPerfect(0);
+  work(MB.plateRect(0));
+  pourCup(0);
+  work(MB.plateRect(0));
+
+  assert.strictEqual(S.plates[0].side, 'fries');
+  assert.strictEqual(S.plates[0].drink, S.drinkTaps[0]);
+  assert.strictEqual(S.plates[0].stack.length, 0,
+    'the tray put fries or a drink into the burger stack');
+
+  // and they travel with the tray when it is picked up
+  work(MB.plateRect(0));
+  assert.strictEqual(held().kind, 'plate');
+  assert.strictEqual(held().side, 'fries', 'the fries fell off the tray');
+  assert.strictEqual(held().drink, S.drinkTaps[0], 'the drink fell off the tray');
+});
+
+test('a complete tray is paid for in full', function () {
+  startShift(8);
+  S.chef.holding = null;
+  S.plates.forEach(function (p) { p.stack = []; p.side = null; p.drink = null; });
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  var t = S.tickets[0];
+  t.items = ['bun', 'patty']; t.side = 'fries'; t.drink = S.drinkTaps[0];
+  t.patience = t.max;
+
+  fryPerfect(0);
+  work(MB.plateRect(0));
+  pourCup(0);
+  work(MB.plateRect(0));
+  buildPlate(0, ['bun', 'patty']);
+
+  var before = S.sales;
+  work(MB.plateRect(0));
+  work(MB.hatchRect());
+  pump(0.1);
+
+  var burger = Core.menuPrice(['bun', 'patty']);
+  var full = burger + Core.SIDES.fries.price + Core.drinkById(S.drinkTaps[0]).price;
+  assert.strictEqual(S.sales - before, full,
+    'the till took ' + (S.sales - before) + ' for a tray worth ' + full);
+  assert.strictEqual(S.perfect, 1, 'a complete correct tray was not perfect');
+});
+
+test('forgetting the drink costs the grade, not a heart', function () {
+  startShift(8);
+  S.chef.holding = null;
+  S.plates.forEach(function (p) { p.stack = []; p.side = null; p.drink = null; });
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  var t = S.tickets[0];
+  t.items = ['bun', 'patty']; t.side = null; t.drink = S.drinkTaps[0];
+  t.patience = t.max;
+
+  buildPlate(0, ['bun', 'patty']);
+  var wasted = S.waste, perfect = S.perfect;
+  work(MB.plateRect(0));
+  work(MB.hatchRect());
+  pump(0.1);
+
+  assert.strictEqual(S.waste, wasted, 'a forgotten drink binned the burger');
+  assert.strictEqual(S.perfect, perfect, 'a burger with no drink still scored perfect');
+  assert.strictEqual(S.served, 1, 'the order was not counted as served');
+});
+
+test('a co-op guest gets the fry line and the fountain too', function () {
+  startShift(8);
+  loadWell(0);
+  S.plates[0].side = 'fries';
+  S.plates[0].drink = S.drinkTaps[0];
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].side = 'fries';
+  S.tickets[0].drink = S.drinkTaps[0];
+
+  var snap = MB.snapshot();
+  assert.ok(snap.fryer && snap.fryer[0], 'the snapshot dropped the fryer');
+  assert.strictEqual(snap.plates[0].sd, 'fries', 'the snapshot dropped the tray');
+  assert.strictEqual(snap.tickets[0].sd, 'fries', 'the snapshot dropped the ticket side');
+
+  // wipe the guest's kitchen, then let the host's state land on it
+  S.fryer = []; S.plates[0].side = null; S.plates[0].drink = null;
+  S.tickets[0].side = null; S.tickets[0].drink = null;
+  MB.applySnapshot(snap);
+  assert.ok(S.fryer[0], 'the guest never saw the basket');
+  assert.strictEqual(S.plates[0].side, 'fries', 'the guest never saw the fries');
+  assert.strictEqual(S.plates[0].drink, S.drinkTaps[0], 'the guest never saw the drink');
+  assert.strictEqual(S.tickets[0].side, 'fries', 'the guest saw a burger-only ticket');
+  S.role = 'solo'; S.me = 0;
+});
+
+/*
+ * The slip shows the tray as a SET - the burger with the carton and the cup
+ * standing beside it - so a combo reads as one order at a glance rather than
+ * as a burger with two extra words under it.
+ */
+test('the slip draws the whole set, whatever the order asks for', function () {
+  var g = makeCtx();
+  var combos = [
+    { side: null, drink: null },
+    { side: null, drink: 'cola' },
+    { side: 'fries', drink: null },
+    { side: 'fries', drink: 'orange' }
+  ];
+  combos.forEach(function (c) {
+    var t = { items: ['bun', 'patty', 'cheese'], side: c.side, drink: c.drink };
+    // the real slip's food box, and a couple of sizes either side of it
+    [[59, 21], [24, 9], [180, 64]].forEach(function (box) {
+      assert.doesNotThrow(function () {
+        MB.drawTraySet(g, t, 4, 4, box[0], box[1]);
+      }, 'a ' + (c.side || '-') + '/' + (c.drink || '-') + ' tray threw at ' + box.join('x'));
+    });
+  });
+});
+
+test('the set draws more pieces as the order grows', function () {
+  // The stub context records nothing, so count the draw calls instead: a
+  // combo has to put strictly more ink down than a bare burger, or the set is
+  // not actually being composed.
+  function marks(t) {
+    var n = 0;
+    var g = makeCtx();
+    ['fill', 'stroke', 'fillText'].forEach(function (m) {
+      var real = g[m];
+      g[m] = function () { n++; return real && real.apply(g, arguments); };
+    });
+    MB.drawTraySet(g, t, 0, 0, 59, 21);
+    return n;
+  }
+  var base = { items: ['bun', 'patty'], side: null, drink: null };
+  var withCup = { items: ['bun', 'patty'], side: null, drink: 'cola' };
+  var withBoth = { items: ['bun', 'patty'], side: 'fries', drink: 'cola' };
+
+  var a = marks(base), b = marks(withCup), c = marks(withBoth);
+  assert.ok(b > a, 'adding a drink drew nothing extra (' + a + ' -> ' + b + ')');
+  assert.ok(c > b, 'adding fries drew nothing extra (' + b + ' -> ' + c + ')');
+});
+
+test('an unknown side or drink draws nothing, and never throws', function () {
+  function marks(t) {
+    var n = 0;
+    var g = makeCtx();
+    ['fill', 'stroke', 'fillText'].forEach(function (m) {
+      var real = g[m];
+      g[m] = function () { n++; return real && real.apply(g, arguments); };
+    });
+    MB.drawTraySet(g, t, 0, 0, 59, 21);
+    return n;
+  }
+  var bare = { items: ['bun', 'patty'], side: null, drink: null };
+  var junk = { items: ['bun', 'patty'], side: 'x', drink: 'milkshake' };
+  assert.doesNotThrow(function () { marks(junk); },
+    'an id this build has never heard of threw inside the board paint');
+  // the picture must agree with the words, and orderRows names neither of these
+  assert.strictEqual(marks(junk), marks(bare),
+    'an unnamed side or drink was still drawn on the slip');
+});
+
+/*
+ * The slip names the fillings and nothing else.
+ *
+ * drawTraySet already draws the carton and the cup beside the burger, in
+ * their own colours; the list underneath used to write FRIES and COLA again,
+ * so two of the five lines on a busy slip were captioning a picture.
+ */
+test('the slip names the fillings, and leaves the tray to the picture', function () {
+  var names = MB.orderRows(['bun', 'patty', 'cheese'], 'fries', 'cola')
+    .map(function (r) { return r.n; });
+  assert.deepStrictEqual(names, ['Cheese'],
+    'the slip is still captioning the tray: ' + names.join(','));
+
+  // a burger with nothing on it is PLAIN, tray or no tray
+  assert.strictEqual(MB.orderRows(['bun', 'patty'], null, null)[0].n, 'PLAIN');
+  assert.strictEqual(MB.orderRows(['bun', 'patty'], 'fries', 'cola')[0].n, 'PLAIN',
+    'a plain burger stopped being plain because a drink came with it');
+
+  // every row still carries the swatch the chip beside it is drawn in
+  MB.orderRows(['bun', 'patty', 'cheese', 'lettuce'], 'fries', 'cola')
+    .forEach(function (r) { assert.ok(r.c && r.n, 'a row is missing its swatch or label'); });
+});
+
+test('the board still reserves enough lines once the tray is on it', function () {
+  for (var day = 1; day <= 25; day++) {
+    MB.reserveBoard(day);
+    var reserved = parseInt(rootProps['--order-rows'], 10);
+    var worst = 0, worstOrder = null;
+    for (var i = 0; i < 400; i++) {
+      var seed = i * 2654435761 % 4294967296;
+      var rng = function () { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+      var arch = Core.pickCustomer(day, rng);
+      var o = Core.makeOrder(day, rng, arch);
+      var rows = MB.orderRows(o.items, o.side, o.drink).length;
+      if (rows > worst) { worst = rows; worstOrder = o.items.join('+') + '/' + o.side + '/' + o.drink; }
+    }
+    assert.ok(worst <= reserved,
+      'day ' + day + ' reserved ' + reserved + ' lines but a tray needs ' + worst + ': ' + worstOrder);
+  }
+});
+
+test('the kitchen still fits with two more machines in it', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  [[375, 560], [412, 400], [320, 480]].forEach(function (size) {
+    stage.clientWidth = size[0];
+    stage.clientHeight = size[1];
+    startShift(25);
+    pump(0.4);
+    assert.ok(!S.cramped, size.join('x') + ' went cramped with the fry line in');
+    assert.ok(MB.layout.slotH >= 22 && MB.layout.plateH >= 22,
+      size.join('x') + ' squeezed a station to ' + MB.layout.slotH + '/' + MB.layout.plateH);
+    assert.ok(MB.layout.fryH > 20 && MB.layout.tapH > 20,
+      size.join('x') + ' left no room for the machines');
+  });
+  stage.clientWidth = w0;
+  stage.clientHeight = h0;
+  pump(0.4);
+});
+
+/*
+ * The clock's class is not cosmetic: `no-clock` is what hands #stage its share
+ * of the column, so the room is a different size on the title screen than it is
+ * during a shift. Measure it in the wrong one and the player watches the
+ * kitchen resize itself a moment after day one begins.
+ */
+test('day one is measured against the shift height, never the title screen height', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  stage.clientWidth = 412; stage.clientHeight = 700;
+
+  // start from the title, the way a player does
+  document.body.classList.add('no-clock');
+
+  var reads = 0, staleReads = 0, real = stage.clientHeight;
+  Object.defineProperty(stage, 'clientHeight', {
+    configurable: true,
+    get: function () {
+      reads++;
+      if (document.body.classList.contains('no-clock')) staleReads++;
+      return real;
+    }
+  });
+  try { MB.startDay(1); } finally {
+    delete stage.clientHeight;
+    stage.clientHeight = real;
+  }
+
+  assert.ok(reads > 0, 'setup: opening a day should measure the room at least once');
+  assert.strictEqual(staleReads, 0,
+    'the room was measured ' + staleReads + ' time(s) while the sheet still said ' +
+    'title - that is the shrink the player sees a beat later');
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.4);
+});
+
+test('whoever changes the kitchen height re-measures it in the same beat', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  startShift(3);
+  pump(0.4);
+
+  // a height nothing has told the game about yet
+  stage.clientWidth = 412; stage.clientHeight = 640;
+  var stale = stage.height;
+
+  // closing the shift flips `no-clock` back on, which is what moves the budget
+  S.screen = 'dayEnd';
+  MB.syncHud();
+  assert.notStrictEqual(stage.height, stale,
+    'the canvas kept its old size after the column was re-divided - the watchdog ' +
+    'would only catch this 120ms later, in front of the player');
+
+  // and a sync that changes nothing must not thrash the layout
+  var settled = stage.height;
+  MB.syncHud();
+  assert.strictEqual(stage.height, settled, 'a no-op sync should not re-lay the room out');
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  S.screen = 'service';
+  pump(0.4);
+});
+
+/* ---------------------------------------------------------------- the board */
+
+test('the blade is fastest where it lands and hangs at the top', function () {
+  var f = MB.chopCurve;
+  assert.strictEqual(f(0), 1, 'phase 0 is the edge in the wood');
+  assert.strictEqual(f(0.05), 1, 'it should sit in the wood for a beat');
+  assert.strictEqual(f(0.70), 0, 'and hang at the top of the arc');
+
+  // speed at the moment of contact must beat speed anywhere else in the fall
+  function v(p) { return Math.abs(f(p + 1e-5) - f(p - 1e-5)) / 2e-5; }
+  var atContact = v(0.999), midFall = v(0.87);
+  assert.ok(atContact > midFall * 2,
+    'a chop accelerates into the board; got ' + atContact.toFixed(1) +
+    ' at contact vs ' + midFall.toFixed(1) + ' mid-fall');
+
+  // and it must not teleport at the apex, which the old sawtooth did
+  assert.ok(v(0.65) < 3 && v(0.77) < 3,
+    'the apex should be a turn, not a jump');
+
+  // continuous across the wrap
+  assert.ok(Math.abs(f(0.9999) - f(0)) < 0.01, 'the cycle should close on itself');
+});
+
+test('a board that is running out looks like it', function () {
+  startShift(6);
+  pump(0.2);
+  var seen = [];
+  var prep = Art.scene.prep;
+  Art.scene.prep = function (c, x, y, w, h, o) { seen.push(o); };
+  try {
+    S.board = { id: 'lettuce', cut: 1, portions: 4, wet: 0, juice: '#93d33d' };
+    MB.drawPrepBoard(); var four = seen.pop();
+    S.board.portions = 1;
+    MB.drawPrepBoard(); var one = seen.pop();
+    assert.ok(four && one, 'setup: the board should have drawn twice');
+    assert.ok(four.left > one.left,
+      'the pile must shrink as portions are taken; got ' + four.left + ' vs ' + one.left);
+  } finally { Art.scene.prep = prep; }
+});
+
+test('taking a portion says how many are left', function () {
+  startShift(6);
+  pump(0.2);
+  S.board = { id: 'lettuce', cut: 1, portions: 3, wet: 0, juice: '#93d33d' };
+  var me = MB.chefAt(0);
+  me.holding = null;
+  S.floats.length = 0;
+  MB.arrive({ kind: 'board' }, 0);
+  assert.strictEqual(S.board.portions, 2, 'one portion should have come off');
+  assert.ok(S.floats.some(function (f) { return /2 LEFT/.test(f.text); }),
+    'the count should be shown, got ' + JSON.stringify(S.floats.map(function (f) { return f.text; })));
+
+  // and the last one reads as empty rather than "0 LEFT"
+  S.board.portions = 1;
+  MB.chefAt(0).holding = null;
+  S.floats.length = 0;
+  MB.arrive({ kind: 'board' }, 0);
+  assert.ok(S.floats.some(function (f) { return /BOARD CLEAR/.test(f.text); }),
+    'draining the board should say so');
+});
+
+test('the board waits for the vegetable to land before drawing it', function () {
+  startShift(6);
+  pump(0.2);
+  var prepCalls = 0, bareCalls = 0;
+  var prep = Art.scene.prep, board = Art.scene.board;
+  Art.scene.prep = function () { prepCalls++; };
+  Art.scene.board = function () { bareCalls++; return { x0: 0, w: 10, h: 10, baseY: 10 }; };
+  try {
+    S.board = { id: 'lettuce', cut: 0, portions: 0, wet: 0, juice: '#93d33d' };
+    S.flyers.push({ to: { kind: 'board', i: 0 }, id: 'lettuce', t: 0 });
+    MB.drawPrepBoard();
+    assert.strictEqual(prepCalls, 0, 'the vegetable is still in the air - draw the bare slab');
+    assert.ok(bareCalls > 0, 'the slab should still be there');
+    S.flyers.length = 0;
+    MB.drawPrepBoard();
+    assert.strictEqual(prepCalls, 1, 'once it lands, the board draws what it holds');
+  } finally { Art.scene.prep = prep; Art.scene.board = board; }
+});
+
+/*
+ * The board is a wall fitting on the plate side, above the plate stack. It
+ * spent a while as an island in open floor and was wrong in every way that
+ * mattered - the cook walked through the tabletop, his own body covered the
+ * vegetable he was chopping, and it ate the middle of the room.
+ */
+test('the board is a wall fitting, not an island in the walking lane', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  [[375, 700], [412, 915], [820, 600], [360, 640]].forEach(function (sz) {
+    stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+    startShift(6);
+    pump(0.4);
+    var where = sz.join('x') + ': ';
+    var b = MB.boardRect(), L = MB.layout;
+    assert.ok(b.w > 0, where + 'setup: day 6 should have a board');
+
+    // out of the floor entirely - nothing to walk through
+    var overlapsFloor = b.x + b.w > L.floor.x0 + 1 && b.x < L.floor.x1 - 1;
+    assert.ok(!overlapsFloor, where + 'the board is standing in the walking lane: ' +
+      b.x.toFixed(0) + '..' + (b.x + b.w).toFixed(0) +
+      ' against floor ' + L.floor.x0.toFixed(0) + '..' + L.floor.x1.toFixed(0));
+
+    // below the crate shelf, above the plates, touching neither
+    assert.ok(b.y > L.cratesBottom, where + 'the board climbed into the crate shelf');
+    assert.ok(b.y + b.h <= L.plateTop + 0.5,
+      where + 'the board runs into the plate stack: ends ' + (b.y + b.h).toFixed(0) +
+      ' vs plates at ' + L.plateTop.toFixed(0));
+
+    // still a real tap target, and the vegetable on it still has room to draw
+    assert.ok(b.w >= 22 && b.h >= 22,
+      where + 'the board shrank below a tappable size: ' + b.w.toFixed(0) + 'x' + b.h.toFixed(0));
+
+    // the cook stands on the floor beside it, the way he does at the plates,
+    // rather than in front of the one thing this station exists to show
+    var p = MB.standPoint({ kind: 'board' });
+    assert.ok(p.x >= L.floor.x0 - 1 && p.x <= L.floor.x1 + 1 &&
+              p.y >= L.floor.y0 - 1 && p.y <= L.floor.y1 + 1,
+      where + 'the stand point is off the floor');
+    assert.ok(p.x >= b.x + b.w - 1 || p.x <= b.x + 1,
+      where + 'the cook stands on top of the board');
+
+    // and fetching an ingredient must not park his feet inside it
+    for (var ci = 0; ci < S.menu.length; ci++) {
+      var cp = MB.standPoint({ kind: 'crate', i: ci });
+      assert.ok(!(cp.x > b.x && cp.x < b.x + b.w && cp.y > b.y && cp.y < b.y + b.h),
+        where + 'crate ' + ci + ' stands the cook inside the board');
+    }
+  });
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.4);
+});
+
+test('a whole vegetable in the hands does not look like a chopped one', function () {
+  startShift(6);
+  pump(0.2);
+  var whole = 0, layer = 0;
+  var vw = Art.item.vegWhole, dl = Art.drawLayer;
+  Art.item.vegWhole = function () { whole++; };
+  Art.drawLayer = function () { layer++; };
+  try {
+    var me = MB.chefAt(0);
+    me.holding = { kind: 'ing', id: 'lettuce', done: 0, char: 0 };
+    MB.drawCarried(makeCtx(), 100, 100, 40, 12, me.holding, false);
+    assert.strictEqual(whole, 1, 'straight out of the crate it is a whole head');
+    assert.strictEqual(layer, 0, 'and not the burger layer it becomes');
+
+    whole = 0; layer = 0;
+    me.holding = { kind: 'ing', id: 'lettuce', done: 0, char: 0, prepped: true };
+    MB.drawCarried(makeCtx(), 100, 100, 40, 12, me.holding, false);
+    assert.strictEqual(layer, 1, 'once chopped it is the topping');
+    assert.strictEqual(whole, 0, 'and no longer a whole head');
+  } finally { Art.item.vegWhole = vw; Art.drawLayer = dl; }
+});
+
+test('everything a cook can carry survives the wire', function () {
+  var cases = [
+    { kind: 'ing', id: 'lettuce', cook: undefined, done: 0, char: 0, prepped: true },
+    { kind: 'ing', id: 'patty', cook: 0.8, done: 0.5, char: 0.1, grillT: 3 },
+    { kind: 'fries', cook: 0.9, done: 0.6, char: 0 },
+    { kind: 'cup', flavor: 'cola' },
+    { kind: 'plate', stack: [{ id: 'bun', cook: 1 }], side: 'fries', sideCook: 0.7, drink: 'cider' }
+  ];
+  cases.forEach(function (h) {
+    var back = MB.unpackHold(MB.packHold(h));
+    assert.strictEqual(back.kind, h.kind, h.kind + ' came back as ' + back.kind);
+    Object.keys(h).forEach(function (k) {
+      if (h[k] === undefined) return;
+      assert.deepStrictEqual(back[k], h[k],
+        h.kind + '.' + k + ' was lost: ' + JSON.stringify(back));
+    });
+  });
+  assert.strictEqual(MB.packHold(null), null, 'empty hands stay empty');
+});
+
+test('a state packet that arrives late is ignored', function () {
+  startShift(6);
+  pump(0.3);
+  var a = MB.snapshot();
+  var b = MB.snapshot();
+  assert.ok(b.seq > a.seq, 'setup: each packet should carry a fresh number');
+
+  S.role = 'guest';
+  MB.applySnapshot(b);
+  var afterNew = S.sales;
+  // the older packet overtakes it - and must not roll the kitchen back
+  a.sales = afterNew + 999;
+  MB.applySnapshot(a);
+  assert.strictEqual(S.sales, afterNew, 'a stale packet overwrote newer state');
+  S.role = 'host';
+});
+
+test('the shift plays the recording, and is never left silent without one', function () {
+  var B = global.Bgm;
+  var played = 0, paused = 0, onError = null, built = null;
+
+  var realAudio = global.Audio;
+  global.Audio = function (src) {
+    built = src;
+    this.loop = false; this.preload = ''; this.volume = 1;
+    this.play = function () { played++; return { 'catch': function () {} }; };
+    this.pause = function () { paused++; };
+    this.addEventListener = function (t, fn) { if (t === 'error') onError = fn; };
+  };
+  var was = { el: B.el, gain: B.gain, fallback: B.fallback, playing: B.playing };
+  B.el = null; B.gain = null; B.fallback = false; B.playing = false;
+
+  try {
+    B.start();
+    assert.ok(/\.mp3$/.test(built || ''), 'it should reach for the recording, got ' + built);
+    assert.strictEqual(B.el.loop, true, 'a backing track that stops after one pass is not one');
+    assert.strictEqual(played, 1, 'it never actually started');
+    assert.ok(B.playing, 'and it should know it is playing');
+
+    // level rides the pressure rather than the arrangement
+    B.setIntensity(0);
+    var quiet = B.el.volume;
+    B.setIntensity(1);
+    assert.ok(B.el.volume > quiet, 'a full board should not be quieter than an empty one');
+
+    B.stop();
+    assert.strictEqual(paused, 1, 'stopping the music left it running');
+    assert.ok(!B.playing);
+
+    // a file that will not decode must hand the shift back to the synth
+    B.start();
+    onError();
+    assert.ok(B.fallback, 'a broken recording should fall back');
+    assert.strictEqual(B.el, null, 'and let go of the element');
+    B.stop();
+    B.start();
+    assert.ok(!B.el, 'once it has fallen back it should stop retrying the file');
+  } finally {
+    if (realAudio === undefined) delete global.Audio; else global.Audio = realAudio;
+    B.stop();
+    B.el = was.el; B.gain = was.gain; B.fallback = was.fallback; B.playing = was.playing;
+  }
+});
+
+test('restarting the day leaves the music playing, from the top', function () {
+  var B = global.Bgm;
+  var realAudio = global.Audio;
+  var tape = [];
+  global.Audio = function () {
+    var el = this;
+    this.loop = false; this.preload = ''; this.volume = 1;
+    this._t = 0;
+    Object.defineProperty(this, 'currentTime', {
+      get: function () { return el._t; },
+      set: function (v) { el._t = v; tape.push('seek' + v); }
+    });
+    this.play = function () { tape.push('play'); return { 'catch': function () {} }; };
+    this.pause = function () { tape.push('pause'); };
+    this.addEventListener = function () {};
+  };
+  var was = { el: B.el, gain: B.gain, fallback: B.fallback, playing: B.playing };
+  B.el = null; B.gain = null; B.fallback = false; B.playing = false;
+
+  try {
+    startShift(4);
+    B.stop(); B.playing = false;
+    B.start();
+    B.el._t = 33.7;
+    tape.length = 0;
+
+    // the pause sheet, then RESTART THE DAY
+    MB.setPaused(true);
+    MB.setPaused(false);
+    MB.startDay(S.day);
+
+    assert.ok(B.playing, 'restarting the day left the track stopped');
+    assert.strictEqual(B.el._t, 0, 'it carried on from ' + B.el._t + 's instead of the top');
+    /*
+     * The order is the whole bug: setPaused(false) starts the track, startDay
+     * rewinds it, and a seek issued while play() is still resolving aborts it.
+     * Whatever the order, the last thing that happens has to be a play().
+     */
+    var last = tape.filter(function (e) { return e === 'play' || /^seek/.test(e); }).pop();
+    assert.strictEqual(last, 'play',
+      'the last thing done to the element was ' + last + ' - a seek after play() ' +
+      'kills it, and the music comes back only on the next tap. Tape: ' + tape.join(','));
+  } finally {
+    if (realAudio === undefined) delete global.Audio; else global.Audio = realAudio;
+    B.stop();
+    B.el = was.el; B.gain = was.gain; B.fallback = was.fallback; B.playing = was.playing;
+  }
+});
+
+test('a new day opens on the first bar, a pause picks up where it stopped', function () {
+  var B = global.Bgm;
+  var realAudio = global.Audio;
+  global.Audio = function () {
+    this.loop = false; this.preload = ''; this.volume = 1; this.currentTime = 0;
+    this.play = function () { return { 'catch': function () {} }; };
+    this.pause = function () {};
+    this.addEventListener = function () {};
+  };
+  var was = { el: B.el, gain: B.gain, fallback: B.fallback, playing: B.playing };
+  B.el = null; B.gain = null; B.fallback = false; B.playing = false;
+
+  try {
+    B.start();
+    B.el.currentTime = 41.5;            // partway through the loop
+
+    // pausing and coming back is the same shift
+    MB.setPaused(true);
+    MB.setPaused(false);
+    assert.strictEqual(B.el.currentTime, 41.5,
+      'a pause restarted the music; it should pick up where it stopped');
+
+    // ...and so is the tab going away and coming back
+    B.stop(); B.start();
+    assert.strictEqual(B.el.currentTime, 41.5, 'a plain stop/start should not rewind');
+
+    // opening a new day is not
+    MB.startDay(3);
+    assert.strictEqual(B.el.currentTime, 0,
+      'RESTART THE DAY carried on from the middle of the track');
+  } finally {
+    if (realAudio === undefined) delete global.Audio; else global.Audio = realAudio;
+    B.stop();
+    B.el = was.el; B.gain = was.gain; B.fallback = was.fallback; B.playing = was.playing;
+  }
+});
+
+test('the board only chops while a cook is standing at it', function () {
+  startShift(6);
+  var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; })[0];
+  S.chef.holding = null;
+  work(crateOf(veg));
+  work(MB.boardRect());
+  assert.strictEqual(S.board.id, veg, 'setup: the vegetable should be on the board');
+
+  pump(0.5);
+  var withHim = S.board.cut;
+  assert.ok(withHim > 0, 'the knife never started while he was standing there');
+  assert.strictEqual(S.board.working, true, 'it should know he is on it');
+
+  // send him across the kitchen before it can finish
+  MB.sendChef({ kind: 'grill', i: 0 }, 0);
+  pump(1.2);
+  var away = S.board.cut;
+  assert.ok(away < 1, 'setup: it should not have had time to finish');
+  pump(2.0);
+  assert.strictEqual(S.board.cut, away,
+    'the board chopped itself with nobody there: ' + away + ' -> ' + S.board.cut);
+  assert.strictEqual(S.board.working, false, 'and it should know it is stalled');
+  assert.ok(!S.board.portions, 'it even finished the job unattended');
+
+  // and it picks up where it stopped when he comes back
+  work(MB.boardRect());
+  pump(0.4);
+  assert.ok(S.board.cut > away, 'it did not start again when he came back');
+});
+
+test('holding the chopping pose does not restart it every frame', function () {
+  startShift(6);
+  var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; })[0];
+  S.chef.holding = null;
+  work(crateOf(veg));
+  work(MB.boardRect());
+  pump(0.2);
+  var m = S.chefMood;
+  assert.ok(m && m.mode === 'cook', 'setup: he should be chopping');
+  var at = m.at, until = m.until;
+
+  pump(0.5);
+  assert.strictEqual(S.chefMood.at, at,
+    'the pose was restarted, which pins him to the first frame of the swing');
+  assert.ok(S.chefMood.until > until, 'the pose was not held while he kept working');
+});
+
+/*
+ * Everything the cook can pick up, measured and drawn.
+ *
+ * drawChef asks for a half-width BEFORE it puts the arms down, then paints the
+ * object last so the hands sit on top of it. If the two passes disagree the
+ * arms close on air beside whatever is being carried - which is exactly what a
+ * new carry shape (the tray) is most likely to break.
+ */
+var CARRIES = [
+  { kind: 'ing', id: 'cheese', done: 0, char: 0 },
+  { kind: 'ing', id: 'bun', done: 0, char: 0 },
+  { kind: 'ing', id: 'patty', cook: 1, done: 1, char: 0 },
+  { kind: 'ing', id: 'lettuce', done: 0, char: 0 },
+  { kind: 'ing', id: 'lettuce', done: 0, char: 0, prepped: true },
+  { kind: 'fries', cook: 1, done: 0.8, char: 0 },
+  { kind: 'cup', flavor: 'cola' },
+  { kind: 'plate', stack: [{ id: 'bun', cook: 1 }, { id: 'patty', cook: 1 }] },
+  { kind: 'plate', stack: [{ id: 'bun', cook: 1 }], drink: 'cola' },
+  { kind: 'plate', stack: [{ id: 'bun', cook: 1 }], side: 'fries', sideCook: 0.8 },
+  { kind: 'plate', stack: [], drink: 'cider' },
+  { kind: 'plate', stack: [{ id: 'bun', cook: 1 }, { id: 'patty', cook: 1 }],
+    side: 'fries', sideCook: 0.8, drink: 'cola' }
+];
+function carryName(h, i) { return '#' + i + ' ' + (h.id || h.kind) +
+  (h.side ? '+fries' : '') + (h.drink ? '+drink' : ''); }
+
+test('the hands close on what is actually drawn, whatever the cook carries', function () {
+  startShift(8);
+  [[54, 0.72, 0.205], [96, 0.72, 0.205]].forEach(function (sz) {
+    var maxW = sz[0] * sz[1], maxH = sz[0] * sz[2];
+    CARRIES.forEach(function (h, i) {
+      var g = makeCtx();
+      var measured = MB.drawCarried(g, 100, 100, maxW, maxH, h, true);
+      var drawn = MB.drawCarried(g, 100, 100, maxW, maxH, h, false);
+      var at = 's' + sz[0] + ' ' + carryName(h, i) + ': ';
+      assert.ok(isFinite(measured) && measured > 0, at + 'measured ' + measured);
+      assert.strictEqual(measured, drawn,
+        at + 'the hands close at ' + measured + ' but it drew at ' + drawn);
+      assert.ok(measured <= maxW / 2 + 0.01,
+        at + 'wider than the carry box, ' + measured.toFixed(1) + ' vs ' + (maxW / 2).toFixed(1));
+    });
+  });
+});
+
+test('nothing the cook carries leaks a save() into the rest of the frame', function () {
+  startShift(8);
+  CARRIES.forEach(function (h, i) {
+    var depth = 0, worst = 0;
+    var g = makeCtx();
+    g.save = function () { depth++; };
+    g.restore = function () { depth--; if (depth < worst) worst = depth; };
+    MB.drawCarried(g, 100, 100, 54 * 0.72, 54 * 0.205, h, false);
+    assert.strictEqual(depth, 0,
+      carryName(h, i) + ' left the context ' + depth + ' save(s) deep - everything ' +
+      'drawn after it inherits the shadow and the clip');
+    assert.strictEqual(worst, 0, carryName(h, i) + ' restored more than it saved');
+  });
+});
+
+test('a set is drawn as a set, on the bench and in the hands', function () {
+  startShift(8);
+  function pieces(fn) {
+    var seen = { tray: 0, fries: 0, cup: 0 };
+    var t = Art.item.tray, f = Art.item.friesBox, c = Art.item.cup;
+    Art.item.tray = function () { seen.tray++; };
+    Art.item.friesBox = function () { seen.fries++; };
+    Art.item.cup = function () { seen.cup++; };
+    try { fn(); } finally { Art.item.tray = t; Art.item.friesBox = f; Art.item.cup = c; }
+    return seen;
+  }
+
+  // in the hands
+  var full = { kind: 'plate', stack: [{ id: 'bun', cook: 1 }], side: 'fries', drink: 'cola' };
+  var got = pieces(function () {
+    MB.drawCarried(makeCtx(), 100, 100, 40, 12, full, false);
+  });
+  assert.deepStrictEqual(got, { tray: 1, fries: 1, cup: 1 },
+    'a carried combo drew ' + JSON.stringify(got));
+
+  // ...and a plain plate is still a plain plate
+  var bare = pieces(function () {
+    MB.drawCarried(makeCtx(), 100, 100, 40, 12,
+      { kind: 'plate', stack: [{ id: 'bun', cook: 1 }] }, false);
+  });
+  assert.deepStrictEqual(bare, { tray: 0, fries: 0, cup: 0 },
+    'a plain plate grew a tray: ' + JSON.stringify(bare));
+
+  // on the bench, while it is still being built
+  S.plates[0].stack = [{ id: 'bun', cook: 1 }];
+  S.plates[0].side = null;
+  S.plates[0].drink = 'cola';
+  var bench = pieces(function () { MB.drawPlates(); });
+  assert.strictEqual(bench.tray, 1, 'the bench never put the set on a tray');
+  assert.strictEqual(bench.cup, 1, 'the drink on the plate was invisible on the bench');
+  assert.strictEqual(bench.fries, 0, 'it drew fries nobody ordered');
+});
+
+/* --------------------------------------------- the board and your cook */
+
+var SCREEN_SIZES = [[360, 720], [412, 915], [820, 600], [320, 568]];
+
+test('the board and the cook screen draw at every size, in every state', function () {
+  var A = global.Art;
+  var rows = [
+    { rank: 1, name: 'Joowon', day: 8, money: '$378.13', named: true },
+    { rank: 2, name: 'Cook', day: 5, money: '$317.90', named: false },
+    { rank: 3, name: 'Cook', day: 5, money: '$9,999.99', named: false }
+  ];
+  var states = [
+    ['board', { rows: rows, me: 2 }],
+    ['board', { rows: rows, me: null, mine: { rank: 12, name: 'Joowon', day: 3, money: '$88.20', named: true }, more: 8 }],
+    ['board', { rows: [], note: 'YOU ARE OFFLINE' }],
+    ['cook', { name: 'Joowon', typed: '' }],
+    ['cook', { name: 'Joowon', typed: 'K4M', note: 'Saving…' }],
+    ['cook', { name: 'A Very Long Cook Name Indeed', code: 'K4M9P', left: '9:41 LEFT', typed: 'K4M9P' }]
+  ];
+
+  SCREEN_SIZES.forEach(function (sz) {
+    states.forEach(function (st, i) {
+      var depth = 0, worst = 0;
+      var g = makeCtx();
+      g.save = function () { depth++; };
+      g.restore = function () { depth--; if (depth < worst) worst = depth; };
+      A.ui[st[0]](g, 0, 0, sz[0], sz[1], st[1]);
+      var at = sz.join('x') + ' ' + st[0] + '#' + i + ': ';
+      assert.strictEqual(depth, 0, at + 'left the context ' + depth + ' save(s) deep');
+      assert.strictEqual(worst, 0, at + 'restored more than it saved');
+    });
+  });
+});
+
+test('every control on the two drawn screens sits on the sheet and can be hit', function () {
+  var A = global.Art;
+  SCREEN_SIZES.forEach(function (sz) {
+    var W = sz[0], H = sz[1];
+    [['board', A.ui.boardBoxes(0, 0, W, H), ['back']],
+     ['cook', A.ui.cookBoxes(0, 0, W, H, false), ['name', 'save', 'getCode', 'codeIn', 'load', 'back']],
+     ['cook+code', A.ui.cookBoxes(0, 0, W, H, true), ['name', 'save', 'codeIn', 'load', 'back']]
+    ].forEach(function (set) {
+      var B = set[1];
+      set[2].forEach(function (k) {
+        var r = B[k], at = sz.join('x') + ' ' + set[0] + '.' + k + ': ';
+        assert.ok(r && isFinite(r.x) && isFinite(r.y) && r.w > 0 && r.h > 0,
+          at + 'is not a box: ' + JSON.stringify(r));
+        assert.ok(r.x >= 0 && r.y >= 0 && r.x + r.w <= W + 0.01 && r.y + r.h <= H + 0.01,
+          at + 'runs off the screen: ' + JSON.stringify(r));
+        assert.ok(r.y >= B.sheet.py - 0.01 && r.y + r.h <= B.sheet.py + B.sheet.ph + 0.01,
+          at + 'is off the sheet it is drawn on');
+      });
+      // nothing may sit on top of anything else
+      for (var a = 0; a < set[2].length; a++) {
+        for (var b = a + 1; b < set[2].length; b++) {
+          var p = B[set[2][a]], q = B[set[2][b]];
+          assert.ok(!(p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h),
+            sz.join('x') + ' ' + set[0] + ': ' + set[2][a] + ' and ' + set[2][b] + ' overlap');
+        }
+      }
+    });
+  });
+});
+
+test('the board maps what the worker sends, wherever the player sits in it', function () {
+  function top(meAt) {
+    var out = [];
+    for (var i = 1; i <= 20; i++) {
+      out.push({ rank: i, name: i === meAt ? 'Joowon' : 'Cook',
+                 day: 21 - i, earned: i * 100, me: i === meAt });
+    }
+    return out;
+  }
+
+  // the player is inside the visible run
+  var near = MB.lbMap(top(3), null);
+  assert.strictEqual(near.rows.length, 8, 'the sheet holds eight rows, got ' + near.rows.length);
+  assert.strictEqual(near.me, 3, 'the player should be marked in the run');
+  assert.strictEqual(near.mine, null, 'and must not also be repeated below it');
+  assert.strictEqual(near.rows[0].named, false, '"Cook" is the unnamed default');
+  assert.strictEqual(near.rows[2].named, true, 'a named cook should be inked as one');
+  assert.strictEqual(near.rows[0].money, Core.money(100), 'money is not formatted');
+
+  // ...and below it, where they get their own row under a gap
+  var far = MB.lbMap(top(14), null);
+  assert.strictEqual(far.me, null, 'rank 14 is not in the visible eight');
+  assert.ok(far.mine && far.mine.rank === 14, 'a player below the run should still get a row');
+  assert.strictEqual(far.more, 5, 'ranks 9..13 are the five between, got ' + far.more);
+
+  // ...or reported separately by the worker
+  var sep = MB.lbMap(top(0), { rank: 31, name: 'Joowon', day: 2, earned: 400 });
+  assert.ok(sep.mine && sep.mine.rank === 31, 'the worker\'s own row was dropped');
+  assert.strictEqual(sep.more, 22, 'got ' + sep.more + ' cooks in the gap');
+
+  // an empty board says so rather than drawing nothing
+  var none = MB.lbMap([], null);
+  assert.strictEqual(none.rows.length, 0);
+  assert.ok(/NOBODY/.test(none.note), 'an empty board should say it is empty');
+});
+
+/* ---------------------------------------- the freezer and the fountain */
+
+test('the fountain always points at the drink the board is waiting for', function () {
+  [3, 5, 8, 12, 16, 20, 25].forEach(function (day) {
+    startShift(day);
+    pump(0.3);
+    var taps = S.drinkTaps || [];
+    if (!taps.length) {
+      assert.deepStrictEqual(MB.dispenserView().ids, [], 'day ' + day + ' has no taps to show');
+      return;
+    }
+    // drive every plumbed flavour through the front of the board in turn
+    taps.forEach(function (id) {
+      S.tickets = [{ drink: id, items: ['bun'], side: null, t: {}, done: false }];
+      var v = MB.dispenserView();
+      var at = 'day ' + day + ' wanting ' + id + ': ';
+      assert.strictEqual(v.ids.length, 3, at + 'the machine is three columns wide');
+      assert.ok(v.active >= 0 && v.active <= 2, at + 'active is off the machine: ' + v.active);
+      assert.strictEqual(v.ids[v.active], id,
+        at + 'the lever it pulls is ' + v.ids[v.active] + ', not what was ordered');
+      // an unplumbed column is allowed, but never the one being poured
+      assert.ok(v.ids[v.active], at + 'it is pouring from a spout with nothing behind it');
+    });
+    S.tickets = [];
+  });
+});
+
+test('taking a basket opens the freezer, and it shuts itself again', function () {
+  startShift(8);
+  pump(0.3);
+  assert.ok(S.fryer.length, 'setup: day 8 should have a fry line');
+
+  var cold = MB.freezerPose();
+  assert.strictEqual(cold.open, 0, 'the freezer starts shut');
+  assert.strictEqual(cold.grab, 0, 'and with nothing in the air');
+
+  loadWell(0);
+  assert.ok(S.fryer[0], 'setup: the bag should be in the oil');
+
+  assert.ok(S.fryGrab, 'the freezer was never told a bag came out');
+
+  // the pose is an envelope, so it is zero at the instant it starts
+  pump(0.4);
+  var open = MB.freezerPose();
+  assert.ok(open.open > 0, 'the lid never moved when the bag came out');
+  assert.ok(open.grab > 0, 'no bag came up out of the well');
+
+  // it is an envelope, not a latch: everything settles
+  var was = S.fryGrab;
+  S.fryGrab = was - 4000;
+  var shut = MB.freezerPose();
+  assert.strictEqual(shut.open, 0, 'the freezer was left standing open');
+  assert.strictEqual(shut.grab, 0, 'a bag was left hanging in the air');
+  S.fryGrab = was;
+});
+
+/*
+ * The grill wall reads top to bottom in the order the food moves: freezer,
+ * fryer, burners. The freezer is pinned to the top-left corner of the room -
+ * it used to be drawn inside the fry box's own top third, which made it a
+ * decoration on another machine rather than a place you go.
+ */
+test('the grill wall runs freezer, fryer, then burners, top to bottom', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  [[375, 812], [412, 915], [820, 600], [412, 430], [360, 640]].forEach(function (sz) {
+    stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+    startShift(8);
+    pump(0.3);
+    var r = MB.fryerRect(), fz = MB.freezerRect(), L2 = MB.layout;
+    var at = sz.join('x') + ': ';
+    assert.ok(r.h > 0 && fz.h > 0, at + 'setup: day 8 should have a fry line');
+
+    // top-left corner, on the grill wall, above the fryer
+    assert.strictEqual(fz.x, L2.grillX, at + 'the freezer left the grill wall');
+    assert.ok(fz.x < L2.W / 2, at + 'the grill wall is not on the left');
+    assert.ok(fz.y >= L2.cratesBottom, at + 'the freezer climbed into the crate shelf');
+    assert.ok(fz.y + fz.h <= r.y + 0.01,
+      at + 'the freezer overlaps the fryer: ends ' + (fz.y + fz.h).toFixed(0) +
+      ' vs fryer at ' + r.y.toFixed(0));
+
+    // the burners are under the fryer, at the bottom of the band
+    var g0 = MB.slotRect(0), gN = S.grill.length;
+    var gLast = MB.slotRect(gN - 1);
+    assert.ok(g0.y >= r.y + r.h - 0.01,
+      at + 'the burners climbed into the fryer: ' + g0.y.toFixed(0) + ' vs ' + (r.y + r.h).toFixed(0));
+    assert.ok(gLast.y + gLast.h <= L2.midBottom + 0.01, at + 'the burners run past the band');
+
+    for (var i = 0; i < S.fryer.length; i++) {
+      var wr = MB.fryWellRect(i);
+      assert.ok(wr.y >= r.y - 0.01 && wr.y + wr.h <= r.y + r.h + 0.01,
+        at + 'well ' + i + ' hangs out of the fry box');
+    }
+    // and drawing the whole station throws at none of these sizes
+    var g = makeCtx();
+    var depth = 0;
+    g.save = function () { depth++; };
+    g.restore = function () { depth--; };
+    assert.doesNotThrow(function () { MB.drawFryStation(); }, at + 'the fry station threw');
+    assert.doesNotThrow(function () { MB.drawFountain(); }, at + 'the fountain threw');
+  });
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.3);
+});
+
+test('a drink parked on a plate does not lock the burger out of it', function () {
+  startShift(12);
+  S.chef.holding = null;
+  S.pour = null;
+  S.plates.forEach(function (p) { p.stack = []; p.side = null; p.drink = null; });
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].drink = S.drinkTaps[0];
+
+  // the cider goes down first, on its own
+  pourCup(0);
+  work(MB.plateRect(0));
+  assert.ok(S.plates[0].drink, 'setup: the drink should be on plate 0');
+  assert.strictEqual(S.plates[0].stack.length, 0, 'setup: and nothing else');
+
+  // the burger is built on the other plate and carried over
+  work(crateOf('bun'));
+  work(MB.plateRect(1));
+  assert.strictEqual(S.plates[1].stack.length, 1, 'setup: the bun should be on plate 1');
+  work(MB.plateRect(1));
+  assert.strictEqual(held() && held().kind, 'plate', 'setup: the tray should be in hand');
+
+  work(MB.plateRect(0));
+  assert.strictEqual(held(), null,
+    'the tray came back - a drink on a plate blocked the burger joining it');
+  assert.strictEqual(S.plates[0].stack.length, 1, 'the burger never landed');
+  assert.strictEqual(S.plates[0].drink, S.drinkTaps[0], 'the drink was lost in the merge');
+
+  // ...but two trays that want the same slot still refuse
+  S.plates[1].stack = [{ id: 'bun', cook: 1 }];
+  work(MB.plateRect(1));
+  assert.ok(held(), 'setup: pick the second tray up');
+  work(MB.plateRect(0));
+  assert.ok(held(), 'two trays with food on both should not merge');
+});
+
+test('the fountain costs the cook time, and only while he is standing there', function () {
+  startShift(12);
+  S.chef.holding = null;
+  S.pour = null;
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].drink = S.drinkTaps[0];
+
+  var r = MB.tapRect();
+  var w3 = r.w * 0.283;
+  var cx = r.x + r.w * 0.217;
+  work({ x: cx - w3 / 2, y: r.y, w: w3, h: r.h });
+  assert.ok(S.pour, 'pressing a spout started nothing');
+  assert.strictEqual(held(), null, 'the cup arrived instantly - it is meant to take time');
+
+  pump(0.4);
+  var partway = S.pour.t;
+  assert.ok(partway > 0, 'the cup is not filling while he stands there');
+  assert.strictEqual(S.pour.working, true, 'it should know he is on it');
+
+  // send him away and the stream stops
+  MB.sendChef({ kind: 'grill', i: 0 }, 0);
+  pump(1.2);
+  var away = S.pour.t;
+  pump(1.5);
+  assert.strictEqual(S.pour.t, away, 'the cup filled itself with nobody there');
+  assert.strictEqual(S.pour.working, false, 'and it should know it is stalled');
+
+  // come back, finish it, take it
+  var got = pourCup(0);
+  assert.ok(got && got.kind === 'cup', 'the cup never came off the spout');
+  assert.strictEqual(S.pour, null, 'the spout was left holding a cup');
+});
+
+/*
+ * The whole room, measured. Every fixture is a tap target and a picture; two
+ * of them in the same pixels is both a wrong tap and a wrong drawing, and the
+ * column has had three things added to it (board, fry line, fountain) since
+ * anything checked.
+ */
+test('no two fixtures in the room stand in the same place', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  [[375, 812], [412, 915], [360, 640], [412, 430], [820, 600], [320, 568]].forEach(function (sz) {
+    [1, 5, 8, 12, 20, 25].forEach(function (day) {
+      stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+      MB.startDay(day);
+      pump(0.3);
+      var where = sz.join('x') + ' day ' + day + ': ';
+
+      var boxes = [];
+      for (var i = 0; i < S.menu.length; i++) boxes.push(['crate' + i, MB.crateRect(i)]);
+      for (i = 0; i < S.grill.length; i++) boxes.push(['grill' + i, MB.slotRect(i)]);
+      for (i = 0; i < S.plates.length; i++) boxes.push(['plate' + i, MB.plateRect(i)]);
+      if (MB.layout.fryH) boxes.push(['fryer', MB.fryerRect()]);
+      if (MB.layout.freezerH) boxes.push(['freezer', MB.freezerRect()]);
+      if (MB.layout.tapH) boxes.push(['tap', MB.tapRect()]);
+      if (MB.layout.board) boxes.push(['board', MB.boardRect()]);
+      boxes.push(['hatch', MB.hatchRect()], ['bin', MB.binRect()]);
+
+      boxes.forEach(function (e) {
+        var r = e[1];
+        assert.ok(r && isFinite(r.x) && r.w > 0 && r.h > 0, where + e[0] + ' is not a box');
+        assert.ok(r.x >= -1 && r.y >= -1 &&
+                  r.x + r.w <= MB.layout.W + 1 && r.y + r.h <= MB.layout.H + 1,
+          where + e[0] + ' hangs off the canvas: ' + JSON.stringify(r));
+      });
+
+      for (var a = 0; a < boxes.length; a++) {
+        for (var b = a + 1; b < boxes.length; b++) {
+          var p = boxes[a][1], q = boxes[b][1];
+          var over = Math.max(0, Math.min(p.x + p.w, q.x + q.w) - Math.max(p.x, q.x)) *
+                     Math.max(0, Math.min(p.y + p.h, q.y + q.h) - Math.max(p.y, q.y));
+          assert.strictEqual(over, 0,
+            where + boxes[a][0] + ' and ' + boxes[b][0] + ' overlap by ' +
+            over.toFixed(0) + 'px²');
+        }
+      }
+    });
+  });
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.3);
+});
+
+/*
+ * Three fixtures a player reaches for without looking - the bin, the serving
+ * hatch and the fountain - keep their place whatever the room rerolls. The bin
+ * used to change corners from day seven and the fountain rode whichever column
+ * the plates were on, so the two most-used targets moved under the player's
+ * thumb. Everything else still varies: the palette, the crate line, the wall
+ * colours, which wall is the grill.
+ */
+test('the bin, the hatch and the fountain never move house', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  var sawGrillLeft = false, sawGrillRight = false;
+
+  [[375, 812], [412, 915], [360, 640], [412, 430], [820, 600]].forEach(function (sz) {
+    stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+    for (var day = 1; day <= 30; day++) {
+      S.runSeed = day * 7919;                 // a different run every pass
+      MB.startDay(day);
+      pump(0.2);
+      var where = sz.join('x') + ' day ' + day + ': ';
+      var bin = MB.binRect(), hatch = MB.hatchRect(), L2 = MB.layout;
+
+      // bottom-left, always
+      assert.ok(bin.x <= L2.pad + 0.01, where + 'the bin left the left-hand corner');
+      assert.ok(bin.y + bin.h >= L2.H - L2.pad - 1, where + 'the bin left the bottom');
+
+      // the hatch sits between the bin and whatever is to its right
+      assert.ok(hatch.x >= bin.x + bin.w - 0.01, where + 'the hatch is left of the bin');
+      assert.strictEqual(hatch.y, bin.y, where + 'the hatch and the bin are on different rows');
+
+      if (L2.tapH) {
+        var tap = MB.tapRect();
+        assert.ok(tap.x + tap.w >= L2.W - L2.pad - 1, where + 'the fountain left the right corner');
+        assert.strictEqual(tap.y, bin.y, where + 'the fountain is not on the bottom wall');
+        assert.ok(tap.x >= hatch.x + hatch.w - 0.01, where + 'the fountain is left of the hatch');
+        // and each of its three levers is still worth aiming at
+        assert.ok(tap.w * 0.283 >= 22,
+          where + 'a lever is ' + (tap.w * 0.283).toFixed(0) + 'px, under a thumb');
+      }
+
+      if (L2.room.grill === 'left' || L2.room.plain) sawGrillLeft = true;
+      else sawGrillRight = true;
+    }
+  });
+
+  // the rest of the room is still allowed to move
+  assert.ok(sawGrillLeft && sawGrillRight,
+    'pinning the bottom wall also froze which wall is the grill');
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.3);
+});
+
+test('the lever you pressed wears the ring, and the levers do not overlap', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+
+  [[375, 812], [412, 915], [320, 568], [820, 600]].forEach(function (sz) {
+    stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+    startShift(12);
+    pump(0.3);
+    var where = sz.join('x') + ': ';
+    var r = MB.tapRect();
+    assert.ok(r.w > 0, where + 'setup: day 12 should have a fountain');
+
+    // three levers, side by side, inside the machine, each worth aiming at
+    for (var i = 0; i < 3; i++) {
+      var c = MB.tapColRect(i);
+      assert.ok(c.x >= r.x - 0.01 && c.x + c.w <= r.x + r.w + 0.01,
+        where + 'lever ' + i + ' hangs off the machine');
+      assert.ok(c.y >= r.y - 0.01 && c.y + c.h <= r.y + r.h + 0.01,
+        where + 'lever ' + i + ' hangs off the machine vertically');
+      assert.ok(c.w >= 22, where + 'lever ' + i + ' is ' + c.w.toFixed(0) + 'px, under a thumb');
+      if (i) {
+        var prev = MB.tapColRect(i - 1);
+        assert.ok(prev.x + prev.w <= c.x + 0.01, where + 'levers ' + (i - 1) + ' and ' + i + ' overlap');
+      }
+      // and a tap in the middle of a lever resolves to that lever
+      assert.strictEqual(MB.tapColAt(c.x + c.w / 2), i,
+        where + 'pressing lever ' + i + ' resolves to ' + MB.tapColAt(c.x + c.w / 2));
+    }
+  });
+
+  /*
+   * The ring means a lever is being worked. An untouched machine wears none -
+   * it used to pre-mark the flavour the board wanted, which read as the game
+   * answering the order for you.
+   */
+  stage.clientWidth = 412; stage.clientHeight = 915;
+  startShift(12);
+  pump(0.3);
+  S.pour = null;
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].drink = S.drinkTaps[0];
+  var idle = [], rr0 = Art.rr;
+  Art.rr = function (g, x, y, w, h) { idle.push({ x: x, y: y, w: w, h: h }); };
+  try { MB.drawFountain(); } finally { Art.rr = rr0; }
+  var levers = [0, 1, 2].map(function (i) { return MB.tapColRect(i); });
+  var marked = idle.filter(function (q) {
+    return levers.some(function (L) { return Math.abs(q.x - L.x) < 1 && Math.abs(q.w - L.w) < 1; });
+  });
+  assert.strictEqual(marked.length, 0,
+    'an untouched fountain pre-marked a lever - the ring is feedback, not an instruction');
+
+  // the ring follows the press
+  stage.clientWidth = 412; stage.clientHeight = 915;
+  startShift(12);
+  pump(0.3);
+  S.chef.holding = null;
+  S.pour = null;
+  S.tickets.length = 0;
+
+  var rings = [];
+  var realRR = Art.rr;
+  Art.rr = function (g, x, y, w, h) { rings.push({ x: x, y: y, w: w, h: h }); };
+  try {
+    for (var col = 0; col < 3; col++) {
+      var ids = MB.dispenserView().ids;
+      if (!ids[col]) continue;
+      S.pour = { flavor: ids[col], t: 0.2, working: true, ids: ids.slice(), col: col };
+      rings.length = 0;
+      MB.drawFountain();
+      var want = MB.tapColRect(col);
+      var hit = rings.some(function (q) {
+        return Math.abs(q.x - want.x) < 1 && Math.abs(q.y - want.y) < 1 &&
+               Math.abs(q.w - want.w) < 1;
+      });
+      assert.ok(hit, 'pressing lever ' + col + ' (' + ids[col] + ') marked no lever - ' +
+        'rings drawn at ' + JSON.stringify(rings.map(function (q) { return q.x.toFixed(0); })) +
+        ', wanted ' + want.x.toFixed(0));
+    }
+  } finally { Art.rr = realRR; S.pour = null; }
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.3);
+});
+
+/*
+ * No wall may have a void on it.
+ *
+ * Both walls keep their fixtures in a fixed order and let the day decide how
+ * many there are, so on a light day there is a lot of leftover height - and
+ * whichever gap it all lands in becomes blank plaster. Bottom-aligning the
+ * burners put 418px of nothing above a day-1 grill and 217px between the
+ * fryer and the burners on day 5. The rule is that the slack is SHARED: the
+ * gaps on a wall stay within sight of each other, whatever the day stocks.
+ */
+test('neither wall leaves a void above or below its fixtures', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+
+  [[375, 812], [412, 915], [360, 640], [412, 430], [820, 600]].forEach(function (sz) {
+    stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+    for (var day = 1; day <= 25; day++) {
+      MB.startDay(day);
+      pump(0.25);
+      var L2 = MB.layout, where = sz.join('x') + ' day ' + day + ': ';
+      var band = L2.midBottom - L2.midTop;
+
+      // --- the grill wall: [fry line] gapMid [burners] gapBot
+      var gN = S.grill.length;
+      var burners = gN * L2.slotH + (gN - 1) * L2.gap;
+      var aboveEnd = L2.fryH ? L2.fryTop + L2.fryH : L2.midTop;
+      var gMid = L2.grillTop - aboveEnd;
+      var gBot = L2.midBottom - (L2.grillTop + burners);
+      assert.ok(gMid >= -0.5 && gBot >= -0.5,
+        where + 'the grill wall overflows its band: ' + gMid.toFixed(0) + '/' + gBot.toFixed(0));
+      assert.ok(Math.abs(gMid - gBot) <= Math.max(6, band * 0.06),
+        where + 'the grill wall dumped its slack into one gap: ' +
+        gMid.toFixed(0) + 'px above the burners, ' + gBot.toFixed(0) + 'px below');
+
+      // --- the plate wall: [board] gapMid [plates] gapBot
+      var pN = S.plates.length;
+      var stack = pN * L2.plateH + (pN - 1) * L2.gap;
+      var pAbove = L2.board ? L2.board.y + L2.board.h : L2.midTop;
+      var pMid = L2.plateTop - pAbove;
+      var pBot = L2.midBottom - (L2.plateTop + stack);
+      assert.ok(pBot >= -0.5, where + 'the plate wall overflows its band by ' + (-pBot).toFixed(0));
+      assert.ok(Math.abs(pMid - pBot) <= Math.max(8, band * 0.10),
+        where + 'the plate wall dumped its slack into one gap: ' +
+        pMid.toFixed(0) + 'px above the plates, ' + pBot.toFixed(0) + 'px below');
+    }
+  });
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.3);
+});
+
+test('every dish on the bench sits at the same height, set or no set', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  [[375, 812], [412, 430], [820, 600]].forEach(function (sz) {
+    stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+    startShift(12);
+    pump(0.3);
+    var where = sz.join('x') + ': ';
+    assert.ok(S.plates.length >= 3, where + 'setup: day 12 should have three plates');
+
+    // one bare burger, one with a drink beside it, one with the full tray
+    S.plates.forEach(function (p) { p.stack = [{ id: 'bun', cook: 1 }]; p.side = null; p.drink = null; });
+    S.plates[1].drink = S.drinkTaps[0];
+    S.plates[2].side = 'fries';
+    S.plates[2].drink = S.drinkTaps[0];
+
+    var seen = [], real = Art.scene.plate;
+    Art.scene.plate = function (g, cx, cy) { seen.push(cy); };
+    try { MB.drawPlates(); } finally { Art.scene.plate = real; }
+
+    assert.strictEqual(seen.length, S.plates.length, where + 'not every plate drew a dish');
+    var within = seen.map(function (cy, i) { return cy - MB.plateRect(i).y; });
+    within.forEach(function (d, i) {
+      assert.ok(Math.abs(d - within[0]) < 0.51,
+        where + 'plate ' + i + ' sits ' + (d - within[0]).toFixed(1) +
+        'px off the others - a column of plates should be one line, whatever is on them');
+    });
+
+    // and lifted clear of the slot's floor rather than pinned to it
+    var L2 = MB.layout;
+    if (L2.plateH > 50) {
+      assert.ok(within[0] < L2.plateH - 12,
+        where + 'the dish is pinned to the bottom of its slot');
+    }
+  });
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.3);
+});
+
+/*
+ * The benches, not just the slots.
+ *
+ * drawGrill and drawPlates wrap their slots in a counter that reaches above
+ * the first and below the last, and that chrome was not in the layout's
+ * budget - so the grill bench cut 10-12px into the fryer above it and the
+ * plate bench 3-5px into the board. The rect-level overlap sweep could not see
+ * it, because the benches are drawn outside the rects they belong to.
+ *
+ * The wall pays for as much of the chrome as it can afford without pushing a
+ * station under MIN_TAPPABLE, and the bench is drawn at exactly that size, so
+ * an overlap is impossible rather than merely unlikely.
+ */
+test('no bench overlaps the machine above it, at any grill or plate count', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  var checked = 0;
+
+  [[375, 812], [412, 915], [360, 640], [412, 430], [320, 568], [820, 600]].forEach(function (sz) {
+    [{}, { plate: 2, burner: 2, grill: 3, shoes: 3 }].forEach(function (levels, li) {
+      stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+      [1, 5, 8, 12, 16, 20, 25].forEach(function (day) {
+        S.levels = JSON.parse(JSON.stringify(levels));
+        MB.startDay(day);
+        pump(0.25);
+        if (S.cramped) return;                 // the room already says it is unusable
+        checked++;
+        var L2 = MB.layout;
+        var where = sz.join('x') + (li ? ' maxed' : ' base') + ' day ' + day + ': ';
+        var gN = S.grill.length, pN = S.plates.length;
+
+        // measure the bench the game actually DRAWS, not the one it budgeted -
+        // the two drifting apart is the whole defect
+        var drawn = [], realCounter = Art.scene.counter;
+        Art.scene.counter = function (g, x, y, w, h) { drawn.push({ y: y, h: h }); };
+        try { MB.drawGrill(); MB.drawPlates(); } finally { Art.scene.counter = realCounter; }
+        assert.strictEqual(drawn.length, 2, where + 'expected one bench each');
+        var benchTop = drawn[0].y;
+        var benchBot = drawn[0].y + drawn[0].h;
+        var above = L2.fryH ? L2.fryTop + L2.fryH : L2.midTop;
+        assert.ok(benchTop >= above - 0.6,
+          where + 'the grill bench cuts ' + (above - benchTop).toFixed(1) + 'px into the fryer');
+        assert.ok(benchBot <= L2.midBottom + 0.6,
+          where + 'the grill bench runs ' + (benchBot - L2.midBottom).toFixed(1) + 'px past the band');
+
+        var pTop = drawn[1].y;
+        var pBot = drawn[1].y + drawn[1].h;
+        var pAbove = L2.board ? L2.board.y + L2.board.h : L2.midTop;
+        assert.ok(pTop >= pAbove - 0.6,
+          where + 'the plate bench cuts ' + (pAbove - pTop).toFixed(1) + 'px into the board');
+        assert.ok(pBot <= L2.midBottom + 0.6,
+          where + 'the plate bench runs ' + (pBot - L2.midBottom).toFixed(1) + 'px past the band');
+
+        // and paying for the chrome must never cost a tappable station
+        assert.ok(L2.slotH >= 22 && L2.plateH >= 22,
+          where + 'a station fell under a thumb: ' +
+          L2.slotH.toFixed(0) + '/' + L2.plateH.toFixed(0));
+      });
+    });
+  });
+
+  assert.ok(checked > 50, 'only ' + checked + ' layouts were actually checked');
+  S.levels = {};
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.3);
+});
+
+/*
+ * The fry line starts at the freezer.
+ *
+ * A well used to light itself on an empty-handed tap, so the potatoes came
+ * from nowhere and the freezer beside it was scenery that animated. It is the
+ * same shape as the patty now: fetch, then cook.
+ */
+test('the fryer will not run without a bag carried over from the freezer', function () {
+  startShift(8);
+  S.chef.holding = null;
+
+  work(MB.fryWellRect(0));
+  assert.strictEqual(S.fryer[0], null, 'an empty-handed tap lit the well');
+
+  work(MB.freezerRect());
+  var bag = held();
+  assert.ok(bag && bag.kind === 'fryBag', 'the freezer handed out ' + JSON.stringify(bag));
+
+  // the freezer will not hand out a second one on top of it
+  work(MB.freezerRect());
+  assert.strictEqual(held().kind, 'fryBag', 'it stacked two bags in one pair of hands');
+
+  // ...and a bag is not a topping
+  work(MB.plateRect(0));
+  assert.ok(held(), 'a bag of frozen chips went onto a plate');
+
+  work(MB.fryWellRect(0));
+  assert.ok(S.fryer[0], 'the bag never went in');
+  assert.strictEqual(held(), null, 'the bag stayed in his hands');
+
+  // a busy well refuses a second bag rather than swallowing it
+  work(MB.freezerRect());
+  work(MB.fryWellRect(0));
+  assert.ok(held() && held().kind === 'fryBag', 'a busy well swallowed a second bag');
+  work(MB.fryWellRect(1));
+  assert.ok(S.fryer[1], 'the free well refused it');
+
+  // and the carry has a size, so the hands close on something
+  var g = makeCtx();
+  var measured = MB.drawCarried(g, 100, 100, 40, 12, { kind: 'fryBag' }, true);
+  var drawn = MB.drawCarried(g, 100, 100, 40, 12, { kind: 'fryBag' }, false);
+  assert.ok(measured > 0 && measured === drawn,
+    'a carried bag measures ' + measured + ' but draws at ' + drawn);
+
+  // over the wire too
+  var back = MB.unpackHold(MB.packHold({ kind: 'fryBag' }));
+  assert.strictEqual(back.kind, 'fryBag', 'a bag came back as ' + JSON.stringify(back));
+});
+
+/*
+ * The fry wells wear the grill's doneness bar.
+ *
+ * They used to ask the player to read raw / perfect / over / burnt off the
+ * colour of the fries alone - a far finer distinction than a bar, and one the
+ * basket half covers. Same curve, same window, same bar, so a basket and a
+ * patty are read the same way.
+ */
+test('a basket in the oil shows how done it is, the way a patty does', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  var g = stage.getContext('2d');
+
+  [[375, 812], [412, 430], [820, 600]].forEach(function (sz) {
+    stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+    startShift(8);
+    pump(0.3);
+    var where = sz.join('x') + ': ';
+    assert.ok(S.fryer.length, where + 'setup: day 8 should have a fry line');
+
+    /*
+     * Count the rounded rects each station paints inside one cooking slot: a
+     * track, the green window marked on it, and the fill. The colour mapping
+     * is one line shared with the grill, so what this has to prove is that the
+     * bar is THERE - the wells had none.
+     */
+    function barsIn(rect, paint) {
+      var seen = [], realRR = Art.rr;
+      Art.rr = function (c, x, y, w, h) { seen.push({ x: x, y: y, w: w, h: h }); };
+      try { paint(); } finally { Art.rr = realRR; }
+      return seen.filter(function (b) {
+        return b.w > 0 && b.h > 0 &&
+               b.x >= rect.x - 0.6 && b.x + b.w <= rect.x + rect.w + 0.6 &&
+               b.y >= rect.y - 0.6 && b.y + b.h <= rect.y + rect.h + 0.6;
+      });
+    }
+
+    [1, Core.COOK_TIME, Core.COOK_TIME + 2.4, Core.COOK_TIME * 2].forEach(function (t) {
+      S.fryer[0] = { t: t };
+      var n = barsIn(MB.fryWellRect(0), MB.drawFryStation).length;
+      assert.ok(n >= 3, where + 'a basket at ' + t.toFixed(1) + 's drew ' + n +
+        ' bars in its well - it needs a track, a window and a fill');
+    });
+    S.fryer[0] = null;
+
+    // an empty well has nothing to say
+    assert.strictEqual(barsIn(MB.fryWellRect(0), MB.drawFryStation).length, 0,
+      where + 'an empty well drew a doneness bar');
+
+    // and the patty still has its own
+    S.grill[0] = { id: 'patty', t: Core.COOK_TIME };
+    var gn = barsIn(MB.slotRect(0), MB.drawGrill).length;
+    S.grill[0] = null;
+    assert.ok(gn >= 3, where + 'the grill lost its bar: ' + gn);
+  });
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.3);
+});
+
+/*
+ * The board is the specification.
+ *
+ * bestMatch picks the CLOSEST ticket and payout grades against it, so a burger
+ * with a filling nobody asked for used to be quietly sold to whoever wanted
+ * the most of it - at a discount, but sold. A plate either matches something
+ * on the board or it goes back.
+ */
+test('a burger nobody ordered goes back, however close it was', function () {
+  startShift(10);
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  var want = S.tickets[0].items.slice();
+  S.tickets[0].side = null;
+  S.tickets[0].drink = null;
+
+  function serve(items) {
+    var sales = S.sales, tips = S.tips, wasted = S.waste, served = S.served;
+    MB.deliver(items.map(function (id) { return { id: id, cook: 1 }; }), {}, 0);
+    return { pay: S.sales - sales, tip: S.tips - tips,
+             waste: S.waste - wasted, served: S.served - served };
+  }
+
+  // exactly what was asked for: paid, and counted
+  var right = serve(want);
+  assert.ok(right.pay > 0, 'the right burger paid nothing');
+  assert.strictEqual(right.waste, 0, 'the right burger went in the bin');
+  assert.strictEqual(right.served, 1, 'the right burger was not counted as served');
+
+  // one filling too many - as close as a wrong plate gets
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].items = want.slice();
+  S.tickets[0].side = null;
+  S.tickets[0].drink = null;
+  var extra = want.concat(['cheese']);
+  var near = serve(extra);
+  assert.strictEqual(near.pay, 0,
+    'a burger with a filling nobody ordered still sold for ' + near.pay);
+  assert.strictEqual(near.tip, 0, 'it was tipped for');
+  assert.ok(near.waste > 0, 'a rejected plate cost the shop nothing');
+  assert.strictEqual(near.served, 0, 'it was counted as served');
+
+  // ...and one filling short is no better
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].items = want.slice();
+  S.tickets[0].side = null;
+  S.tickets[0].drink = null;
+  var short = serve(want.slice(0, want.length - 1));
+  assert.strictEqual(short.pay, 0, 'a burger missing a filling sold for ' + short.pay);
+  assert.ok(short.waste > 0, 'a short burger cost the shop nothing');
+});
+
+/*
+ * One failure condition: the day has to cover its rent.
+ *
+ * The hearts were a second one running alongside it - five mistakes shut the
+ * shop whatever the till said - and they measured something the money already
+ * measured. A plate that goes back is food in the bin, and the shop pays for
+ * it, so a bad shift shows up as a shortfall in the number the day is judged
+ * by rather than as a separate bar.
+ */
+test('a shift is won or lost on the till, and the bin counts against it', function () {
+  startShift(10);
+  assert.strictEqual(S.waste, 0, 'a fresh shift starts with an empty bin');
+  assert.ok(S.rent > 0, 'setup: there should be rent to make');
+
+  // serving what was asked for puts money in
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].side = null;
+  S.tickets[0].drink = null;
+  var want = S.tickets[0].items.slice();
+  MB.deliver(want.map(function (id) { return { id: id, cook: 1 }; }), {}, 0);
+  var earned = S.sales + S.tips;
+  assert.ok(earned > 0, 'the right burger paid nothing');
+  assert.strictEqual(S.waste, 0, 'the right burger went in the bin');
+
+  // a rejected one takes money back OUT
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].items = want.slice();
+  S.tickets[0].side = null;
+  S.tickets[0].drink = null;
+  MB.deliver(want.concat(['cheese']).map(function (id) { return { id: id, cook: 1 }; }), {}, 0);
+  assert.ok(S.waste > 0, 'a binned plate cost the shop nothing');
+  assert.strictEqual(S.sales + S.tips, earned, 'a binned plate still paid out');
+
+  // the bin is charged at a share of the menu price, not the whole thing -
+  // full price makes day one brutal and day twenty cheap
+  var full = Core.menuPrice(want.concat(['cheese']));
+  assert.ok(S.waste < full, 'the bin is charged at the full menu price');
+  assert.ok(S.waste > full * 0.2, 'the bin is barely charged at all: ' + S.waste + ' of ' + full);
+
+  // and the day is judged on what is left
+  var till = S.sales + S.tips - S.waste;
+  S.rent = till;
+  MB.endDay();
+  assert.strictEqual(elements.dayEnd.hidden, false,
+    'a till exactly covering the rent should pass');
+
+  startShift(10);
+  S.sales = 5000; S.tips = 0; S.waste = 5000;
+  S.rent = 1;
+  MB.endDay();
+  assert.strictEqual(elements.over.hidden, false,
+    'a shift that binned everything it made should fail');
+});
+
+/*
+ * The number the whole day is judged by must not be drawn through the bar
+ * that measures the same thing. It was: the target sat on a baseline whose
+ * cap height reached down into the takings thermometer, because nothing in
+ * the file connected the two constants. They come from hudBoxes now.
+ */
+test('the day\'s target is not drawn through the takings bar', function () {
+  [[320, 48], [375, 58], [412, 58], [560, 72]].forEach(function (sz) {
+    var B = Art.ui.hudBoxes(0, 0, sz[0], sz[1]);
+    var where = sz.join('x') + ': ';
+    ['need', 'bar', 'pause'].forEach(function (k) {
+      var r = B[k];
+      assert.ok(r && isFinite(r.x) && r.w > 0 && r.h > 0, where + k + ' is not a box');
+      assert.ok(r.y >= -0.5 && r.y + r.h <= sz[1] + 0.5, where + k + ' hangs off the HUD');
+    });
+    assert.ok(B.need.y + B.need.h <= B.bar.y + 0.01,
+      where + 'the target overlaps the takings bar by ' +
+      (B.need.y + B.need.h - B.bar.y).toFixed(1) + 'px');
+    // the pause square is on the left, the target on the right - never both
+    assert.ok(B.pause.x + B.pause.w <= B.right - 1, where + 'the pause square reaches the target');
+  });
+
+  // and the HUD draws at every state without throwing
+  [[12.34, 2.5], [0, 0], [0.01, 99.9]].forEach(function (st) {
+    assert.doesNotThrow(function () {
+      Art.ui.hud(makeCtx(), 0, 0, 412, 58, {
+        day: 12, time: '1:20', earned: 58.66, goal: 71, pct: 0.82, tip: 0.5,
+        need: st[0], waste: st[1]
+      });
+    }, 'the HUD threw with need=' + st[0]);
+  });
+});
+
+/*
+ * A shop row is four things side by side - the icon, the name and its line,
+ * the pips, and the price - and they were laid out against four separate
+ * fractions of the sheet. The price oval's width now comes off the ROW rather
+ * than the sheet, and the text column's width comes off the oval, so the two
+ * cannot drift into each other.
+ */
+test('a shop row lays its icon, name and price out without them touching', function () {
+  var SIZES = [[320, 568], [375, 812], [412, 915], [360, 640], [820, 600], [1280, 800]];
+
+  SIZES.forEach(function (sz) {
+    [1, 3, 5].forEach(function (rows) {
+      [false, true].forEach(function (hasUnlocks) {
+        var B = Art.ui.shopBoxes(0, 0, sz[0], sz[1], rows, hasUnlocks);
+        var where = sz.join('x') + ' ' + rows + ' rows' + (hasUnlocks ? ' +unlocks' : '') + ': ';
+        assert.strictEqual(B.buys.length, rows, where + 'a row lost its price');
+
+        var iconRight = B.x0 + B.iw * 0.135;
+        var textLeft = B.x0 + B.iw * 0.180;
+        assert.ok(iconRight <= textLeft, where + 'the icon runs into the name');
+
+        B.buys.forEach(function (b, i) {
+          var at = where + 'row ' + i + ': ';
+          // the oval stands rather than lies down - that is the whole look
+          assert.ok(b.h > b.w, at + 'the price oval is ' + b.w.toFixed(0) + 'x' +
+            b.h.toFixed(0) + ' - lying down, not standing');
+          // it stays on the sheet
+          assert.ok(b.x + b.w <= B.x0 + B.iw + 0.01, at + 'the oval runs off the sheet');
+          assert.ok(b.x >= B.x0, at + 'the oval is off the left of the sheet');
+          // and there is real room left for the words beside it
+          var textW = b.x - textLeft - B.iw * 0.030;
+          assert.ok(textW > B.iw * 0.35,
+            at + 'the name has only ' + textW.toFixed(0) + 'px, ' +
+            (textW / B.iw * 100).toFixed(0) + '% of the row');
+          // rows do not sit on each other
+          if (i) {
+            var prev = B.buys[i - 1];
+            assert.ok(prev.y + prev.h <= b.y + 0.01,
+              at + 'this row overlaps the one above by ' + (prev.y + prev.h - b.y).toFixed(1));
+          }
+        });
+
+        // the stack of rows ends above the footer
+        if (rows) {
+          var last = B.buys[rows - 1];
+          assert.ok(last.y + last.h <= B.primary.y + 0.01,
+            where + 'the rows run into the START THE DAY button');
+        }
+      });
+    });
+  });
+
+  // and it draws, at every size, with and without the unlock slip
+  SIZES.forEach(function (sz) {
+    [0, 4].forEach(function (n) {
+      assert.doesNotThrow(function () {
+        Art.ui.shop(makeCtx(), 0, 0, sz[0], sz[1], {
+          title: 'THE SHOP', day: 'DAY 12 · CLOSED', till: '$142.80',
+          unlocks: n ? [{ id: 'bacon', name: 'Bacon', price: '$1.30' }] : [],
+          upgrades: Array.from({ length: n }, function (_, i) {
+            return { id: 'grill', t: 'ONE MORE BURNER', d: 'A fourth pan on the line',
+                     p: '$1,240', pips: ['#e8a021', '#e8a021'] };
+          }),
+          tomorrow: 'TOMORROW: 12 CUSTOMERS', rent: 'RENT DUE $70.50',
+          link: 'CHANGE THE COOK’S OUTFIT', primary: 'START DAY 13'
+        });
+      }, sz.join('x') + ' with ' + n + ' upgrades threw');
+    });
+  });
 });
 
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');

@@ -11,42 +11,47 @@
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!--
+  The two faces the Organic system names. Loaded with display=swap and a real
+  fallback stack in the CSS, so a first launch with no network gets the same
+  layout in Trebuchet rather than a blank shell. See DEPLOY.md for vendoring
+  them into www/fonts/ before the store build.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Caprasimo&family=Figtree:wght@400;600;700&display=swap">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 
 <div id="app">
 
+  <!-- The HUD is a taped-up slip too: Art.ui.hud draws the paper, the pause
+       square, DAY and the clock, the takings and their thermometer, the tips
+       dashes and the hearts. The button over the drawn square is real, and
+       #hudRead carries the same facts for a screen reader, which cannot read
+       a canvas. -->
   <header id="hud">
-    <button id="pauseBtn" class="icon-btn pause-icon" aria-label="Pause"><i></i><i></i></button>
-    <div class="progress">
-      <div class="progress-top">
-        <span class="day-tag">DAY <b id="dayNum">1</b></span>
-        <span id="clockBox" class="clock" aria-label="Time left">
-          <span id="clockText">0:00</span>
-        </span>
-        <span id="goalText" class="goal-text">$0.00 / $0.00</span>
-      </div>
-      <div class="goal-bar"><div id="goalFill"></div></div>
-      <div class="clock-bar"><div id="clockFill"></div></div>
-    </div>
-    <div id="hearts" class="hearts" aria-label="Mistakes left"></div>
+    <canvas id="hudArt" class="hud-art"></canvas>
+    <button id="pauseBtn" class="hit" aria-label="Pause"></button>
+    <p id="hudRead" class="sr-only" aria-live="polite"></p>
   </header>
 
   <!-- Absorbs slack on tall screens so the whole shop sits in thumb reach,
        and fills it with the storefront sign instead of dead background. -->
+  <!-- The storefront sign, drawn. It was three spans of Caprasimo, which put a
+       typeset MR. BURGER two screens away from the inked one on the title. -->
   <div id="spacer">
-    <div class="shopsign">
-      <span class="sign-mr">MR.</span>
-      <span class="sign-burger">BURGER</span>
-      <span class="sign-open">◦ OPEN 24 HRS ◦</span>
-    </div>
+    <canvas id="signArt" class="shopsign"></canvas>
   </div>
 
-  <!-- the order board: every live ticket, Overcooked style -->
+  <!-- The order board: the batten and every slip clipped to it, drawn by
+       Art.ui.orders. The rail used to be a DOM strip above a row of DOM
+       tickets; it is part of the same drawing now. -->
   <div class="board-wrap">
-    <div class="board-rail"><span>ORDERS</span></div>
-    <div id="board" class="board"></div>
+    <canvas id="boardArt" class="board-art"></canvas>
+    <p id="boardRead" class="sr-only" aria-live="polite"></p>
   </div>
 
   <!-- the kitchen: crates, grill, plates, hatch and the chef -->
@@ -54,36 +59,37 @@
 
 </div>
 
+<!-- One-shot verdict tint over the whole shell: sage for a plate that landed,
+     tomato for one that came back. Read before the banner is. -->
+<div id="flash" aria-hidden="true"></div>
+
 <!-- ----------------------------------------------------------- title --->
-<div id="start" class="modal show">
-  <div class="sheet title-sheet">
-    <div class="logo-wrap">
-      <div class="logo-mr">MR.</div>
-      <div class="logo-burger">BURGER</div>
-      <div class="logo-rule"></div>
-      <p class="tag">Run the line.</p>
-    </div>
+<!--
+  The title is one canvas. Art.ui.title paints the diner, the rail, the clipped
+  slip, the hand-lettered wordmark and every button on it - nothing here is set
+  in a typeface, which is the whole point of the slip.
 
-    <button id="continueBtn" class="cta" hidden>
-      CONTINUE<small>Day <span id="continueDay">1</span></small>
-    </button>
-    <button id="playBtn" class="cta">NEW SHIFT</button>
+  The buttons below are the same controls as before, moved onto the drawn boxes
+  by Art.ui.titleBoxes and painted out. The canvas carries the look; the real
+  <button> keeps the tap target, the focus ring, the keyboard and the screen
+  reader. One set of constants feeds both, so they cannot drift apart.
+-->
+<div id="start" class="modal show drawn">
+  <canvas id="titleArt" class="screen-art"></canvas>
 
-    <div class="title-menu">
-      <button id="coopBtn" class="tile">
-        <span class="tile-ico">👥</span><span>Co-op</span>
-      </button>
-      <button id="boardBtn" class="tile">
-        <span class="tile-ico">🏆</span><span>Ranks</span>
-      </button>
-      <button id="accountBtn" class="tile">
-        <span class="tile-ico">🧑‍🍳</span><span>You</span>
-      </button>
-    </div>
+  <button id="continueBtn" class="hit" hidden>Continue &mdash; day <span id="continueDay">1</span></button>
+  <button id="playBtn" class="hit">New shift</button>
+  <!-- Second slot on a fresh install, where NEW SHIFT would otherwise offer to
+       restart a shift nobody has played yet. -->
+  <button id="howBtn2" class="hit">How to play</button>
+  <button id="coopBtn" class="hit">Co-op</button>
+  <button id="boardBtn" class="hit">Ranks</button>
+  <button id="accountBtn" class="hit">You</button>
 
-    <button id="howBtn" class="linkbtn">How to play</button>
-    <div id="netState" class="net-state">offline — progress stays on this device</div>
-  </div>
+  <!-- The slip carries no DOM text: everything on it is drawn. The net state
+       is written along its foot by titleNote(); this element only survives so
+       the online code has somewhere to put the long version. -->
+  <div id="netState" class="net-state" hidden>offline — progress stays on this device</div>
 </div>
 
 <!-- ---------------------------------------------------- how to play --->
@@ -93,10 +99,13 @@
     <p class="lede">Tap where the chef should go. One rule at every station:
       <b>empty hands take, full hands give.</b></p>
     <ol class="rules">
-      <li><b>Crates</b> up top hold the fillings. Grab one, carry it to a
-          <b>plate</b> on the right.</li>
+      <li><b>Crates</b> up top hold the fillings. Grab one and carry it to a
+          <b>plate</b> on the right — unless the crate says it needs cooking or
+          chopping first.</li>
       <li>Patties hit the <b>grill</b> first. Come back for them while the bar
           sits in the green — raw or burnt gets sent back.</li>
+      <li>Anything wearing a <b>blade</b> goes to the <b>board</b> first. One
+          vegetable chops into four portions — draw them off as you need them.</li>
       <li>Carry a finished plate to the <b>serving hatch</b>. It goes to
           whichever order it matches.</li>
       <li>Stacking order doesn't matter. Right fillings, fast.</li>
@@ -106,38 +115,30 @@
 </div>
 
 <!-- ----------------------------------------------------- leaderboard --->
-<div id="leaderboard" class="modal" hidden>
-  <div class="sheet">
-    <h2 class="sheet-title">LEADERBOARD</h2>
-    <div id="lbList" class="lb-list"></div>
-    <p id="lbNote" class="note"></p>
-    <button id="lbClose" class="cta">BACK</button>
-  </div>
+<div id="leaderboard" class="modal drawn" hidden>
+  <canvas id="lbArt" class="screen-art"></canvas>
+  <button id="lbClose" class="hit">Back to the title</button>
+  <p id="lbNote" class="sr-only" aria-live="polite"></p>
 </div>
 
 <!-- --------------------------------------------------------- account --->
-<div id="account" class="modal" hidden>
-  <div class="sheet">
-    <h2 class="sheet-title">YOUR COOK</h2>
-    <label class="field">
-      <span>NAME ON THE BOARD</span>
-      <input id="nameInput" type="text" maxlength="16" placeholder="Cook" autocomplete="off">
-    </label>
-    <button id="nameSave" class="cta">SAVE NAME</button>
-
-    <div class="divider">MOVE TO ANOTHER DEVICE</div>
-    <p class="note">Get a code here, then type it on the other device. It lasts 10 minutes.</p>
-    <button id="makeCodeBtn" class="cta alt">GET A TRANSFER CODE</button>
-    <div id="codeOut" class="code-out" hidden></div>
-
-    <label class="field">
-      <span>OR ENTER A CODE FROM YOUR OTHER DEVICE</span>
-      <input id="claimInput" type="text" maxlength="8" placeholder="ABCDE" autocomplete="off">
-    </label>
-    <button id="claimBtn" class="cta alt">LOAD THAT SAVE</button>
-    <p id="accountNote" class="note"></p>
-    <button id="accountClose" class="linkbtn">Back</button>
-  </div>
+<!--
+  Drawn, like the title and the shop. The two text fields stay real inputs
+  sitting invisibly on top of their drawn boxes - .hit paints them
+  transparent - so the platform keyboard, autofill and selection all still
+  work while the sheet underneath is the one the pen drew.
+-->
+<div id="account" class="modal drawn" hidden>
+  <canvas id="acctArt" class="screen-art"></canvas>
+  <input id="nameInput" class="hit" type="text" maxlength="16" autocomplete="off"
+         aria-label="Name on the board">
+  <button id="nameSave" class="hit">Save name</button>
+  <button id="makeCodeBtn" class="hit">Get a transfer code</button>
+  <input id="claimInput" class="hit" type="text" maxlength="8" autocomplete="off"
+         autocapitalize="characters" aria-label="Transfer code from your other phone">
+  <button id="claimBtn" class="hit">Load that save</button>
+  <button id="accountClose" class="hit">Back</button>
+  <p id="accountNote" class="sr-only" aria-live="polite"></p>
 </div>
 
 <!-- ------------------------------------------------------------ co-op --->
@@ -160,38 +161,25 @@
 </div>
 
 <!-- ---------------------------------------------------------- paused --->
-<div id="pause" class="modal" hidden>
-  <div class="sheet">
-    <h2 class="sheet-title">PAUSED</h2>
-    <div class="pause-line">
-      DAY <b id="pauseDay">1</b> &nbsp;·&nbsp; <b id="pauseEarned">$0.00</b> of <span id="pauseRent">$0.00</span>
-    </div>
-    <button id="resumeBtn" class="cta">RESUME</button>
-    <button id="restartBtn" class="cta alt">RESTART THIS DAY</button>
-    <button id="pauseSoundBtn" class="cta alt">SOUND: ON</button>
-    <button id="quitBtn" class="linkbtn">Quit to the title screen</button>
-  </div>
+<div id="pause" class="modal drawn" hidden>
+  <canvas id="pauseArt" class="screen-art"></canvas>
+  <button id="resumeBtn" class="hit">Back to work</button>
+  <button id="restartBtn" class="hit">Restart this day</button>
+  <button id="quitBtn" class="hit">Close up shop</button>
+  <!-- The three boxed switches along the foot. HOW TO PLAY lives here rather
+       than on the title: by the time you have a shift to come back to, the
+       place to ask "how does this work again" is mid-shift. -->
+  <button id="pauseSoundBtn" class="hit">Sound</button>
+  <button id="pauseMusicBtn" class="hit">Music</button>
+  <button id="howBtn" class="hit">How to play</button>
+  <p id="pauseRead" class="sr-only" aria-live="polite"></p>
 </div>
 
 <!-- -------------------------------------------------------- day end --->
-<div id="dayEnd" class="modal" hidden>
-  <div class="sheet">
-    <h2 id="dayEndTitle" class="sheet-title">DAY 1 CLOSED</h2>
-    <div class="receipt">
-      <div class="line"><span>Food sales</span><b id="rSales">$0.00</b></div>
-      <div class="line"><span>Tips</span><b id="rTips">$0.00</b></div>
-      <div class="line total"><span>Took in</span><b id="rTotal">$0.00</b></div>
-      <div class="line rent"><span>Rent</span><b id="rRent">$0.00</b></div>
-      <div class="line net"><span id="rNetLabel">Profit</span><b id="rNet">$0.00</b></div>
-    </div>
-    <div class="stats-row">
-      <div class="chip"><span id="rPerfect">0</span><small>PERFECT</small></div>
-      <div class="chip"><span id="rServed">0</span><small>SERVED</small></div>
-      <div class="chip"><span id="rWalked">0</span><small>WALKED</small></div>
-    </div>
-    <p id="dayEndNote" class="note"></p>
-    <button id="dayEndBtn" class="cta">TO THE SHOP</button>
-  </div>
+<div id="dayEnd" class="modal drawn" hidden>
+  <canvas id="dayEndArt" class="screen-art"></canvas>
+  <button id="dayEndBtn" class="hit">To the shop</button>
+  <p id="dayEndRead" class="sr-only" aria-live="polite"></p>
 </div>
 
 <!-- --------------------------------------------------- turn it back --->
@@ -202,29 +190,56 @@
   reliably tappable, which is every phone held sideways. Ask for a turn
   instead of drawing a kitchen nobody can hit.
 -->
+<!-- Drawn: a phone on its side with an arrow turning it upright, and the words
+     under it in the pen. It was a 📱 and two lines of webfont. -->
 <div id="rotate">
-  <div class="rotate-inner">
-    <div class="rotate-icon">📱</div>
-    <h2>TURN YOUR PHONE</h2>
-    <p>Mr. Burger runs the line top to bottom. Upright, everything is big
-      enough to hit.</p>
+  <canvas id="rotateArt" class="screen-art"></canvas>
+  <p class="sr-only">Turn your phone upright. Mr. Burger runs the line top to
+    bottom, and upright everything is big enough to hit.</p>
+</div>
+
+<!-- ----------------------------------------------------- the outfitters --->
+<!--
+  What real money buys. Three shapes only, and the sheet says which is which
+  in as many words: a skin changes nothing but the cook, a piece of gear hands
+  over an upgrade level that already exists and stops at the same ceiling, and
+  a till top-up is in-game cash. Nothing here invents an ability, because the
+  25-day curve underneath is simulated and there are tests that fail if it moves.
+-->
+<div id="store" class="modal" hidden>
+  <div class="sheet wide">
+    <h2 class="sheet-title">THE OUTFITTERS</h2>
+    <p class="lede">Skins are for looking the part. Gear hands you an upgrade
+      level you would have earned anyway — <b>it never goes past the same
+      ceiling.</b></p>
+
+    <div id="storeTabs" class="seg">
+      <label class="seg-opt">
+        <input type="radio" name="storeTab" value="style" checked><span>STYLE</span>
+      </label>
+      <label class="seg-opt">
+        <input type="radio" name="storeTab" value="kitchen"><span>KITCHEN</span>
+      </label>
+    </div>
+
+    <div id="storeList" class="store-list"></div>
+
+    <p id="storeNote" class="note"></p>
+    <button id="storeRestore" class="cta alt">RESTORE PURCHASES</button>
+    <button id="storeClose" class="linkbtn">Back</button>
   </div>
 </div>
 
 <!-- ------------------------------------------------------------ shop --->
-<div id="shop" class="modal" hidden>
-  <div class="sheet wide">
-    <h2 class="sheet-title">THE SHOP</h2>
-    <div class="wallet">IN THE TILL <b id="walletText">$0.00</b></div>
-    <div id="unlockBox" class="unlock-box" hidden>
-      <div class="unlock-title">NEW ON THE MENU</div>
-      <div id="unlockList" class="unlock-list"></div>
-    </div>
-    <div id="upgradeList" class="upgrade-list"></div>
-    <div id="nextKitchen" class="next-kitchen"></div>
-    <div class="next-line">Tomorrow's rent <b id="nextRent">$0.00</b></div>
-    <button id="nextDayBtn" class="cta">START DAY <span id="nextDayNum">2</span></button>
-  </div>
+<div id="shop" class="modal drawn" hidden>
+  <canvas id="shopArt" class="screen-art"></canvas>
+  <!-- One buy button per upgrade, laid on the price tags Art.ui.shopBoxes
+       reports. They are created by renderShop() rather than written out here,
+       because the line the shop stocks is Core.UPGRADES, not markup. -->
+  <div id="shopBuys" class="hit-layer"></div>
+  <button id="shopStoreBtn" class="hit">Change the cook's outfit</button>
+  <button id="nextDayBtn" class="hit">Start the next day</button>
+  <p id="shopRead" class="sr-only" aria-live="polite"></p>
 </div>
 
 <!-- ------------------------------------------------------- shut down --->
@@ -243,8 +258,16 @@
 
 <script src="js/core.js"></script>
 <script src="js/art.js"></script>
+<!-- The fry line and the drinks are drawn with art.js's pen, so they load after
+     it and hang themselves off the namespaces it already published. Nothing in
+     art.js knows they exist. -->
+<script src="js/art-fries-drinks.js"></script>
+<script src="js/art-freezer-dispenser.js"></script>
+<script src="js/art-prep.js"></script>
+<script src="js/art-title.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/net.js"></script>
+<script src="js/billing.js"></script>
 <script src="js/game.js"></script>
 </body>
 </html>

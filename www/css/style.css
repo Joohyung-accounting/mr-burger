@@ -1,20 +1,104 @@
-/* Mr. Burger - warm diner shell around the canvas. */
+/*
+ * Mr. Burger — the shell around the canvas.
+ *
+ * "주문 전표 종이" (order-slip paper), from 주방과 UI 디자인.dc.html.
+ *
+ * The kitchen is drawn with an ink pen. The menus were not: they were smooth
+ * filled cards, and a smooth card next to a wobbled pen line reads as two
+ * different apps stapled together. So every menu in here is a slip of till
+ * paper — cream stock, torn along a perforation, ink lettering, dashed rules,
+ * hung off a wooden rail and pinned with a bit of tape. The diner behind it
+ * stays dark so the paper floats off it.
+ *
+ * TEETH. The handoff cuts the perforation with a 25-point clip-path. This
+ * draws it instead: a tiled triangle in the paper's own colour, sitting just
+ * under the bottom edge. It is resolution independent, it needs no
+ * regenerating when a sheet changes width, and because it is a real child of
+ * the sheet it picks up the sheet's tilt and its drop-shadow - so the shadow
+ * follows the teeth instead of running straight behind them.
+ *
+ * TYPE. Caprasimo over Figtree, as before: the handoff's mockups are set in Jua
+ * because the handoff is written in Korean, not because the game is. What the
+ * mockups actually specify is ink — heavy letterspaced caps stamped on paper —
+ * and these two do that with the webfonts already loaded.
+ */
 
 :root {
+  /* ── the diner: everything the paper is not ──────────────────────────── */
   --bg-0: #150e0c;
   --bg-1: #2a1a15;
-  --surface: rgba(255, 244, 224, 0.06);
-  --line: rgba(255, 224, 186, 0.16);
-  --cream: #fff4e0;
-  --muted: #bda392;
-  --red: #e63946;
-  --mustard: #f4b41a;
-  --green: #6bbf59;
+  --bg-glow: #4a2a1c;
+
+  /* ── the paper ───────────────────────────────────────────────────────── */
+  --paper: #fdf6e6;
+  --paper-2: #f4ead2;          /* a second slip, or a panel on the first */
+  --paper-3: #ece0c6;          /* pressed / inset */
+
+  /* ── the ink, four weights ───────────────────────────────────────────── */
+  --ink: #3f2a1c;              /* headings, stamped caps */
+  --ink-2: #5c4432;            /* body */
+  --ink-3: #8a7259;            /* secondary */
+  --ink-4: #a08a6e;            /* captions, disabled */
+  --rule: #c4ab8a;             /* the dashed perforation */
+  --rule-soft: #d8c6a6;
+  --rule-faint: #e4d8bd;
+
+  /* ── the wooden rail the slips hang from ─────────────────────────────── */
+  --rail-top: #8a5a30;
+  --rail-bottom: #5f3a1c;
+  --rail-ink: #e8c9a0;
+  --rail-lip: rgba(255, 224, 186, 0.25);
+
+  /* ── the one warm accent: an amber ticket stub ───────────────────────── */
+  --amber: #e8a021;
+  --amber-lit: #f4b41a;
+  --amber-deep: #b87a12;
+  --amber-ink: #3f2a08;
+
+  /* ── stamps ──────────────────────────────────────────────────────────── */
+  --stamp-good: #3f7a2a;
+  --stamp-bad: #b23e28;
+  --alarm: #d2543c;
+  --alarm-deep: #8f2e1c;
+
+  /* ── type ────────────────────────────────────────────────────────────── */
+  /* Fallbacks matter: a first launch with no network gets no webfont, and the
+     shell has to still look like itself. */
+  --font-heading: "Caprasimo", "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Figtree", "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+
+  /* ── space ───────────────────────────────────────────────────────────── */
+  --space-1: 4.4px;
+  --space-2: 8.8px;
+  --space-3: 13.2px;
+  --space-4: 17.6px;
+  --space-6: 26.4px;
+  --space-8: 35.2px;
+
+  /* Paper is cut, not rounded. Only the amber stubs and the round buttons
+     carry a radius at all. */
+  --radius-sm: 3px;
+  --radius-md: 4px;
+
+  /* ── the perforation ─────────────────────────────────────────────────── */
+  --tooth-w: 13px;
+  --tooth-h: 6px;
+
+  /*
+   * The longest order the day can call for, set per day by game.js before a
+   * single ticket exists. A slip is drawn now rather than built out of DOM, so
+   * this no longer adds up a ticket's parts - it buys the board canvas the
+   * height its tallest list will need, which is the same promise as before:
+   * the board must not grow under the first ticket.
+   */
+  --order-rows: 1;
+
   --safe-t: env(safe-area-inset-top, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+*, *::before, *::after { box-sizing: border-box; }
+* { margin: 0; padding: 0; }
 
 /* .cta/.modal set an explicit display, which would otherwise beat the UA's
    [hidden] rule and leave hidden elements visible. */
@@ -24,150 +108,104 @@ html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
 
 body {
   background:
-    radial-gradient(110% 70% at 50% 0%, #4a2a1c 0%, transparent 60%),
+    radial-gradient(110% 70% at 50% 0%, var(--bg-glow) 0%, transparent 60%),
     radial-gradient(90% 60% at 50% 100%, #3a1f18 0%, transparent 65%),
     linear-gradient(180deg, var(--bg-1) 0%, var(--bg-0) 100%);
   background-attachment: fixed;
-  color: var(--cream);
-  font-family: "Trebuchet MS", "Segoe UI", system-ui, -apple-system, sans-serif;
+  color: var(--ink-2);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
   -webkit-user-select: none;
-  /* Nothing in the shop scrolls - every gesture is a drag. */
+  /* Nothing in the shop scrolls - every gesture is a tap. */
   touch-action: none;
 }
 
-button { font-family: inherit; color: inherit; cursor: pointer; }
+/* Themed, never the browser default. */
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+::selection { background: rgba(232, 160, 33, 0.35); }
+
+button {
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
 
 #app {
   position: fixed;
   inset: 0;
   display: flex;
   flex-direction: column;
-  padding: calc(var(--safe-t) + 6px) 8px calc(var(--safe-b) + 8px);
+  padding: calc(var(--safe-t) + var(--space-2)) var(--space-2)
+           calc(var(--safe-b) + var(--space-2));
   max-width: 560px;
   margin: 0 auto;
+  gap: var(--space-2);
+}
+
+/* ═══════════════════════════════════════════════════════ the perforation
+ *
+ * A strip of teeth drawn UNDER the bottom edge, not a mask cut out of it.
+ *
+ * The mask version was invisible to every rasteriser I could point at it -
+ * SVG foreignObject drops CSS masks - which meant the one feature that makes
+ * this a receipt was the one feature I could not check before shipping it. A
+ * tiled triangle in the paper's own colour is a background, so it renders
+ * anywhere a background does, and sitting inside the sheet it still picks up
+ * the sheet's drop-shadow and its tilt.
+ *
+ * The triangle: full width along the top, apex at the bottom centre.
+ */
+:root {
+  --teeth: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13' height='6' viewBox='0 0 13 6'%3E%3Cpath d='M0 0h13L6.5 6z' fill='%23fdf6e6'/%3E%3C/svg%3E");
+}
+
+/* A perforation drawn across the middle of a slip. */
+.perf {
+  height: 1px;
+  background: repeating-linear-gradient(90deg, var(--rule) 0 4px, transparent 4px 8px);
 }
 
 /* ------------------------------------------------------------------- HUD */
-#hud {
-  display: grid;
-  grid-template-columns: 36px 1fr auto;
-  align-items: center;
-  gap: 8px;
-  flex: 0 0 auto;
-}
-
-.icon-btn {
-  width: 34px; height: 34px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  font-size: 15px;
-}
-.icon-btn:active { transform: scale(0.92); }
-
-/* Two bars rather than ⏸ - the emoji is missing on plenty of Android builds. */
-.pause-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-}
-.pause-icon i {
-  width: 4px;
-  height: 14px;
-  border-radius: 2px;
-  background: var(--cream);
-}
-
-.progress { min-width: 0; }
-.progress-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 3px;
-}
-.day-tag { font-size: 10px; letter-spacing: 0.18em; color: var(--muted); font-weight: 700; }
-.day-tag b { color: var(--cream); font-size: 13px; }
-.goal-text { font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--muted); }
-
-/* ------------------------------------------------------------- the clock */
 /*
- * Sits between the day and the till, because that is the reading order of the
- * question a player is asking: which shift, how long left, how am I doing.
- * Tabular numerals so the countdown does not shuffle sideways every second.
+ * The HUD used to be a strip of dark wood built here out of a grid, a
+ * gradient, two meters and a row of masked hearts. Art.ui.hud draws all of it
+ * now - taped paper, the pause square, DAY and the clock, the takings and
+ * their thermometer, the tips dashes, the hearts - so this element is only a
+ * box to draw it in.
+ *
+ * Its height is the one number the stylesheet still owns, and it matters: the
+ * drawing derives every text size from it, so 58px is a type decision as much
+ * as a layout one.
  */
-.clock {
-  font-size: 13px;
-  font-weight: 900;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.04em;
-  color: var(--cream);
-  margin-left: auto;
-  margin-right: auto;
-  padding: 0 8px;
-  transition: color 0.2s linear;
-}
-
-/* Under a minute the clock warms up; under fifteen seconds it beats. */
-.clock.warm { color: var(--mustard); }
-.clock.urgent { color: #ff6b57; animation: clock-beat 1s steps(1, end) infinite; }
-
-@keyframes clock-beat {
-  0%, 60%  { opacity: 1; }
-  61%, 99% { opacity: 0.45; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .clock.urgent { animation: none; }
-}
-
-.clock-bar {
-  height: 3px;
-  margin-top: 3px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.3);
+/* For anything a canvas draws but cannot say out loud. */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
   overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
-#clockFill {
-  height: 100%;
+#hud {
+  position: relative;
+  flex: 0 0 auto;
+  --hud-h: 58px;
+}
+.hud-art {
+  display: block;
   width: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #6fd0a0, var(--mustard));
-  transition: width 0.25s linear, background 0.4s linear;
+  height: var(--hud-h);
 }
-
-#clockFill.warm { background: linear-gradient(90deg, var(--mustard), #ff8c42); }
-#clockFill.urgent { background: linear-gradient(90deg, #ff8c42, #ff5a44); }
-
-/* Off the clock entirely outside a shift, so the title screen is not lying. */
-body.no-clock .clock,
-body.no-clock .clock-bar { visibility: hidden; }
-.goal-text.met { color: var(--green); }
-
-.goal-bar {
-  height: 9px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid var(--line);
-  overflow: hidden;
-}
-#goalFill {
-  height: 100%;
-  width: 0%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--mustard), #ff8c42);
-  transition: width 0.35s cubic-bezier(.2,.8,.3,1);
-}
-#goalFill.met { background: linear-gradient(90deg, var(--green), #a8e063); }
-
-.hearts { display: flex; gap: 2px; font-size: 14px; }
-.hearts .h { transition: transform 0.2s, opacity 0.2s, filter 0.2s; }
-.hearts .h.lost { filter: grayscale(1); opacity: 0.28; transform: scale(0.82); }
 
 /* ------------------------------------------------------------ storefront */
 #spacer {
@@ -177,189 +215,55 @@ body.no-clock .clock-bar { visibility: hidden; }
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  padding: var(--space-1) 0;
 }
 
-.shopsign { text-align: center; line-height: 1; opacity: 0.5; }
-.sign-mr {
-  display: block;
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: 0.5em;
-  text-indent: 0.5em;
-  color: var(--mustard);
-}
-.sign-burger {
-  display: block;
-  font-size: clamp(18px, 4.6vh, 32px);
-  font-weight: 900;
-  color: var(--cream);
-  text-shadow: 0 2px 0 var(--red), 0 0 22px rgba(230, 57, 70, 0.55);
-  margin: 2px 0 5px;
-}
-.sign-open {
-  display: block;
-  font-size: 8px;
-  font-weight: 800;
-  letter-spacing: 0.28em;
-  color: var(--green);
-  text-shadow: 0 0 10px rgba(107, 191, 89, 0.7);
-}
+/*
+ * Between shifts the sign is the storefront and takes the room. During one it
+ * is gone entirely, and the slack it was holding goes to the kitchen instead -
+ * it was ~80px of dead band on an 812px phone. The spacer keeps just enough
+ * grow to absorb whatever is left once the stage hits its own max-height,
+ * otherwise a tall screen ends up with a hole at the bottom instead.
+ */
+/* The sign is a drawing now; this is just the box it fills. */
+.shopsign { display: block; width: 100%; height: 100%; }
+body:not(.no-clock) .shopsign { display: none; }
+body:not(.no-clock) #stage { flex-grow: 40; }
 
-/* ------------------------------------------------------------ order board */
+/* ═══════════════════════════════════════════════════ the order board
+ *
+ * A wooden rail with the live slips clipped to it. The rail is the only piece
+ * of furniture in the interface; everything hanging off it is paper.
+ */
+/*
+ * The batten and its slips are one drawing, so the wrapper carries no wood of
+ * its own - Art.ui.orders draws the rail, the lettering on it, the clips and
+ * every sheet.
+ *
+ * The height still has to be committed BEFORE the first slip exists, or the
+ * board grows under the first ticket and the kitchen loses a chunk of itself
+ * in one frame. --order-rows is reserved at the top of the day exactly as it
+ * was for the DOM tickets; it just buys canvas height now. A slip is
+ * h * 0.834 tall inside the drawing, and its list of ingredients is what needs
+ * the extra room, so the height is linear in the row count for the same
+ * reason the old min-height calc was.
+ */
 .board-wrap {
   flex: 0 0 auto;
-  margin-top: 6px;
-  padding: 3px 5px 5px;
-  border-radius: 13px;
-  background: rgba(0, 0, 0, 0.32);
-  border: 1px solid var(--line);
-  box-shadow: inset 0 1px 0 rgba(255, 244, 224, 0.06);
+  --board-h: calc(104px + var(--order-rows) * 18px);
 }
-
-.board-rail {
-  display: flex;
-  justify-content: center;
-  padding: 2px 0 4px;
-}
-.board-rail span {
-  font-size: 8px;
-  font-weight: 900;
-  letter-spacing: 0.34em;
-  text-indent: 0.34em;
-  color: var(--mustard);
-  text-shadow: 0 0 10px rgba(244, 180, 26, 0.6);
-}
-
-.board { display: flex; gap: 5px; align-items: stretch; }
-
-.ticket {
-  position: relative;
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  padding: 4px 2px 5px;
-  border-radius: 10px;
-  background: linear-gradient(180deg, rgba(255, 244, 224, 0.11), rgba(255, 244, 224, 0.03));
-  border: 1.5px solid transparent;
-  box-shadow: inset 0 0 0 1px var(--line);
-  animation: ticketIn 0.3s cubic-bezier(.2,.9,.3,1.2);
-}
-@keyframes ticketIn { from { transform: translateY(-12px) scale(0.85); opacity: 0; } }
-
-.ticket.empty {
-  background: none;
-  box-shadow: none;
-  border: 1.5px dashed rgba(255, 224, 186, 0.13);
-  animation: none;
-}
-.ticket.pinned { border-color: var(--mustard); background: rgba(244, 180, 26, 0.13); }
-.ticket.rush .who { animation: jitter 0.5s infinite; }
-@keyframes jitter { 0%,100% { transform: translateX(0); } 50% { transform: translateX(1.5px); } }
-
-.ticket .who { font-size: 15px; line-height: 1; }
-.ticket .mini { width: 38px; height: 42px; display: block; }
-
-/* ---------------------------------------------------------- what it wants */
-/*
- * The picture above cannot carry the answer - a layer is two or three pixels
- * tall on a phone - so the ticket says it. Chip for scanning, word for
- * certainty. Sized to fit five tickets across the narrowest phone we support.
- */
-.order-list {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 1px;
+.board-art {
+  display: block;
   width: 100%;
-  padding: 0 1px;
-  min-width: 0;
+  height: var(--board-h);
 }
-
-.order-row {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  min-width: 0;
-}
-
-/* Square, and it stays square. Deliberately not called .chip - the receipt
-   sheet already has one of those, and its padding inflated these into bars. */
-.order-row .swatch {
-  flex: 0 0 6px;
-  align-self: center;
-  box-sizing: border-box;
-  width: 6px;
-  height: 6px;
-  padding: 0;
-  border-radius: 2px;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
-}
-
-/* Sized so the longest short name - KETCHUP, MUSTARD, LETTUCE - fits a fifth
-   of the narrowest phone we support without being cut off. */
-.order-row b {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 8px;
-  font-weight: 800;
-  line-height: 1.3;
-  letter-spacing: 0;
-  text-transform: uppercase;
-  color: rgba(255, 244, 224, 0.92);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.order-row.plain {
-  justify-content: center;
-  font-size: 8px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  color: rgba(255, 244, 224, 0.4);
-}
-/* Pinned to the bottom, so a three-line order and a plain one still line their
-   patience bars up with each other across the board. */
-.ticket .bar {
-  margin-top: auto;
-  width: 100%;
-  height: 4px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.45);
-  overflow: hidden;
-}
-.ticket .bar i { display: block; height: 100%; border-radius: 999px; background: var(--green); }
-.ticket .bar i.warn { background: var(--mustard); }
-.ticket .bar i.crit { background: var(--red); }
-
-.ticket .pin {
-  position: absolute;
-  top: -6px; right: -5px;
-  min-width: 16px; height: 16px;
-  border-radius: 999px;
-  font-size: 9px;
-  font-weight: 900;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  background: var(--mustard);
-  color: #2a1204;
-  box-shadow: 0 0 9px rgba(244, 180, 26, 0.7);
-}
-.ticket .pin.on { display: flex; }
-
-.ticket.leaving { animation: ticketOut 0.32s ease forwards; }
-@keyframes ticketOut { to { transform: translateY(14px) scale(0.7); opacity: 0; } }
-.ticket.served { animation: ticketServed 0.32s ease forwards; }
-@keyframes ticketServed { to { transform: translateY(-16px) scale(0.75); opacity: 0; } }
 
 /* --------------------------------------------------------------- kitchen */
 /* The kitchen takes the room that is going spare; layout() scales the whole
    set of stations to fit rather than just stretching the floor, so a taller
-   phone gets a bigger kitchen and not a longer walk. */
+   phone gets a bigger kitchen and not a longer walk.
+   No ring on it any more: the room is a lit box on a dark counter, which is
+   all the separation it needs. */
 #stage {
   flex: 6 1 0;
   width: 100%;
@@ -367,412 +271,541 @@ body.no-clock .clock-bar { visibility: hidden; }
   max-height: 560px;
   display: block;
   touch-action: none;
-  margin-top: 7px;
-  border-radius: 14px;
-  background:
-    linear-gradient(180deg, rgba(255, 244, 224, 0.05), rgba(0, 0, 0, 0.25));
-  box-shadow: inset 0 0 0 1px var(--line), 0 8px 26px rgba(0, 0, 0, 0.45);
+  border-radius: var(--radius-md);
+  background: #2a1a15;
+  box-shadow: inset 0 0 0 1px rgba(255, 224, 186, 0.14), 0 8px 26px rgba(0, 0, 0, 0.5);
 }
 
-/* --------------------------------------------------------------- modals */
+/* ------------------------------------------------------------ rush hour */
+/*
+ * When the board fills up and the oldest slip starts sweating, the rail heats:
+ * the wood reddens and the sign buzzes. Same pressure number the BGM arranger
+ * uses, so what you hear and what you see are the same fact. Set from game.js.
+ */
+body.rush .board-wrap {
+  background: linear-gradient(180deg, #a3512a, #6d3116);
+  box-shadow: inset 0 1px 0 var(--rail-lip), 0 3px 14px rgba(0, 0, 0, 0.5);
+}
+@keyframes sign-buzz {
+  0%, 100% { color: #fff4e0; }
+  50%      { color: #ffb59c; }
+}
+
+/* --------------------------------------------------------- serve flash */
+/* A one-shot tint over the whole shell on a verdict, so a good plate and a
+   returned one feel different before you have read a word of the banner. */
+#flash {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+  opacity: 0;
+}
+#flash.good { animation: flash-good 0.5s ease-out; }
+#flash.bad  { animation: flash-bad 0.5s ease-out; }
+@keyframes flash-good {
+  from { opacity: 0.42; background: #8ec96f; }
+  to   { opacity: 0; background: #8ec96f; }
+}
+@keyframes flash-bad {
+  from { opacity: 0.5; background: var(--alarm); }
+  to   { opacity: 0; background: var(--alarm); }
+}
+
+/* ═══════════════════════════════════════════════════════ menus, on paper */
 .modal {
   position: fixed;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 18px;
-  background: rgba(12, 7, 5, 0.85);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  padding: var(--space-4);
+  background: rgba(12, 7, 5, 0.82);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.22s ease;
   z-index: 10;
   overflow-y: auto;
+  touch-action: pan-y;
 }
 .modal.show { opacity: 1; pointer-events: auto; }
 
-.sheet {
+/*
+ * A drawn screen is an opaque full-bleed canvas, so a paper sheet opened FROM
+ * one has to sit above it. #shop comes after #store in the document and both
+ * were z-index 10, which put the outfitters behind the shop screen: tapping
+ * "change the cook's outfit" looked like it did nothing, and the sheet only
+ * surfaced once the shop was dismissed by starting the day.
+ */
+.modal:not(.drawn) { z-index: 12; }
+
+/*
+ * A screen the pen draws instead of the stylesheet. The canvas is the whole
+ * picture - diner, rail, slip, wordmark, buttons - and the controls sit on top
+ * of it, invisible, on the rects Art.ui.titleBoxes hands back.
+ *
+ * They stay real buttons. Painting a control onto a canvas and hit-testing the
+ * taps costs the focus ring, tab order, :focus-visible and the screen reader,
+ * and the slip does not look any different for it.
+ */
+.modal.drawn {
+  padding: 0;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  overflow: hidden;
+  touch-action: manipulation;
+}
+.screen-art {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  max-width: 360px;
-  text-align: center;
-  border-radius: 22px;
-  padding: 22px 20px 18px;
-  background: linear-gradient(180deg, #40261d, #1e120e);
-  border: 1px solid rgba(244, 180, 26, 0.3);
-  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.7);
+  height: 100%;
+  display: block;
+}
+.hit {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: transparent;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 10px;
+  -webkit-tap-highlight-color: transparent;
+  /* laid out by paintTitle(); off-screen until then so a slow first paint
+     never leaves a stack of buttons in the corner */
+  left: -9999px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+}
+.hit:focus-visible {
+  outline: 2.5px solid var(--amber);
+  outline-offset: 3px;
+}
+/* The press is the only thing the canvas cannot show, so the tap dips the
+   drawn button by nudging the whole hit box - the repaint follows it. */
+.hit:active { transform: translateY(1.5px); }
+
+/* Nothing else goes on a drawn screen. A .modal.drawn holds its canvas, the
+   invisible controls laid over it, and a .hit-layer for controls a script has
+   to create - and that is all. The moment a line of DOM text sits on the
+   paper, the screen is half drawn and half typeset. */
+.modal.drawn > :not(.screen-art):not(.hit):not(.hit-layer) { display: none; }
+.hit-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;   /* only the buttons inside it take taps */
+}
+.hit-layer > .hit { pointer-events: auto; }
+
+/*
+ * A slip torn off the roll and dropped on the counter - so it lands a degree
+ * or two off square, and the tear runs along the bottom. The rail above it is
+ * the ::before; the label on the rail is per-sheet, set with --rail-label.
+ */
+.sheet {
+  position: relative;
+  width: 100%;
+  max-width: 350px;
+  text-align: left;
+  padding: var(--space-6) var(--space-4) var(--space-4);
+  background: var(--paper);
+  color: var(--ink-2);
+  transform: rotate(var(--tilt, -0.9deg));
+  filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.55));
   animation: rise 0.28s cubic-bezier(.2,.9,.3,1.1);
   margin: auto;
 }
-.sheet.wide { max-width: 400px; }
-@keyframes rise { from { transform: translateY(18px) scale(0.96); opacity: 0; } }
 
-/* The title screen is a hero, one clear action, and three quiet doors. Rules
-   moved to their own sheet - five numbered steps under the logo made the first
-   thing a player saw look like a manual. */
-.title-sheet { padding: 30px 22px 20px; }
-
-.logo-wrap { line-height: 0.86; margin-bottom: 24px; }
-.logo-mr {
-  font-size: 20px;
-  font-weight: 900;
-  letter-spacing: 0.44em;
-  color: var(--mustard);
-  text-indent: 0.44em;
+/* torn off the roll */
+.sheet::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 100%;
+  height: var(--tooth-h);
+  background: var(--teeth) top left / var(--tooth-w) var(--tooth-h) repeat-x;
 }
-.logo-burger {
-  font-size: clamp(42px, 16vw, 62px);
-  font-weight: 900;
-  letter-spacing: -0.015em;
-  color: var(--cream);
-  text-shadow: 0 3px 0 var(--red), 0 6px 22px rgba(230, 57, 70, 0.55);
-}
-.logo-rule {
-  width: 42px;
-  height: 3px;
-  border-radius: 2px;
-  margin: 16px auto 0;
-  background: linear-gradient(90deg, var(--mustard), var(--red));
-}
-.tag {
-  margin: 12px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+.sheet.wide { max-width: 390px; }
+@keyframes rise {
+  from { transform: translateY(18px) scale(0.96) rotate(var(--tilt, -0.9deg)); opacity: 0; }
 }
 
-.cta small {
-  display: block;
-  font-size: 9.5px;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  opacity: 0.72;
-  margin-top: 3px;
-}
-/* When there is a save, CONTINUE is the hero and NEW SHIFT steps back. */
-#continueBtn:not([hidden]) + #playBtn {
-  background: rgba(255, 244, 224, 0.08);
-  border: 1px solid rgba(244, 180, 26, 0.4);
-  color: var(--cream);
-  box-shadow: none;
-  font-size: 12.5px;
-  padding: 12px;
-}
-
-.title-menu {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-top: 18px;
-}
-.tile {
+/* The rail the slip hangs from, with its own little stamped label. */
+.sheet::before {
+  content: var(--rail-label, "MR. BURGER");
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 13px;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 5px;
-  padding: 12px 4px 10px;
-  border-radius: 13px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--muted);
-  font-size: 9.5px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  transition: transform 0.12s, border-color 0.15s, color 0.15s;
+  justify-content: center;
+  background: linear-gradient(180deg, var(--rail-top), var(--rail-bottom));
+  box-shadow: inset 0 1px 0 var(--rail-lip);
+  color: var(--rail-ink);
+  font-size: 6.5px;
+  font-weight: 700;
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
 }
-.tile:active { transform: scale(0.94); }
-.tile .tile-ico { font-size: 21px; line-height: 1; }
 
-.lede {
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: var(--muted);
-  margin-bottom: 14px;
-}
-.lede b { color: var(--cream); }
+/* Slight, and different per sheet, so two of them stacked never look printed. */
+#start  .sheet { --tilt: -1.1deg; --rail-label: "MENU"; }
+#shop   .sheet { --tilt: 0.8deg;  --rail-label: "SUPPLIES"; }
+#store  .sheet { --tilt: -0.7deg; --rail-label: "OUTFITTERS"; }
+#dayEnd .sheet { --tilt: 0.7deg;  --rail-label: "RECEIPT"; }
+#over   .sheet { --tilt: -1.2deg; --rail-label: "NOTICE"; }
+#pause  .sheet { --tilt: 0.9deg;  --rail-label: "BACK SOON"; }
+#how    .sheet { --tilt: -0.6deg; --rail-label: "HOUSE RULES"; }
+#coop   .sheet { --tilt: 0.6deg;  --rail-label: "TWO COOKS"; }
+#account .sheet { --tilt: -0.8deg; --rail-label: "YOUR COOK"; }
+#leaderboard .sheet { --tilt: 0.5deg; --rail-label: "THE BOARD"; }
 
 .sheet-title {
-  font-size: 14px;
-  font-weight: 900;
-  letter-spacing: 0.2em;
-  color: var(--mustard);
-  margin-bottom: 14px;
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: 21px;
+  line-height: 1.15;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--ink);
+  margin-bottom: var(--space-3);
 }
-.sheet-title.bad { color: var(--red); }
+.sheet-title.bad { color: var(--alarm-deep); }
+.tag {
+  margin: var(--space-2) 0 0;
+  color: var(--ink-4);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  text-align: center;
+}
 
+/* ----------------------------------------------------------------- CTAs */
+/*
+ * The amber stub. Squared off, because paper is - the only curve on it is the
+ * 3px the handoff gives its buttons. The 3px bed underneath is the press: on a
+ * touch screen there is no hover, so it has to be visible in the geometry.
+ */
 .cta {
   display: block;
   width: 100%;
-  margin-top: 10px;
-  padding: 14px;
+  margin-top: var(--space-2);
+  padding: 13px var(--space-4);
   border: none;
-  border-radius: 14px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-heading);
+  font-weight: 400;
   font-size: 14px;
-  font-weight: 900;
-  letter-spacing: 0.11em;
-  color: #2a1204;
-  background: linear-gradient(120deg, var(--mustard), #ff9f1c);
-  box-shadow: 0 5px 0 #a8730c;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--amber-ink);
+  background: var(--amber);
+  /* An offset ink block, the way the handoff prints it - not a bevel. */
+  box-shadow: 2px 3px 0 var(--ink);
+  transition: background 0.15s, transform 0.1s, box-shadow 0.1s;
 }
-.cta:active { transform: translateY(3px); box-shadow: 0 2px 0 #a8730c; }
-.cta:disabled { opacity: 0.4; box-shadow: none; }
-.cta.alt {
-  color: var(--cream);
-  background: rgba(255, 244, 224, 0.09);
-  border: 1px solid rgba(244, 180, 26, 0.45);
-  box-shadow: none;
-  font-size: 12.5px;
+.cta:hover { background: var(--amber-lit); }
+.cta:active {
+  background: var(--amber-deep);
+  transform: translate(2px, 3px);
+  box-shadow: 0 0 0 var(--ink);
 }
-.cta.alt:active { transform: translateY(2px); }
+.cta:disabled { opacity: 0.4; box-shadow: none; cursor: not-allowed; }
 
-.pause-line {
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 16px;
-  font-variant-numeric: tabular-nums;
+.cta small {
+  display: block;
+  font-family: var(--font-body);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  opacity: 0.75;
+  margin-top: 2px;
 }
-.pause-line b { color: var(--cream); }
+
+/* The second action is written on the paper, not stamped on a stub. */
+.cta.alt {
+  color: var(--ink-2);
+  background: transparent;
+  border: 2px dashed var(--rule);
+  box-shadow: none;
+  font-size: 13px;
+}
+.cta.alt:hover { background: rgba(63, 42, 28, 0.05); }
+.cta.alt:active { background: rgba(63, 42, 28, 0.1); transform: translateY(2px); box-shadow: none; }
+
+/*
+ * CONTINUE is the hero and NEW SHIFT steps back - but that is now drawn, not
+ * styled: drawTitle paints the second button as a dashed outline. The rule
+ * that used to do it here typeset "New shift" in ink on top of the drawn
+ * letters, because two IDs outrank .hit's `color: transparent`. The title
+ * buttons carry no visible DOM: everything on the slip is painted.
+ */
 
 .linkbtn {
   display: block;
   width: 100%;
-  margin-top: 12px;
-  background: none;
-  border: none;
-  color: var(--muted);
+  margin-top: var(--space-3);
+  padding: var(--space-1) var(--space-2);
+  color: var(--ink-3);
   font-size: 11.5px;
   font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: center;
   text-decoration: underline;
   text-underline-offset: 3px;
+  text-decoration-style: dashed;
 }
+.linkbtn:hover { color: var(--ink); }
+/* --------------------------------------------------------------- prose */
+.lede {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  margin-bottom: var(--space-3);
+}
+.lede b { color: var(--ink); font-weight: 700; }
 
 .rules {
-  margin: 18px 0 0;
-  padding-left: 18px;
+  margin: var(--space-3) 0;
+  padding-left: var(--space-4);
   text-align: left;
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
-.rules li { font-size: 11.5px; line-height: 1.45; color: var(--muted); }
-.rules b { color: var(--cream); }
+.rules li { font-size: 11.5px; line-height: 1.55; color: var(--ink-2); }
+.rules li::marker { color: var(--amber-deep); font-weight: 700; }
+.rules b { color: var(--ink); font-weight: 700; }
 
-/* -------------------------------------------------------------- receipt */
-.receipt {
-  text-align: left;
-  border-radius: 12px;
-  padding: 12px 14px;
-  background: rgba(0, 0, 0, 0.28);
-  border: 1px dashed var(--line);
-}
+.note { font-size: 11.5px; line-height: 1.55; color: var(--ink-3); margin-top: var(--space-3); }
+.note.big { font-size: 13px; color: var(--ink-2); }
 .line {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
-  padding: 3px 0;
-  color: var(--muted);
+  gap: var(--space-3);
+  font-size: 12.5px;
+  padding: 5px 0;
+  color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
-.line b { color: var(--cream); font-weight: 800; }
-.line.total { border-top: 1px solid var(--line); margin-top: 5px; padding-top: 7px; }
-.line.rent b { color: var(--red); }
-.line.net { border-top: 1px solid var(--line); margin-top: 5px; padding-top: 7px; font-size: 13px; }
-.line.net b { color: var(--green); font-size: 15px; }
+.line b { color: var(--ink); font-weight: 700; }
+.line.total { border-top: 1px dashed var(--rule-soft); margin-top: 3px; padding-top: 7px; }
+.line.rent b { color: var(--alarm-deep); }
+.line.net {
+  border-top: 1px dashed var(--rule-soft);
+  margin-top: 3px; padding-top: 7px;
+}
+.line.net b {
+  font-family: var(--font-heading); font-weight: 400;
+  color: var(--stamp-good);
+  font-size: 17px;
+}
 
-.stats-row { display: flex; gap: 7px; margin: 14px 0 4px; }
+/* Three boxes rubber-stamped at the bottom of the receipt. */
+.stats-row { display: flex; gap: var(--space-2); margin: var(--space-3) 0 0; }
 .chip {
   flex: 1;
-  border-radius: 11px;
-  padding: 8px 4px;
-  background: var(--surface);
-  border: 1px solid var(--line);
+  border: 2px dashed var(--rule);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-1);
+  text-align: center;
 }
-.chip span { display: block; font-size: 19px; font-weight: 900; }
-.chip small { display: block; font-size: 7.5px; letter-spacing: 0.12em; color: var(--muted); margin-top: 2px; }
-
-.note { font-size: 11.5px; line-height: 1.5; color: var(--muted); margin-top: 12px; }
-.note.big { font-size: 13px; color: var(--cream); }
-
-/* ---------------------------------------------------------------- shop */
-.wallet {
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  color: var(--muted);
-  font-weight: 700;
-  margin-bottom: 14px;
-}
-.wallet b { display: block; font-size: 26px; letter-spacing: 0; color: var(--green); margin-top: 2px; }
-
-.unlock-box {
-  border-radius: 12px;
-  padding: 10px;
-  margin-bottom: 12px;
-  background: rgba(244, 180, 26, 0.12);
-  border: 1px solid rgba(244, 180, 26, 0.35);
-}
-.unlock-title { font-size: 9px; letter-spacing: 0.16em; font-weight: 900; color: var(--mustard); }
-.unlock-list { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 8px; }
-.unlock-list .u { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.unlock-list canvas { width: 64px; height: 34px; }
-.unlock-list .n { font-size: 9px; font-weight: 700; color: var(--cream); }
-
-.upgrade-list { display: grid; gap: 6px; }
-.upg {
-  display: grid;
-  grid-template-columns: 30px 1fr auto;
-  gap: 8px;
-  align-items: center;
-  text-align: left;
-  border-radius: 11px;
-  padding: 7px 9px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-}
-.upg .uicon { font-size: 18px; text-align: center; }
-.upg b { display: block; font-size: 11.5px; }
-.upg small { display: block; font-size: 9px; color: var(--muted); margin-top: 1px; }
-.pips { display: flex; gap: 3px; margin-top: 4px; }
-.pips i { width: 12px; height: 4px; border-radius: 2px; background: rgba(255, 244, 224, 0.18); }
-.pips i.on { background: var(--mustard); }
-.ubuy {
-  border: none;
-  border-radius: 9px;
-  padding: 7px 9px;
-  font-size: 11px;
-  font-weight: 900;
-  font-variant-numeric: tabular-nums;
-  color: #2a1204;
-  background: var(--mustard);
-}
-.ubuy:disabled { background: rgba(255, 244, 224, 0.12); color: var(--muted); }
-.ubuy.maxed { background: none; color: var(--green); border: 1px solid var(--green); }
-
-.next-kitchen {
-  margin-top: 13px;
-  padding: 8px 6px;
-  border-radius: 10px;
-  background: rgba(255, 244, 224, 0.05);
-  border: 1px solid var(--line);
-  font-size: 10.5px;
-  line-height: 1.5;
-  color: var(--muted);
-}
-.next-kitchen span {
+.chip span {
   display: block;
-  font-size: 8px;
-  letter-spacing: 0.18em;
-  font-weight: 900;
-  color: var(--mustard);
-  margin-bottom: 3px;
+  font-family: var(--font-heading); font-weight: 400;
+  font-size: 19px;
+  color: var(--ink);
 }
-.next-kitchen b { color: var(--cream); font-size: 12px; }
-.next-kitchen em {
-  font-style: normal;
-  font-weight: 900;
-  font-size: 9px;
-  color: var(--green);
+.chip small {
+  display: block;
+  font-size: 7.5px; font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--ink-4);
+  margin-top: 2px;
+}
+.pips i.on { background: var(--amber); }
+
+/* -------------------------------------------------------- the outfitters */
+/*
+ * The paid shop, on the same paper as the free one. A store that looks like a
+ * different app is a store that reads as a trap. Amber is the buy, a green
+ * dashed stamp is what you already own.
+ */
+.seg {
+  display: flex;
+  width: 100%;
+  margin-bottom: var(--space-3);
+  border: 2px dashed var(--rule);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.seg-opt {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.seg-opt input {
+  position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none;
+}
+.seg-opt:has(input:checked) { background: var(--amber); color: var(--amber-ink); }
+.seg-opt:not(:has(input:checked)):hover { background: rgba(63, 42, 28, 0.05); }
+.seg-opt:has(input:focus-visible) { outline: 2px solid var(--amber-deep); outline-offset: -2px; }
+
+.store-list {
+  display: grid;
+  max-height: 44vh;
+  overflow-y: auto;
+  /* The body sets touch-action: none so the kitchen never scrolls under a
+     finger. A list that is meant to scroll has to say so, or it is dead on a
+     phone - which the leaderboard and the account sheet were too. */
+  touch-action: pan-y;
 }
 
-.next-line { font-size: 11px; color: var(--muted); margin-top: 10px; }
-.next-line b { color: var(--red); font-weight: 900; }
+.sku {
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-2) 0;
+  border-top: 1px dashed var(--rule-soft);
+  text-align: left;
+}
+.store-list .sku:first-child { border-top: none; }
+.sku.worn { background: rgba(63, 122, 42, 0.09); }
+.sku-art { width: 56px; height: 56px; display: block; }
+.sku-badge {
+  width: 56px; height: 56px;
+  display: grid; place-items: center;
+  font-size: 22px;
+}
+.sku-badge canvas { display: block; }
+.sku b { display: block; font-size: 12.5px; font-weight: 700; color: var(--ink); }
+.sku small { display: block; font-size: 10px; line-height: 1.35; color: var(--ink-4); margin-top: 1px; }
 
-/* ------------------------------------------------------- online bits */
-.title-row { display: flex; gap: 14px; justify-content: center; }
+/* Three coins, filled to the tier. Stands in for a price the platform has not
+   handed over yet, and still says "this one costs more" when it has. */
+.tier { display: flex; gap: 3px; margin-top: 5px; }
+.tier i { width: 6px; height: 6px; border-radius: 999px; background: var(--rule-soft); }
+.tier i.on { background: var(--amber); }
+
+.sku-buy {
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--amber-ink);
+  background: var(--amber);
+  box-shadow: 0 2px 0 var(--amber-deep);
+  transition: background 0.15s, transform 0.1s, box-shadow 0.1s;
+}
+.sku-buy:hover { background: var(--amber-lit); }
+.sku-buy:active { background: var(--amber-deep); transform: translateY(2px); box-shadow: none; }
+.sku-buy.own {
+  background: transparent;
+  color: var(--stamp-good);
+  border: 2px dashed var(--stamp-good);
+  box-shadow: none;
+}
+.sku-buy.own:hover { background: rgba(63, 122, 42, 0.08); }
+.sku-buy:disabled { cursor: default; transform: none; }
+.sku-buy.busy { opacity: 0.5; }
 .title-row .linkbtn { width: auto; }
 
 .net-state {
-  margin-top: 10px;
+  margin-top: var(--space-3);
   font-size: 9.5px;
   letter-spacing: 0.06em;
-  color: rgba(189, 163, 146, 0.7);
+  color: var(--ink-4);
+  text-align: center;
 }
-.net-state.on { color: var(--green); }
+.net-state.on { color: var(--stamp-good); }
 
-.lb-list { display: grid; gap: 4px; max-height: 46vh; overflow-y: auto; }
-.lb-row {
-  display: grid;
-  grid-template-columns: 26px 1fr auto auto;
-  gap: 8px;
-  align-items: baseline;
-  padding: 7px 9px;
-  border-radius: 9px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  font-size: 12px;
-  text-align: left;
-}
-.lb-row.me { border-color: var(--mustard); background: rgba(244, 180, 26, 0.14); }
-.lb-row .r { font-weight: 900; color: var(--muted); font-size: 11px; }
-.lb-row .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lb-row .d { font-weight: 900; color: var(--mustard); }
-.lb-row .e { font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.lb-gap { text-align: center; color: var(--muted); font-size: 12px; letter-spacing: 0.2em; }
 
-.field { display: block; text-align: left; margin-top: 12px; }
+/* -------------------------------------------------------------- fields */
+/* A line to write on, not a box to type in. */
+.field { display: block; text-align: left; margin-top: var(--space-3); }
 .field span {
   display: block;
-  font-size: 8.5px;
-  letter-spacing: 0.16em;
-  font-weight: 900;
-  color: var(--muted);
-  margin-bottom: 5px;
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  margin-bottom: 3px;
 }
 .field input {
   width: 100%;
-  padding: 11px 12px;
-  border-radius: 11px;
-  border: 1px solid var(--line);
-  background: rgba(0, 0, 0, 0.28);
-  color: var(--cream);
+  padding: 8px 2px;
+  border: none;
+  border-bottom: 2px dashed var(--rule);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  caret-color: var(--amber-deep);
   font-family: inherit;
-  font-size: 15px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
-.field input:focus { outline: none; border-color: var(--mustard); }
+.field input::placeholder { color: var(--rule); }
+.field input:hover { border-bottom-color: var(--ink-4); }
+.field input:focus-visible {
+  border-bottom-color: var(--amber-deep);
+  outline: none;
+}
 
 .divider {
-  margin: 18px 0 4px;
-  font-size: 8.5px;
-  letter-spacing: 0.18em;
-  font-weight: 900;
-  color: var(--muted);
-  position: relative;
+  margin: var(--space-4) 0 var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--rule);
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--ink-4);
 }
 
+/* Read aloud down the phone, so it is stamped rather than typed. */
 .code-out {
-  margin-top: 10px;
-  padding: 12px;
-  border-radius: 12px;
-  background: rgba(244, 180, 26, 0.14);
-  border: 1px solid rgba(244, 180, 26, 0.45);
-  font-size: 30px;
-  font-weight: 900;
-  letter-spacing: 0.32em;
-  text-indent: 0.32em;
-  color: var(--mustard);
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-2);
+  border: 2px dashed var(--amber-deep);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: 28px;
+  letter-spacing: 0.24em;
+  text-indent: 0.24em;
+  text-align: center;
+  color: var(--amber-deep);
+  user-select: text;
+  -webkit-user-select: text;
 }
 .code-out small {
   display: block;
+  font-family: var(--font-body);
   font-size: 9.5px;
-  letter-spacing: 0.12em;
-  color: var(--muted);
-  margin-top: 6px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-indent: 0;
+  color: var(--ink-4);
+  margin-top: var(--space-2);
 }
-
-/* Below this the spacer has collapsed to nothing worth decorating. */
-@media (max-height: 800px) { .shopsign { display: none; } }
-
-@media (max-height: 700px) {
-  .ticket .mini { width: 38px; height: 42px; }
-  .ticket .who { font-size: 13px; }
-  #stage { min-height: 220px; }
-}
-
-.ticket .pin { display: none; }   /* tickets are matched at the hatch now */
 
 /* ------------------------------------------------------------ turn it back */
 /*
@@ -786,44 +819,24 @@ body.cramped #rotate {
   position: fixed;
   inset: 0;
   z-index: 90;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 18px;
+  display: block;
   background: radial-gradient(120% 120% at 50% 0%, #3a2216 0%, #1b0f09 70%);
-  text-align: center;
 }
 
-.rotate-inner { max-width: 380px; }
+/* ---------------------------------------------------------- tight screens */
+/* Below this the spacer has collapsed to nothing worth decorating. */
+@media (max-height: 800px) { .shopsign { display: none; } }
 
-.rotate-icon {
-  font-size: 42px;
-  line-height: 1;
-  margin-bottom: 10px;
-  display: inline-block;
-  transform: rotate(90deg);
-  animation: rotate-hint 2.4s ease-in-out infinite;
+@media (max-height: 700px) {
+  #stage { min-height: 220px; }
+  #hud { padding: 6px var(--space-3); }
 }
 
-@keyframes rotate-hint {
-  0%, 45%  { transform: rotate(90deg); }
-  60%, 90% { transform: rotate(0deg); }
-  100%     { transform: rotate(90deg); }
-}
-
+/* ------------------------------------------------------- reduced motion */
 @media (prefers-reduced-motion: reduce) {
-  .rotate-icon { animation: none; }
-}
-
-#rotate h2 {
-  margin: 0 0 8px;
-  font: 900 20px/1.1 'Trebuchet MS', system-ui, sans-serif;
-  letter-spacing: 2px;
-  color: #f4b41a;
-}
-
-#rotate p {
-  margin: 0;
-  font: 600 14px/1.45 'Trebuchet MS', system-ui, sans-serif;
-  color: rgba(255, 244, 224, 0.72);
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  } .sheet{ animation: none; }
 }

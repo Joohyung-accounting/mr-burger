@@ -241,10 +241,52 @@ test('a half-cooked patty looks half-cooked, not raw and not seared', function (
 
 test('cook stages run raw -> perfect -> over -> burnt in order', function () {
   var w = Core.BASE_WINDOW;
+  var end = Core.COOK_TIME + w / 2;
+  // Derived, not hardcoded: this used to probe COOK_TIME + 2 for 'over', which
+  // was only 'over' while BURN_TIME happened to be 6 seconds long.
   assert.strictEqual(Core.cookStage(1, w), 'raw');
+  assert.strictEqual(Core.cookStage(Core.COOK_TIME - w / 2 - 0.01, w), 'raw');
   assert.strictEqual(Core.cookStage(Core.COOK_TIME, w), 'perfect');
-  assert.strictEqual(Core.cookStage(Core.COOK_TIME + 2, w), 'over');
-  assert.strictEqual(Core.cookStage(Core.COOK_TIME + 20, w), 'burnt');
+  assert.strictEqual(Core.cookStage(end - 0.01, w), 'perfect');
+  assert.strictEqual(Core.cookStage(end + Core.BURN_TIME * 0.25, w), 'over');
+  assert.strictEqual(Core.cookStage(end + Core.BURN_TIME, w), 'burnt');
+  assert.strictEqual(Core.cookStage(end + Core.BURN_TIME * 10, w), 'burnt');
+});
+
+/*
+ * Where the sweet spot sits is the thing a player actually feels, and it is a
+ * ratio rather than either constant on its own. It used to land at 42% of a
+ * patty's life, which read as "grab it early and then watch it die slowly".
+ */
+/*
+ * Where the green sits in the patty's life.
+ *
+ * This began at about a third of the way in, which meant the sweet spot
+ * arrived while the player was still walking over. It was moved to three
+ * quarters, then the burnt verdict was pushed out twice, then the green was
+ * pulled forward again - and those last two pull in opposite directions, so
+ * the exact 3/4 has given way. What it was protecting has not: the sweet spot
+ * must stay in the back half of the cook, or the rest of the patty's life is
+ * dead time.
+ */
+test('the perfect window sits in the back half of the cook, not the first', function () {
+  var w = Core.BASE_WINDOW;
+  var end = Core.COOK_TIME + w / 2;
+  var life = end + Core.BURN_TIME;          // raw at 0, written off here
+  var mid = Core.COOK_TIME / life;
+  assert.ok(mid > 0.55 && mid < 0.80,
+    'the perfect moment is at ' + (mid * 100).toFixed(0) + '% of the cook');
+  assert.ok((Core.COOK_TIME - w / 2) / life > 0.50,
+    'the window opens in the first half of the cook');
+
+  // Widening it with Pro Grill may pull the ratio down, but never back to the
+  // old half-way feel - a fully upgraded grill is still a waiting game.
+  for (var lvl = 1; lvl <= 3; lvl++) {
+    var pw = Core.effects({ grill: lvl }).perfectWindow;
+    var l2 = Core.COOK_TIME + pw / 2 + Core.BURN_TIME;
+    assert.ok(Core.COOK_TIME / l2 > 0.55,
+      'Pro Grill ' + lvl + ' drags the sweet spot back to ' + ((Core.COOK_TIME / l2) * 100).toFixed(0) + '%');
+  }
 });
 
 /* --------------------------------------------------------- evaluation */
@@ -289,7 +331,7 @@ test('a completely wrong burger is rejected', function () {
   });
   assert.strictEqual(res.verdict, 'bad');
   assert.strictEqual(res.total, 0);
-  assert.strictEqual(res.heartLoss, 1);
+  assert.ok(res.waste > 0, 'a rejected plate is food in the bin, and the shop pays for it');
 });
 
 /* ------------------------------------------------------------- faults */
@@ -310,7 +352,7 @@ test('a burnt patty gets the burger sent back, however good the toppings', funct
   var res = Core.payout({ orderItems: order, built: built, patienceRatio: 1, customer: Core.CUSTOMERS[0] });
   assert.strictEqual(res.verdict, 'bad', 'burnt meat has to be a rejection');
   assert.strictEqual(res.total, 0, 'and must not pay');
-  assert.strictEqual(res.heartLoss, 1);
+  assert.ok(res.waste > 0, 'a burnt patty is thrown away, and that costs the shop');
   assert.strictEqual(res.faults[0].code, 'burnt', 'the top fault should be the burnt patty');
   assert.ok(/BURNT/.test(res.faults[0].label));
 });
@@ -682,13 +724,13 @@ function missOf(items, day, rng) {
 function simulateDay(day, skill, rng, levels) {
   var cfg = Core.dayConfig(day);
   var fx = Core.effects(levels || {});
-  var earned = 0, hearts = Core.START_HEARTS;
+  var earned = 0, wasted = 0;
 
   for (var i = 0; i < cfg.customers; i++) {
     var customer = Core.pickCustomer(day, rng);
     var order = Core.makeOrder(day, rng, customer);
 
-    if (rng() < skill.walkout) { hearts--; continue; }
+    if (rng() < skill.walkout) continue;
 
     var items = rng() < skill.accuracy ? order.items : missOf(order.items, day, rng);
     var res = Core.payout({
@@ -699,9 +741,22 @@ function simulateDay(day, skill, rng, levels) {
       tipMult: fx.tipMult
     });
     earned += res.total;
-    hearts -= res.heartLoss;
+    wasted += res.waste || 0;
+
+    /*
+     * The rest of the tray, modelled the way deliver() actually pays it.
+     *
+     * dayGoal is sampled from menuPrice(items, side, drink), so the rent
+     * already counts the fries. If the model does not earn them back the
+     * ramp drifts as the attach rate climbs - which is exactly what it did:
+     * x1.04 on day 1 against x1.41 in the middle.
+     */
+    var gotSide = order.side && rng() < skill.accuracy ? order.side : null;
+    var gotDrink = order.drink && rng() < skill.accuracy ? order.drink : null;
+    if (gotSide) earned += Math.round(Core.SIDES[gotSide].price * (0.45 + skill.cook * 0.55));
+    if (gotDrink) earned += Core.drinkById(gotDrink).price;
   }
-  return { earned: earned, hearts: hearts, goal: Core.dayGoal(day) };
+  return { earned: earned - wasted, wasted: wasted, goal: Core.dayGoal(day) };
 }
 
 var PRO = { accuracy: 0.97, cook: 1.00, speed: 0.70, walkout: 0.00 };
@@ -860,9 +915,121 @@ test('a nonsense save is cleaned up rather than trusted', function () {
   assert.strictEqual(wild.muted, true);
 
   var good = Core.sanitiseSave({ day: 12, bestDay: 14, money: 5000, lifetime: 90000,
-    levels: { grill: 2, shoes: 1 }, muted: false });
+    levels: { grill: 2, shoes: 1 }, owned: ['skin_night'], skin: 'night', muted: false,
+    runSeed: 123456 });
   assert.deepStrictEqual(good, { day: 12, bestDay: 14, money: 5000, lifetime: 90000,
-    levels: { grill: 2, shoes: 1 }, muted: false }, 'a good save should come through untouched');
+    levels: { grill: 2, shoes: 1 }, owned: ['skin_night'], skin: 'night', muted: false,
+    runSeed: 123456 },
+    'a good save should come through untouched');
+
+  // A save written before runs had their own kitchens loads as seed 0, which is
+  // the base layout - the room those players already know.
+  assert.strictEqual(Core.sanitiseSave({ day: 3 }).runSeed, 0);
+  assert.strictEqual(Core.sanitiseSave({ day: 3, runSeed: -8 }).runSeed, 0);
+  assert.strictEqual(Core.sanitiseSave({ day: 3, runSeed: 'lots' }).runSeed, 0);
+});
+
+test('a save cannot invent a purchase or wear what it does not own', function () {
+  var s = Core.sanitiseSave({
+    day: 5,
+    owned: ['skin_night', 'skin_night', 'mrb.free.everything', 42, null],
+    skin: 'gold'
+  });
+  assert.deepStrictEqual(s.owned, ['skin_night'],
+    'only ids this build actually sells, and each of them once');
+  assert.strictEqual(s.skin, 'classic',
+    'a skin nobody bought falls back to the free one rather than being worn');
+
+  var bare = Core.sanitiseSave({ day: 1 });
+  assert.deepStrictEqual(bare.owned, [], 'a save from before the store still loads');
+  assert.strictEqual(bare.skin, 'classic');
+});
+
+test('paid gear reaches a track sooner, never further', function () {
+  Core.UPGRADES.forEach(function (u) {
+    var gear = Core.STORE.filter(function (p) { return p.kind === 'gear' && p.track === u.id; });
+    if (!gear.length) return;
+    var ids = gear.map(function (p) { return p.id; });
+
+    // bought on top of a maxed track: still maxed, not one past it
+    var maxed = {};
+    maxed[u.id] = u.max;
+    assert.strictEqual(Core.levelsWithGear(maxed, ids)[u.id], u.max,
+      u.id + ' went past its ceiling once it was paid for');
+
+    // and from nothing, it is worth exactly the levels it sells
+    assert.strictEqual(Core.levelsWithGear({}, ids)[u.id], Math.min(ids.length, u.max));
+  });
+
+  // the effects the simulation reads are the same effects, whichever way the
+  // levels were come by - there is no separate paid multiplier to drift
+  var earned = Core.effects({ shoes: 1 }, 10);
+  var bought = Core.effects(Core.levelsWithGear({}, ['gear_clogs']), 10);
+  assert.deepStrictEqual(bought, earned,
+    'a paid level must be indistinguishable from an earned one');
+});
+
+test('the shop never charges for a level that changes nothing', function () {
+  /*
+   * The kitchen grows on its own and the whole room is capped at STATION_CAP,
+   * so there are days on which another Extra Burner is a burner that can never
+   * be installed. The shop used to light the button anyway and take the money.
+   */
+  for (var day = 1; day <= 25; day++) {
+    Core.UPGRADES.forEach(function (u) {
+      var levels = {};
+      for (var lv = 0; lv < u.max; lv++) {
+        levels[u.id] = lv;
+        var gains = Core.upgradeGains(u.id, day, levels);
+        var before = Core.effects(levels, day);
+        var next = {}; next[u.id] = lv + 1;
+        var after = Core.effects(next, day);
+        var moved = before.speed !== after.speed || before.plates !== after.plates ||
+          before.grillSlots !== after.grillSlots ||
+          before.perfectWindow !== after.perfectWindow || before.tipMult !== after.tipMult;
+        assert.strictEqual(gains, moved,
+          u.name + ' level ' + (lv + 1) + ' on day ' + day +
+          ': upgradeGains says ' + gains + ' but effects() ' + (moved ? 'moved' : 'did not move'));
+      }
+      // and at the top of the track there is nothing left to gain, ever
+      levels[u.id] = u.max;
+      assert.strictEqual(Core.upgradeGains(u.id, day, levels), false,
+        u.name + ' offered a level past its max on day ' + day);
+    });
+  }
+
+  // the two that the station cap actually bites, named so a change to the cap
+  // or to the day curve shows up here rather than in a player's till
+  assert.strictEqual(Core.upgradeGains('burner', 19, { burner: 1 }), false,
+    'a second Extra Burner cannot fit once the day already runs four');
+  assert.strictEqual(Core.upgradeGains('burner', 18, { burner: 1 }), true,
+    'but it still fits the day before');
+  assert.strictEqual(Core.upgradeGains('plate', 17, { plate: 1 }), false,
+    'a second Plating Station cannot fit once the day already runs four');
+  assert.strictEqual(Core.upgradeGains('plate', 16, { plate: 1 }), true);
+});
+
+test('the store only sells cosmetics, existing upgrade levels, and cash', function () {
+  var kinds = {};
+  Core.STORE.forEach(function (p) {
+    kinds[p.kind] = true;
+    assert.ok(p.sku && p.name && p.desc, p.id + ' is missing store copy');
+    if (p.kind === 'gear') {
+      assert.ok(Core.UPGRADES.some(function (u) { return u.id === p.track; }),
+        p.id + ' grants a track that does not exist');
+    }
+    if (p.kind === 'skin') {
+      assert.ok(p.skin && p.skin !== 'classic', p.id + ' must sell a skin, and not the free one');
+    }
+    if (p.kind === 'till') assert.ok(p.cents > 0, p.id + ' has to be worth something');
+  });
+  assert.deepStrictEqual(Object.keys(kinds).sort(), ['gear', 'skin', 'till'],
+    'a fourth kind of product is a balance decision, not a catalogue entry');
+
+  var skus = Core.STORE.map(function (p) { return p.sku; });
+  assert.strictEqual(new Set(skus).size, skus.length, 'two products share a store SKU');
+  var ids = Core.STORE.map(function (p) { return p.id; });
+  assert.strictEqual(new Set(ids).size, ids.length, 'two products share an id');
 });
 
 test('the difficulty ramp does not drift across a full run', function () {
@@ -913,6 +1080,254 @@ test('rent is deterministic and rises with the days', function () {
     assert.ok(Core.dayGoal(d) > 0);
   }
   assert.ok(Core.dayGoal(10) > Core.dayGoal(1));
+});
+
+/*
+ * The tray's other half.
+ *
+ * The first version of this shipped dead and said nothing: `var SIDES = {...}`
+ * collided with the room's own `var SIDES = ['left','right']`, var hoisted, and
+ * every fries lookup quietly became undefined. Orders still generated a side,
+ * the board just never drew it and the score never counted it. Nothing threw.
+ * So these tests assert the wiring end to end, not just the shapes.
+ */
+test('the tray sells fries and drinks, and they are really wired up', function () {
+  assert.ok(Core.SIDES && Core.SIDES.fries, 'Core.SIDES.fries is missing');
+  assert.strictEqual(Core.SIDES.fries.short, 'FRIES');
+  assert.ok(Core.SIDES.fries.price > 0, 'fries are free');
+  assert.strictEqual(Core.DRINKS.length, 6, 'the fountain has six taps');
+  Core.DRINKS.forEach(function (d) {
+    assert.ok(Core.drinkById(d.id) === d, d.id + ' is not findable by id');
+    assert.ok(d.short && d.swatch && d.price > 0, d.id + ' is not fully specified');
+  });
+});
+
+test('a priced order counts the fries and the cup', function () {
+  var burger = ['bun', 'patty'];
+  var base = Core.menuPrice(burger);
+  assert.strictEqual(Core.menuPrice(burger, 'fries', null), base + Core.SIDES.fries.price,
+    'the fries did not reach the till');
+  assert.strictEqual(Core.menuPrice(burger, null, 'cola'), base + Core.drinkById('cola').price,
+    'the drink did not reach the till');
+  assert.strictEqual(Core.menuPrice(burger, 'fries', 'cola'),
+    base + Core.SIDES.fries.price + Core.drinkById('cola').price);
+  // unknown ids must not silently add or throw
+  assert.strictEqual(Core.menuPrice(burger, 'onion rings', 'milkshake'), base);
+});
+
+test('the tray is judged apart from the burger', function () {
+  var both = { side: 'fries', drink: 'cola' };
+  assert.strictEqual(Core.checkExtras(both, both).faults.length, 0, 'a correct tray was faulted');
+  assert.strictEqual(Core.checkExtras(both, both).asked, 2);
+
+  assert.strictEqual(Core.checkExtras(both, { side: null, drink: 'cola' }).faults.length, 1);
+  assert.strictEqual(Core.checkExtras(both, { side: 'fries', drink: 'lemon' }).faults[0].kind, 'drink');
+  assert.strictEqual(Core.checkExtras(both, {}).faults.length, 2, 'an empty tray missed two things');
+
+  // things nobody ordered are a fault too, and asked stays 0
+  var none = Core.checkExtras({}, { side: 'fries', drink: 'cola' });
+  assert.strictEqual(none.asked, 0);
+  assert.strictEqual(none.faults.length, 2);
+
+  // total on nonsense rather than throwing - this is called inside a delivery
+  assert.doesNotThrow(function () { Core.checkExtras({ side: 'x', drink: 'y' }, { side: 'x' }); });
+  assert.strictEqual(Core.checkExtras({ side: 'x', drink: 'y' }, {}).asked, 0,
+    'an id this build has never heard of must not count as asked');
+});
+
+test('the fry line and the fountain open on their own days, and ramp', function () {
+  var rng = function () { return 0.5; };
+  for (var day = 1; day < Core.SIDE_DAY; day++) {
+    assert.strictEqual(Core.attachRates(day).side, 0, 'day ' + day + ' asked for fries too early');
+  }
+  for (var d2 = 1; d2 < Core.DRINK_DAY; d2++) {
+    assert.strictEqual(Core.drinkMenu(d2).length, 0, 'day ' + d2 + ' had taps too early');
+  }
+  assert.ok(Core.attachRates(Core.SIDE_DAY).side > 0, 'the fry line never opens');
+  assert.ok(Core.drinkMenu(Core.DRINK_DAY).length >= 2, 'the fountain opened with one tap');
+
+  // ramps up, never past its ceiling, and every tap is a real drink
+  var prev = -1;
+  for (var d = 1; d <= 30; d++) {
+    var r = Core.attachRates(d);
+    assert.ok(r.side >= prev || d === Core.SIDE_DAY, 'the fries rate went backwards on day ' + d);
+    prev = r.side;
+    assert.ok(r.side <= 0.7001 && r.drink <= 0.7501, 'day ' + d + ' attaches too hard');
+    var taps = Core.drinkMenu(d);
+    assert.ok(taps.length <= Core.DRINKS.length);
+    taps.forEach(function (id) { assert.ok(Core.drinkById(id), id + ' is not a drink'); });
+  }
+});
+
+test('an order only asks for what the day actually stocks', function () {
+  for (var day = 1; day <= 25; day++) {
+    var seed = day * 7919 + 5;
+    var rng = function () { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+    var taps = Core.drinkMenu(day);
+    for (var i = 0; i < 300; i++) {
+      var o = Core.makeOrder(day, rng, Core.pickCustomer(day, rng));
+      if (o.side) {
+        assert.ok(day >= Core.SIDE_DAY, 'day ' + day + ' ordered fries before the fryer exists');
+        assert.ok(Core.SIDES[o.side], 'day ' + day + ' ordered an unknown side: ' + o.side);
+      }
+      if (o.drink) {
+        assert.ok(taps.indexOf(o.drink) >= 0,
+          'day ' + day + ' ordered ' + o.drink + ' but the fountain pours ' + taps.join('/'));
+      }
+    }
+  }
+});
+
+/* ------------------------------------------------- a kitchen per run */
+
+test('day 1 is the same tutorial kitchen on every run', function () {
+  var base = JSON.stringify(Core.dayRoom(1, 0));
+  for (var i = 0; i < 40; i++) {
+    assert.strictEqual(JSON.stringify(Core.dayRoom(1, Core.newRunSeed())), base,
+      'day 1 moved the furniture on somebody who has never played');
+  }
+  assert.deepStrictEqual(Core.dayMenu(1, 12345), Core.dayMenu(1, 0),
+    'day 1 rotated the crates');
+});
+
+test('the room opens up a piece at a time, and day 2 is where it starts', function () {
+  var order = ['palette', 'line', 'walls', 'bin'];
+  var seen = {};
+  order.forEach(function (k) { seen[k] = null; });
+
+  for (var d = 1; d <= 12; d++) {
+    var c = Core.roomChurn(d);
+    order.forEach(function (k) {
+      if (c[k] && seen[k] === null) seen[k] = d;
+    });
+    // never takes a piece back away
+    if (d > 1) {
+      var p = Core.roomChurn(d - 1);
+      order.forEach(function (k) {
+        assert.ok(!(p[k] && !c[k]), k + ' stopped varying between day ' + (d - 1) + ' and ' + d);
+      });
+    }
+  }
+  assert.strictEqual(seen.palette, 2, 'the paint should start moving on day 2');
+  assert.strictEqual(seen.line, 2);
+  assert.ok(seen.walls > seen.line, 'the walls moved before the player could read the line');
+  assert.ok(seen.bin > seen.walls, 'everything came at once');
+  assert.strictEqual(Core.roomChurn(1).palette, false, 'day 1 is not plain');
+});
+
+test('two runs really do give different kitchens', function () {
+  // The point of the whole exercise: a player on their fifth run should not
+  // walk into day 9 already knowing where the grill is.
+  var runs = [];
+  for (var i = 0; i < 12; i++) runs.push(Core.newRunSeed());
+
+  // The ROOM has nothing to be forced by, so it must move on every day past
+  // the point its pieces unlock.
+  [4, 7, 9, 14, 20].forEach(function (day) {
+    var rooms = {};
+    runs.forEach(function (sd) { rooms[JSON.stringify(Core.dayRoom(day, sd))] = 1; });
+    assert.ok(Object.keys(rooms).length > 1,
+      'day ' + day + ' laid out identically across 12 runs');
+  });
+
+  /*
+   * The SHELF is different: whatever unlocked today goes out today, and on a
+   * day where that fills the only free slot there is honestly nothing to
+   * rotate - day 4 stocks two crates, one of them the sauce it just unlocked
+   * and the other the topping it just unlocked. So this asks for variation
+   * across the run of days rather than on every single one.
+   */
+  var varied = 0, looked = 0;
+  for (var day = 5; day <= 20; day++) {
+    var menus = {};
+    runs.forEach(function (sd) { menus[Core.dayMenu(day, sd).join(',')] = 1; });
+    looked++;
+    if (Object.keys(menus).length > 1) varied++;
+  }
+  assert.ok(varied >= looked * 0.6,
+    'only ' + varied + ' of ' + looked + ' days stocked differently between runs');
+});
+
+test('a run keeps its kitchen - a retry is a rematch, not a reroll', function () {
+  var seed = Core.newRunSeed();
+  for (var day = 1; day <= 20; day++) {
+    var a = JSON.stringify(Core.dayRoom(day, seed));
+    var b = JSON.stringify(Core.dayRoom(day, seed));
+    assert.strictEqual(a, b, 'day ' + day + ' was not stable within a run');
+    assert.deepStrictEqual(Core.dayMenu(day, seed), Core.dayMenu(day, seed));
+  }
+});
+
+test('whatever the run, the line still holds together', function () {
+  // The seeded shelf has to obey every rule the unseeded one does, or a run
+  // exists where an order asks for a crate that is not out.
+  for (var i = 0; i < 25; i++) {
+    var seed = Core.newRunSeed();
+    for (var day = 1; day <= 25; day++) {
+      var menu = Core.dayMenu(day, seed);
+      assert.ok(menu.indexOf('bun') >= 0 && menu.indexOf('patty') >= 0,
+        'run ' + seed + ' day ' + day + ' lost a base crate');
+      assert.ok(menu.length <= 8, 'run ' + seed + ' day ' + day + ' overfilled the shelf');
+      assert.strictEqual(menu.length, new Set(menu).size, 'a crate was stocked twice');
+      menu.forEach(function (id) {
+        var ing = Core.byId(id);
+        assert.ok(ing, day + ' stocked an unknown crate: ' + id);
+        assert.ok(ing.day <= day, day + ' stocked ' + id + ', unlocked on day ' + ing.day);
+      });
+
+      // and every order it deals can be built from what is out
+      var s2 = day * 31 + i;
+      var rng = function () { s2 = (s2 * 1664525 + 1013904223) % 4294967296; return s2 / 4294967296; };
+      for (var k = 0; k < 40; k++) {
+        Core.makeOrder(day, rng, Core.pickCustomer(day, rng), seed).items.forEach(function (id) {
+          assert.ok(menu.indexOf(id) >= 0,
+            'run ' + seed + ' day ' + day + ' ordered ' + id + ', which is not on the line');
+        });
+      }
+    }
+  }
+});
+
+test('rent does not move when the kitchen does', function () {
+  // The landlord is not part of the reroll: a published curve a player can
+  // learn, and a leaderboard can compare across runs.
+  var base = [];
+  for (var d = 1; d <= 25; d++) base.push(Core.dayGoal(d));
+  for (var i = 0; i < 6; i++) {
+    Core.newRunSeed();
+    for (var d2 = 1; d2 <= 25; d2++) {
+      assert.strictEqual(Core.dayGoal(d2), base[d2 - 1],
+        'day ' + d2 + ' rent changed between runs');
+    }
+  }
+});
+
+test('an unchopped vegetable is faulted the way a raw patty is', function () {
+  var order = ['bun', 'patty', 'lettuce'];
+  var chopped = plate(order).map(function (b) {
+    return Core.byId(b.id).chop ? { id: b.id, cook: 1, prepped: true } : b;
+  });
+  var whole = plate(order).map(function (b) {
+    return Core.byId(b.id).chop ? { id: b.id, cook: 1, prepped: false } : b;
+  });
+
+  var good = Core.evaluate(order, chopped);
+  var bad = Core.evaluate(order, whole);
+
+  assert.strictEqual(good.faults.length, 0, 'a properly chopped burger is clean');
+  assert.ok(bad.quality < good.quality,
+    'a whole head of lettuce should cost something; got ' + bad.quality + ' vs ' + good.quality);
+  assert.ok(bad.faults.some(function (f) { return f.code === 'whole'; }),
+    'and it should say why: ' + JSON.stringify(bad.faults));
+
+  /*
+   * The plate refuses an unchopped vegetable, so this can only fire if that
+   * gate springs a leak - which is the point. A stack saved before plates
+   * carried the flag has no `prepped` at all and must not be punished.
+   */
+  var legacy = Core.evaluate(order, plate(order));
+  assert.strictEqual(legacy.faults.length, 0,
+    'an old save with no prepped flag was faulted: ' + JSON.stringify(legacy.faults));
 });
 
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');
