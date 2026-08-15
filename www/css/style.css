@@ -258,6 +258,58 @@ body:not(.no-clock) #stage { flex-grow: 40; }
   height: var(--board-h);
 }
 
+/* ═════════════════════════════════════════════════════════════ landscape
+ *
+ * The shell stacks HUD, board, kitchen down the page, which works while
+ * there is height to stack in. A phone on its side has about 375px, and the
+ * three of them want 58 + 194 + 250 at the least - so below a threshold the
+ * board stops being a strip above the kitchen and becomes a column beside it.
+ *
+ * The trigger is height, not `orientation`: a short window on a desktop has
+ * the same problem and a tall tablet in landscape does not.
+ *
+ * #main holds the pair in DOM order board-then-kitchen, which is the stacked
+ * reading order; turning it to `row-reverse` puts the kitchen on the left and
+ * the board down the right without touching the markup or the tab order.
+ */
+#main {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+@media (max-height: 560px) {
+  /* the column cap is a portrait idea - a phone on its side is 812 wide */
+  #app { max-width: none; }
+
+  /* the storefront sign is the first thing to go: it is the one element
+     here that exists to fill space rather than to be used */
+  #spacer { display: none; }
+
+  #main { flex-direction: row-reverse; align-items: stretch; }
+
+  .board-wrap {
+    flex: 0 0 auto;
+    /* wide enough for one slip and its clip, and it does not grow with the
+       order count the way the stacked board's height does */
+    --board-w: clamp(104px, 26vw, 168px);
+    width: var(--board-w);
+    height: auto;
+  }
+  .board-art { width: var(--board-w); height: 100%; }
+
+  #stage {
+    flex: 1 1 0;
+    width: auto;
+    min-height: 0;
+    max-height: none;
+  }
+
+  #hud { --hud-h: 46px; }
+}
+
 /* --------------------------------------------------------------- kitchen */
 /* The kitchen takes the room that is going spare; layout() scales the whole
    set of stations to fit rather than just stretching the floor, so a taller

@@ -49,13 +49,22 @@
   <!-- The order board: the batten and every slip clipped to it, drawn by
        Art.ui.orders. The rail used to be a DOM strip above a row of DOM
        tickets; it is part of the same drawing now. -->
-  <div class="board-wrap">
-    <canvas id="boardArt" class="board-art"></canvas>
-    <p id="boardRead" class="sr-only" aria-live="polite"></p>
-  </div>
+  <!--
+    The board and the kitchen share a box whose direction is the whole
+    landscape story. Stacked, the board is a strip above the kitchen; turned,
+    it is a column beside it - a phone on its side has no 120px of height to
+    spare for a rail. One container, one flex-direction, and the DOM order is
+    the stacked one.
+  -->
+  <div id="main">
+    <div class="board-wrap">
+      <canvas id="boardArt" class="board-art"></canvas>
+      <p id="boardRead" class="sr-only" aria-live="polite"></p>
+    </div>
 
-  <!-- the kitchen: crates, grill, plates, hatch and the chef -->
-  <canvas id="stage"></canvas>
+    <!-- the kitchen: crates, grill, plates, hatch and the chef -->
+    <canvas id="stage"></canvas>
+  </div>
 
 </div>
 

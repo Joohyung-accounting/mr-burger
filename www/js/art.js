@@ -3316,13 +3316,37 @@
     });
     if (!tickets.length) return;
 
-    var gap = w * 0.016;
-    var tw = (w - gap * (tickets.length + 1)) / tickets.length;
-    // the slips hang BELOW the batten, so the clips never cross its lettering
-    var ty = railY + railH * 1.02, th = h - (ty - y) - h * 0.035;
+    /*
+     * Two ways to hang the same slips.
+     *
+     * Across, under a batten that runs the width of the board - which is what
+     * a wide short board wants. Or DOWN, one under another, which is what a
+     * tall narrow one wants: in landscape the board is a column beside the
+     * kitchen rather than a strip above it, because a 375px-tall phone cannot
+     * spare 120px of its height for a rail.
+     *
+     * Only the outer placement changes. A slip is about as wide as it is tall
+     * either way, so everything drawn inside it - the face, the food, the list -
+     * is untouched.
+     */
+    var vertical = !!o.vertical;
+    var gap = (vertical ? h : w) * 0.016;
+    var tw, th, ty;
+    if (vertical) {
+      tw = w - gap * 2;
+      ty = railY + railH * 1.02;
+      th = (h - (ty - y) - gap * (tickets.length + 1)) / tickets.length;
+    } else {
+      tw = (w - gap * (tickets.length + 1)) / tickets.length;
+      // the slips hang BELOW the batten, so the clips never cross its lettering
+      ty = railY + railH * 1.02;
+      th = h - (ty - y) - h * 0.035;
+    }
 
     for (i = 0; i < tickets.length; i++) {
-      var t = tickets[i], tx = x + gap + i * (tw + gap);
+      var t = tickets[i];
+      var tx = vertical ? x + gap : x + gap + i * (tw + gap);
+      if (vertical) ty = railY + railH * 1.02 + gap + i * (th + gap);
       var seed = s + 10 + i * 9;
       ctx.save();
       ctx.translate(tx + tw / 2, ty + th / 2);

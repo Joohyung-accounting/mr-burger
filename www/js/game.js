@@ -3727,6 +3727,13 @@
 
     paintOn(el.boardArt, W, H, function (g) {
       Art.ui.orders(g, 0, 0, W, H, {
+        /*
+         * The board asks its own box which way it is hung. Stacked above the
+         * kitchen it is wide and short; turned into a column beside it, tall
+         * and narrow. Reading the shape rather than a flag means the CSS that
+         * moves it and the drawing that fills it cannot disagree.
+         */
+        vertical: H > W,
         heat: rushOn ? 1 : 0,
         tickets: list.map(function (e) {
           return e ? { rows: e.rows, pct: e.pct, bar: e.bar, e: e } : { rows: [], pct: 0, bar: 'rgba(0,0,0,0)' };
