@@ -955,13 +955,24 @@
        * freezer a shade under one - because those came from the art, not from
        * which way the wall ran.
        */
+      /*
+       * How wide a fixture is allowed to get, as a multiple of the band it
+       * sits in. Height is the scarce axis in a lying-down room and width is
+       * the plentiful one, so the cap decides how much of the plentiful axis
+       * actually gets used: at 1.45 a full day-20 kitchen filled 59% of the
+       * room and left a third of the counter bare on both sides, with burners
+       * small enough to be hard to read at 30px tall. 1.9 fills about 76% and
+       * is as far as the grill art stretches before a burner stops looking
+       * like a circle in a square and starts looking like a letterbox.
+       */
+      var WIDEST = 1.9;
       var fryUnits = fryN ? 0.90 + 1.35 : 0;
       var topN = gN + fryN * 2;
-      L.colW = Math.min(SLOT_H * k * 1.45,
+      L.colW = Math.min(rowH * WIDEST,
                         (runW - gap * (topN - 1)) / (gN + fryUnits));
       var boardUnits = S.board ? 1.25 : 0;
       var botN = pN + (S.board ? 1 : 0);
-      L.plateW = Math.min(PLATE_H * k * 1.45,
+      L.plateW = Math.min(rowH * WIDEST,
                           (runW - gap * (botN - 1)) / (pN + boardUnits));
       L.boardW = S.board ? L.plateW * 1.25 : 0;
 

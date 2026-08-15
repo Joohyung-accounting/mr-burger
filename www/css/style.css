@@ -280,7 +280,22 @@ body:not(.no-clock) #stage { flex-grow: 40; }
   gap: var(--space-2);
 }
 
-@media (max-height: 560px) {
+/*
+ * ...and SHAPE, not only height.
+ *
+ * Height alone was half the test, and the half it missed was ugly: a 1400x640
+ * desktop window is 640 tall, so the stacked shell stayed on - the column cap
+ * held the app to 560px and the board took a strip across the top - and what
+ * reached the kitchen was 542x220. The room read that as wide, correctly,
+ * and then had 220px to fit two bands and a floor into, so a window nearly
+ * three times the size of a phone got the TURN YOUR PHONE sheet.
+ *
+ * The canvas decides which way to lay the room out from the ratio it is
+ * handed (W >= H * 1.5, see L.wide in game.js). This is the same test on the
+ * viewport, written the way CSS spells it, so the shell and the room cannot
+ * come to different conclusions about the same screen.
+ */
+@media (max-height: 560px), (min-aspect-ratio: 3/2) {
   /* the column cap is a portrait idea - a phone on its side is 812 wide */
   #app { max-width: none; }
 

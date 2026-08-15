@@ -4364,8 +4364,13 @@ test('a shop row lays its icon, name and price out without them touching', funct
  * not fit, and the ones that stop it drifting back.
  */
 function wideRooms(fn) {
-  // real landscape handsets, less the HUD and the board column beside the room
-  [[620, 313], [652, 328], [548, 298], [475, 313], [832, 538]].forEach(function (sz) {
+  /*
+   * Real landscape handsets, less the HUD and the board column beside the
+   * room. 618x291 is not a calculation - it is what an 812x375 phone actually
+   * reported through the browser, and it is 22px shorter than the arithmetic
+   * predicted, so it is the one that stays honest about the HUD.
+   */
+  [[618, 291], [620, 313], [652, 328], [548, 298], [475, 313], [832, 538]].forEach(function (sz) {
     stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
     for (var day = 1; day <= 25; day++) {
       S.levels = { plate: 2, burner: 2, grill: 3, shoes: 3 };
