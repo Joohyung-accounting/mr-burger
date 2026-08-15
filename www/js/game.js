@@ -673,7 +673,7 @@
      * was 20px - a machine you could see three flavours on and not press one.
      */
     L.tapH = (S.drinkTaps && S.drinkTaps.length) ? L.hatchH : 0;
-    L.tapW = L.tapH ? clamp(W * 0.29, 92, 170) : 0;
+    L.tapW = L.tapH ? clamp(W * 0.33, 104, 190) : 0;
     L.tapX = W - L.pad - L.tapW;
     L.tapY = L.hatchY;
 
@@ -946,6 +946,19 @@
     return null;
   }
   function tapRect() { return { x: L.tapX, y: L.tapY, w: L.tapW, h: L.tapH }; }
+
+  /*
+   * One lever assembly - the flavour badge and the paddle under it - as a box.
+   * The fractions are the dispenser's own vertical plan: badge 0.168..0.268,
+   * paddle 0.336..0.404, columns at col0 0.217 with a 0.283 step. Kept in step
+   * with the drawing so the ring lands on the thing that was pressed.
+   */
+  function tapColRect(i) {
+    var r = tapRect();
+    var step = r.w * 0.283;
+    var cx = r.x + r.w * (0.217 + 0.283 * clamp(i || 0, 0, 2));
+    return { x: cx - step / 2, y: r.y + r.h * 0.150, w: step, h: r.h * 0.270 };
+  }
 
   function hatchRect() { return { x: L.hatchX, y: L.hatchY, w: L.hatchW, h: L.hatchH }; }
   function binRect() { return { x: L.binX, y: L.hatchY, w: L.binW, h: L.hatchH }; }
@@ -1673,9 +1686,12 @@
       }
       if (S.pour) { nope('STILL POURING', ci); return; }
 
-      var pick = vw.ids[clamp(t.i === undefined ? vw.active : t.i, 0, 2)];
+      var col = clamp(t.i === undefined ? vw.active : t.i, 0, 2);
+      var pick = vw.ids[col];
       if (!pick) { nope('NOTHING PLUMBED THERE', ci); return; }
-      S.pour = { flavor: pick, t: 0 };
+      // the window is frozen with the cup, so the lever under the finger stays
+      // the lever under the finger
+      S.pour = { flavor: pick, t: 0, ids: vw.ids.slice(), col: col };
       var tr = tapRect();
       var dr = Core.drinkById(pick);
       float((dr ? dr.short : 'DRINK'), tr.x + tr.w / 2, tr.y, C.warm, 10);
@@ -2557,8 +2573,19 @@
   function dispenserView() {
     var taps = S.drinkTaps || [];
     var want = nextDrinkWanted();
-    var focus = (S.pour && S.pour.flavor) || want;
     if (!taps.length) return { ids: [], active: 0, want: null };
+    /*
+     * While a cup is filling the machine holds still.
+     *
+     * Re-centring the window on whatever is pouring meant pressing the
+     * right-hand lever slid all three labels sideways under the player's
+     * finger, and the ring marking the press landed on a different column
+     * from the one that was pressed. The window is captured with the cup.
+     */
+    if (S.pour && S.pour.ids) {
+      return { ids: S.pour.ids, active: S.pour.col || 0, want: want };
+    }
+    var focus = want;
     var idx = taps.indexOf(focus);
     var start = idx < 0 ? 0 : Math.max(0, Math.min(idx - 1, taps.length - 3));
     return {
@@ -2602,10 +2629,21 @@
       ctx.fill();
     }
 
-    // ready to take, the same yellow ring the crates and the wells use
-    if (done) pickRing(r, 8);
-    else if (!pr && v.want) pickRing(r, 8);
-    else if (!(S.drinkTaps || []).length) {
+    /*
+     * The yellow ring, on the lever rather than on the whole machine.
+     *
+     * It is the same mark the crates and the fry wells wear, and here it does
+     * two jobs with one shape: on an idle machine it sits on the flavour the
+     * board is waiting for, so you know which of the three to press; once one
+     * is pressed it stays on THAT lever until the cup comes off, which is the
+     * only feedback saying the press landed.
+     */
+    if (pr) pickRing(tapColRect(v.active), 6);
+    else if (v.want) {
+      var hint = v.ids.indexOf(v.want);
+      if (hint >= 0) pickRing(tapColRect(hint), 6);
+    }
+    if (!pr && !v.want && !(S.drinkTaps || []).length) {
       Art.ui.letters(ctx, 'CLOSED', r.x + r.w / 2, r.y + r.h * 0.70, r.h * 0.055,
         { fill: 'rgba(63,74,80,0.70)', weight: 0.12, track: 0.14, seed: 5520 });
     }
@@ -5110,6 +5148,7 @@
     chopCurve: chopCurve, drawPrepBoard: drawPrepBoard, drawCarried: drawCarried,
     drawPlates: drawPlates, drawSet: drawSet, setExtras: setExtras,
     dispenserView: dispenserView, freezerPose: freezerPose, drawFryStation: drawFryStation,
+    tapColRect: tapColRect, tapColAt: tapColAt,
     drawFountain: drawFountain,
     showLeaderboard: showLeaderboard, showAccount: showAccount, lbMap: lbMap,
     paintAccount: paintAccount, accountNote: function () { return acct.note; },

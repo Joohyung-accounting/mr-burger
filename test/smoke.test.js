@@ -3632,6 +3632,68 @@ test('the bin, the hatch and the fountain never move house', function () {
   pump(0.3);
 });
 
+test('the lever you pressed wears the ring, and the levers do not overlap', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+
+  [[375, 812], [412, 915], [320, 568], [820, 600]].forEach(function (sz) {
+    stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+    startShift(12);
+    pump(0.3);
+    var where = sz.join('x') + ': ';
+    var r = MB.tapRect();
+    assert.ok(r.w > 0, where + 'setup: day 12 should have a fountain');
+
+    // three levers, side by side, inside the machine, each worth aiming at
+    for (var i = 0; i < 3; i++) {
+      var c = MB.tapColRect(i);
+      assert.ok(c.x >= r.x - 0.01 && c.x + c.w <= r.x + r.w + 0.01,
+        where + 'lever ' + i + ' hangs off the machine');
+      assert.ok(c.y >= r.y - 0.01 && c.y + c.h <= r.y + r.h + 0.01,
+        where + 'lever ' + i + ' hangs off the machine vertically');
+      assert.ok(c.w >= 22, where + 'lever ' + i + ' is ' + c.w.toFixed(0) + 'px, under a thumb');
+      if (i) {
+        var prev = MB.tapColRect(i - 1);
+        assert.ok(prev.x + prev.w <= c.x + 0.01, where + 'levers ' + (i - 1) + ' and ' + i + ' overlap');
+      }
+      // and a tap in the middle of a lever resolves to that lever
+      assert.strictEqual(MB.tapColAt(c.x + c.w / 2), i,
+        where + 'pressing lever ' + i + ' resolves to ' + MB.tapColAt(c.x + c.w / 2));
+    }
+  });
+
+  // the ring follows the press
+  stage.clientWidth = 412; stage.clientHeight = 915;
+  startShift(12);
+  pump(0.3);
+  S.chef.holding = null;
+  S.pour = null;
+  S.tickets.length = 0;
+
+  var rings = [];
+  var realRR = Art.rr;
+  Art.rr = function (g, x, y, w, h) { rings.push({ x: x, y: y, w: w, h: h }); };
+  try {
+    for (var col = 0; col < 3; col++) {
+      var ids = MB.dispenserView().ids;
+      if (!ids[col]) continue;
+      S.pour = { flavor: ids[col], t: 0.2, working: true, ids: ids.slice(), col: col };
+      rings.length = 0;
+      MB.drawFountain();
+      var want = MB.tapColRect(col);
+      var hit = rings.some(function (q) {
+        return Math.abs(q.x - want.x) < 1 && Math.abs(q.y - want.y) < 1 &&
+               Math.abs(q.w - want.w) < 1;
+      });
+      assert.ok(hit, 'pressing lever ' + col + ' (' + ids[col] + ') marked no lever - ' +
+        'rings drawn at ' + JSON.stringify(rings.map(function (q) { return q.x.toFixed(0); })) +
+        ', wanted ' + want.x.toFixed(0));
+    }
+  } finally { Art.rr = realRR; S.pour = null; }
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.3);
+});
+
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');
 
 
