@@ -657,14 +657,43 @@
   }
 
   /** opts: { orderItems, built, patienceRatio, customer, tipMult } */
+  /*
+   * What a binned plate costs the shop, as a share of what it would have sold
+   * for - the cost of goods, not the menu price.
+   *
+   * Charging the full price makes the early days brutal and the late ones
+   * cheap: a wasted bun and patty is a third of day one's rent and a fifteenth
+   * of day twenty's. Measured against the balance sim, 0.45 is the heaviest
+   * this can be while the difficulty ramp stays flat across twenty-five days -
+   * 0.60 already swings sloppy play from x0.31 to x0.61 of rent.
+   */
+  var WASTE_RATE = 0.45;
+  function wasteOf(built) { return Math.round(menuPrice(builtIdsOf(built)) * WASTE_RATE); }
+
+  /** The ids on a built plate, whether it holds ids or {id} objects. */
+  function builtIdsOf(built) {
+    var out = [];
+    for (var i = 0; i < (built || []).length; i++) {
+      var it = built[i];
+      out.push(typeof it === 'string' ? it : it.id);
+    }
+    return out;
+  }
+
   function payout(opts) {
     var price = menuPrice(opts.orderItems);
     var ev = evaluate(opts.orderItems, opts.built);
     var verdict = verdictOf(ev);
 
     if (verdict === 'bad') {
+      /*
+       * A plate that goes back is not a life lost, it is food in the bin. The
+       * shop pays for what was on it - which is the pressure the hearts used
+       * to carry, expressed in the only currency the day is judged in.
+       */
       return {
-        verdict: verdict, pay: 0, tip: 0, total: 0, heartLoss: 1,
+        verdict: verdict, pay: 0, tip: 0, total: 0,
+        waste: wasteOf(opts.built),
         accuracy: ev.accuracy, cookScore: ev.cookScore, quality: ev.quality,
         exact: ev.exact, faults: ev.faults
       };
@@ -680,7 +709,7 @@
     tip = Math.round(tip);
 
     return {
-      verdict: verdict, pay: pay, tip: tip, total: pay + tip, heartLoss: 0,
+      verdict: verdict, pay: pay, tip: tip, total: pay + tip, waste: 0,
       accuracy: ev.accuracy, cookScore: ev.cookScore, quality: ev.quality,
       exact: ev.exact, faults: ev.faults
     };
@@ -1123,7 +1152,7 @@
     BASE_WINDOW: BASE_WINDOW,
     MENU_MAX: MENU_MAX,
     STATION_CAP: STATION_CAP,
-    START_HEARTS: 5,
+
     stationsAt: stationsAt,
     byId: byId,
     MAX_DAY: MAX_DAY,
@@ -1140,7 +1169,7 @@
     displayStack: displayStack,
     dayGoal: dayGoal,
     makeOrder: makeOrder,
-    menuPrice: menuPrice,
+    menuPrice: menuPrice, wasteOf: wasteOf,
     SIDES: TRAY_SIDES, DRINKS: DRINKS, drinkById: function (id) { return DRINK_BY_ID[id]; },
     drinkMenu: drinkMenu, attachRates: attachRates, checkExtras: checkExtras,
     SIDE_DAY: SIDE_DAY, DRINK_DAY: DRINK_DAY,

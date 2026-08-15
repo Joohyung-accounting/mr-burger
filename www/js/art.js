@@ -2712,12 +2712,29 @@
     });
     ctx.restore();
 
-    // hearts, right-hand end, one row of five
-    var hr = ph * 0.105, hgap = hr * 2.5;
-    var hRight = px + pw * 0.972, hLeft = hRight - hgap * (maxL - 1) - hr;
-    for (i = 0; i < maxL; i++) {
-      drawHeart(ctx, hLeft + hr + i * hgap, y + h * 0.315, hr, i < lives, s + 40 + i);
-    }
+    /*
+     * What the day still owes, where the five hearts used to be.
+     *
+     * The hearts were a second failure condition running alongside the rent -
+     * five mistakes shut the shop whatever the till said. There is one test
+     * now, at closing, so the right-hand end of the HUD carries the number
+     * that test is about: what is left to make. It goes green and reads CLEAR
+     * the moment the day is safe.
+     */
+    var need = o.need === undefined ? 0 : o.need;
+    var needTxt = need > 0 ? '$' + need.toFixed(2) : 'CLEAR';
+    var capSize = ph * 0.125, needSize = ph * 0.200;
+    var needRight = px + pw * 0.972;
+    var needW = Math.max(penTextWidth(needTxt, needSize, 0.06),
+                         penTextWidth(need > 0 ? 'STILL NEED' : 'RENT', capSize, 0.16));
+    var hLeft = needRight - needW;
+    penLetters(ctx, need > 0 ? 'STILL NEED' : 'RENT', needRight, y + h * 0.300, capSize, {
+      fill: '#a08a6e', weight: 0.125, track: 0.16, align: 'right', seed: s + 40
+    });
+    penLetters(ctx, needTxt, needRight, y + h * 0.560, needSize, {
+      fill: need > 0 ? '#c0392b' : '#3f7a2a', line: need > 0 ? null : '#2c5a1e',
+      weight: 0.145, track: 0.06, align: 'right', seed: s + 41
+    });
 
     var cx0 = bx + bs + pw * 0.032;             // left edge of the writing
     var cx1 = px + pw * 0.972;                  // right edge

@@ -1133,7 +1133,7 @@ test('a correct plate delivered to the hatch pays out', function () {
   assert.ok(S.tips > 0, 'a fast perfect burger should earn a tip');
   assert.strictEqual(S.perfect, 1);
   assert.strictEqual(S.served, 1);
-  assert.strictEqual(S.hearts, Core.START_HEARTS, 'a perfect burger must not cost a heart');
+  assert.strictEqual(S.waste, 0, 'a perfect burger threw food away');
   assert.strictEqual(held(), null, 'the plate should be gone');
   assert.strictEqual(MB.ticketOf(t.uid), null, 'the ticket should be off the board');
 });
@@ -1190,7 +1190,7 @@ test('serving a burger nobody ordered costs a heart', function () {
   work(MB.hatchRect());
 
   assert.strictEqual(S.sales + S.tips, before, 'a rejected burger must not pay');
-  assert.strictEqual(S.hearts, Core.START_HEARTS - 1);
+  assert.ok(S.waste > 0, 'a rejected plate went in the bin for free');
   assert.strictEqual(S.served, 0);
 });
 
@@ -1289,15 +1289,19 @@ test('a guest reads the clock off the host rather than running its own', functio
 });
 
 /* --------------------------------------------------------------- the day */
-test('an impatient ticket walks out and takes a heart with it', function () {
+test('an impatient ticket walks out and takes the sale with it', function () {
   startShift(1);
   pump(2);
   var t = S.tickets[0];
+  var took = S.sales + S.tips;
   t.patience = 0.02;
   pump(0.3);
   assert.strictEqual(S.walked, 1);
-  assert.strictEqual(S.hearts, Core.START_HEARTS - 1);
   assert.strictEqual(MB.ticketOf(t.uid), null);
+  assert.strictEqual(S.sales + S.tips, took, 'a walkout paid something');
+  // nothing was cooked for them, so nothing goes in the bin - the cost of a
+  // walkout is the money that never arrived, which the rent already measures
+  assert.strictEqual(S.waste, 0, 'a walkout binned food that was never made');
 });
 
 /*
@@ -1319,33 +1323,62 @@ test('the day ends even if the last customer walks out instead of being served',
     pump(0.5);
   }
 
-  assert.ok(S.hearts > 0, 'day 1 should not be losable on hearts - that is the point of the case');
+  assert.strictEqual(S.waste, 0, 'nothing was cooked, so nothing should have been binned');
   assert.strictEqual(S.walked, Core.dayConfig(1).customers, 'every customer should have walked');
   assert.notStrictEqual(S.screen, 'service',
     'the shift never ended: ' + S.spawned + '/' + Core.dayConfig(1).customers +
-    ' customers in, ' + S.tickets.length + ' left on the board, ' + S.hearts + ' hearts');
+    ' customers in, ' + S.tickets.length + ' left on the board');
 });
 
-test('day 1 cannot be lost on hearts - there are fewer customers than lives', function () {
-  assert.ok(Core.dayConfig(1).customers < Core.START_HEARTS,
-    'day 1 should be impossible to fail out of; it is the tutorial');
-  assert.ok(Core.dayConfig(6).customers > Core.START_HEARTS,
-    'by day 6 there should be enough customers to actually lose');
-});
-
-test('running out of hearts shuts the day down', function () {
+/*
+ * There is one failure condition now: the day has to cover its rent. The
+ * hearts used to be a second one running alongside it - five mistakes shut the
+ * shop whatever the till said - and a shift could end before the clock did.
+ */
+test('a shift runs to the clock however badly it goes', function () {
   startShift(6);
   pump(2);
-  for (var i = 0; i < Core.START_HEARTS + 4 && S.screen === 'service'; i++) {
+  for (var i = 0; i < 12 && S.screen === 'service'; i++) {
     if (!S.tickets.length) pump(20);
     if (!S.tickets.length) break;
     S.tickets[0].patience = 0.02;
     pump(0.3);
   }
-  assert.ok(S.hearts <= 0, 'hearts should be spent, got ' + S.hearts);
+  assert.ok(S.walked >= 5, 'setup: this should have driven several customers out, got ' + S.walked);
+  assert.strictEqual(S.waste, 0, 'walkouts put food in the bin that was never cooked');
+
+  /*
+   * If the shift did end it must be because the day ran out of customers or
+   * clock - never because a counter of mistakes hit zero, which is what the
+   * hearts used to do on the fifth walkout.
+   */
+  if (S.screen !== 'service') {
+    assert.ok(S.spawned >= Core.dayConfig(6).customers || S.timeLeft <= 0,
+      'the shop shut with ' + S.spawned + '/' + Core.dayConfig(6).customers +
+      ' customers in and ' + S.timeLeft.toFixed(1) + 's left - that is a life counter');
+  }
+});
+
+test('a day that does not cover its rent shuts the shop', function () {
+  startShift(6);
+  S.sales = 0; S.tips = 0; S.waste = 0;
+  assert.ok(S.rent > 0, 'setup: there should be rent to miss');
+  MB.endDay();
   assert.strictEqual(S.screen, 'dayEnd');
   assert.strictEqual(elements.over.hidden, false, 'the shut-down sheet should be up');
   assert.strictEqual(elements.dayEnd.hidden, true, 'a failed day is not a receipt');
+
+  // ...and food in the bin is what pushes a near-miss under
+  startShift(6);
+  S.sales = S.rent; S.tips = 0; S.waste = 0;
+  MB.endDay();
+  assert.strictEqual(elements.dayEnd.hidden, false, 'exactly making rent should pass');
+
+  startShift(6);
+  S.sales = S.rent; S.tips = 0; S.waste = 1;
+  MB.endDay();
+  assert.strictEqual(elements.over.hidden, false,
+    'a penny of waste against an exact till should fail the day');
 });
 
 test('taps are ignored once the day is over', function () {
@@ -1411,7 +1444,7 @@ test('restarting the day wipes the shift and closes the pause sheet', function (
   work(crateOf('patty'));
   work(MB.slotRect(0));
   S.sales = 5000;
-  S.hearts = 2;
+  S.waste = 2;
   MB.setPaused(true);
 
   MB.startDay(S.day);
@@ -1419,7 +1452,7 @@ test('restarting the day wipes the shift and closes the pause sheet', function (
   assert.strictEqual(S.userPaused, false, 'restart should unpause');
   assert.strictEqual(elements.pause.hidden, true);
   assert.strictEqual(S.sales, 0, 'takings should reset');
-  assert.strictEqual(S.hearts, Core.START_HEARTS, 'hearts should reset');
+  assert.strictEqual(S.waste, 0, 'the bin should be emptied for a fresh shift');
   assert.strictEqual(S.chef.holding, null, 'the chef should be empty-handed');
   assert.ok(S.grill.every(function (g) { return g === null; }), 'the grill should be clear');
 });
@@ -1469,7 +1502,7 @@ test('the save holds the shift you would come back to', function () {
 
   // clear a shift and the save moves on, so the shop screen is not a trap
   startShift(6);
-  S.hearts = Core.START_HEARTS;
+  S.waste = 0;
   S.sales = S.rent + 1000;
   S.tips = 0;
   MB.endDay();
@@ -1479,7 +1512,7 @@ test('the save holds the shift you would come back to', function () {
 
   // ...and a shift that was NOT cleared stays where it is
   startShift(9);
-  S.hearts = 0;
+  S.sales = 0; S.tips = 0; S.waste = 0;
   MB.endDay();
   assert.strictEqual(saved().day, 9, 'a failed day 9 wrote down ' + saved().day);
 });
@@ -1657,7 +1690,7 @@ test('a snapshot round-trips the whole kitchen', function () {
   S.plates[0].stack = [{ id: 'bun', cook: 1 }, { id: 'patty', cook: 0.8, done: 0.9, char: 0 }];
   MB.chefAt(0).holding = { kind: 'ing', id: 'cheese', done: 1, char: 0 };
   MB.chefAt(1).holding = { kind: 'plate', stack: [{ id: 'bun', cook: 1 }] };
-  S.hearts = 3; S.sales = 1234; S.tips = 567;
+  S.waste = 300; S.sales = 1234; S.tips = 567;
   var before = {
     tickets: S.tickets.map(function (t) { return t.uid; }),
     items: S.tickets.map(function (t) { return t.items.slice(); }),
@@ -1678,7 +1711,7 @@ test('a snapshot round-trips the whole kitchen', function () {
   S.grill = [];
   MB.applySnapshot(snap);
 
-  assert.strictEqual(S.hearts, 3);
+  assert.strictEqual(S.waste, 300);
   assert.strictEqual(S.sales, 1234);
   assert.strictEqual(S.tips, 567);
   assert.deepStrictEqual(S.tickets.map(function (t) { return t.uid; }), before.tickets);
@@ -2637,12 +2670,12 @@ test('forgetting the drink costs the grade, not a heart', function () {
   t.patience = t.max;
 
   buildPlate(0, ['bun', 'patty']);
-  var hearts = S.hearts, perfect = S.perfect;
+  var wasted = S.waste, perfect = S.perfect;
   work(MB.plateRect(0));
   work(MB.hatchRect());
   pump(0.1);
 
-  assert.strictEqual(S.hearts, hearts, 'a forgotten drink cost a heart');
+  assert.strictEqual(S.waste, wasted, 'a forgotten drink binned the burger');
   assert.strictEqual(S.perfect, perfect, 'a burger with no drink still scored perfect');
   assert.strictEqual(S.served, 1, 'the order was not counted as served');
 });
@@ -4068,16 +4101,16 @@ test('a burger nobody ordered goes back, however close it was', function () {
   S.tickets[0].drink = null;
 
   function serve(items) {
-    var sales = S.sales, tips = S.tips, hearts = S.hearts, served = S.served;
+    var sales = S.sales, tips = S.tips, wasted = S.waste, served = S.served;
     MB.deliver(items.map(function (id) { return { id: id, cook: 1 }; }), {}, 0);
     return { pay: S.sales - sales, tip: S.tips - tips,
-             heart: hearts - S.hearts, served: S.served - served };
+             waste: S.waste - wasted, served: S.served - served };
   }
 
   // exactly what was asked for: paid, and counted
   var right = serve(want);
   assert.ok(right.pay > 0, 'the right burger paid nothing');
-  assert.strictEqual(right.heart, 0, 'the right burger cost a heart');
+  assert.strictEqual(right.waste, 0, 'the right burger went in the bin');
   assert.strictEqual(right.served, 1, 'the right burger was not counted as served');
 
   // one filling too many - as close as a wrong plate gets
@@ -4091,7 +4124,7 @@ test('a burger nobody ordered goes back, however close it was', function () {
   assert.strictEqual(near.pay, 0,
     'a burger with a filling nobody ordered still sold for ' + near.pay);
   assert.strictEqual(near.tip, 0, 'it was tipped for');
-  assert.strictEqual(near.heart, 1, 'it cost ' + near.heart + ' hearts, not one');
+  assert.ok(near.waste > 0, 'a rejected plate cost the shop nothing');
   assert.strictEqual(near.served, 0, 'it was counted as served');
 
   // ...and one filling short is no better
@@ -4102,7 +4135,63 @@ test('a burger nobody ordered goes back, however close it was', function () {
   S.tickets[0].drink = null;
   var short = serve(want.slice(0, want.length - 1));
   assert.strictEqual(short.pay, 0, 'a burger missing a filling sold for ' + short.pay);
-  assert.strictEqual(short.heart, 1, 'a short burger cost ' + short.heart + ' hearts');
+  assert.ok(short.waste > 0, 'a short burger cost the shop nothing');
+});
+
+/*
+ * One failure condition: the day has to cover its rent.
+ *
+ * The hearts were a second one running alongside it - five mistakes shut the
+ * shop whatever the till said - and they measured something the money already
+ * measured. A plate that goes back is food in the bin, and the shop pays for
+ * it, so a bad shift shows up as a shortfall in the number the day is judged
+ * by rather than as a separate bar.
+ */
+test('a shift is won or lost on the till, and the bin counts against it', function () {
+  startShift(10);
+  assert.strictEqual(S.waste, 0, 'a fresh shift starts with an empty bin');
+  assert.ok(S.rent > 0, 'setup: there should be rent to make');
+
+  // serving what was asked for puts money in
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].side = null;
+  S.tickets[0].drink = null;
+  var want = S.tickets[0].items.slice();
+  MB.deliver(want.map(function (id) { return { id: id, cook: 1 }; }), {}, 0);
+  var earned = S.sales + S.tips;
+  assert.ok(earned > 0, 'the right burger paid nothing');
+  assert.strictEqual(S.waste, 0, 'the right burger went in the bin');
+
+  // a rejected one takes money back OUT
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].items = want.slice();
+  S.tickets[0].side = null;
+  S.tickets[0].drink = null;
+  MB.deliver(want.concat(['cheese']).map(function (id) { return { id: id, cook: 1 }; }), {}, 0);
+  assert.ok(S.waste > 0, 'a binned plate cost the shop nothing');
+  assert.strictEqual(S.sales + S.tips, earned, 'a binned plate still paid out');
+
+  // the bin is charged at a share of the menu price, not the whole thing -
+  // full price makes day one brutal and day twenty cheap
+  var full = Core.menuPrice(want.concat(['cheese']));
+  assert.ok(S.waste < full, 'the bin is charged at the full menu price');
+  assert.ok(S.waste > full * 0.2, 'the bin is barely charged at all: ' + S.waste + ' of ' + full);
+
+  // and the day is judged on what is left
+  var till = S.sales + S.tips - S.waste;
+  S.rent = till;
+  MB.endDay();
+  assert.strictEqual(elements.dayEnd.hidden, false,
+    'a till exactly covering the rent should pass');
+
+  startShift(10);
+  S.sales = 5000; S.tips = 0; S.waste = 5000;
+  S.rent = 1;
+  MB.endDay();
+  assert.strictEqual(elements.over.hidden, false,
+    'a shift that binned everything it made should fail');
 });
 
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');

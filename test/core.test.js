@@ -331,7 +331,7 @@ test('a completely wrong burger is rejected', function () {
   });
   assert.strictEqual(res.verdict, 'bad');
   assert.strictEqual(res.total, 0);
-  assert.strictEqual(res.heartLoss, 1);
+  assert.ok(res.waste > 0, 'a rejected plate is food in the bin, and the shop pays for it');
 });
 
 /* ------------------------------------------------------------- faults */
@@ -352,7 +352,7 @@ test('a burnt patty gets the burger sent back, however good the toppings', funct
   var res = Core.payout({ orderItems: order, built: built, patienceRatio: 1, customer: Core.CUSTOMERS[0] });
   assert.strictEqual(res.verdict, 'bad', 'burnt meat has to be a rejection');
   assert.strictEqual(res.total, 0, 'and must not pay');
-  assert.strictEqual(res.heartLoss, 1);
+  assert.ok(res.waste > 0, 'a burnt patty is thrown away, and that costs the shop');
   assert.strictEqual(res.faults[0].code, 'burnt', 'the top fault should be the burnt patty');
   assert.ok(/BURNT/.test(res.faults[0].label));
 });
@@ -724,13 +724,13 @@ function missOf(items, day, rng) {
 function simulateDay(day, skill, rng, levels) {
   var cfg = Core.dayConfig(day);
   var fx = Core.effects(levels || {});
-  var earned = 0, hearts = Core.START_HEARTS;
+  var earned = 0, wasted = 0;
 
   for (var i = 0; i < cfg.customers; i++) {
     var customer = Core.pickCustomer(day, rng);
     var order = Core.makeOrder(day, rng, customer);
 
-    if (rng() < skill.walkout) { hearts--; continue; }
+    if (rng() < skill.walkout) continue;
 
     var items = rng() < skill.accuracy ? order.items : missOf(order.items, day, rng);
     var res = Core.payout({
@@ -741,7 +741,7 @@ function simulateDay(day, skill, rng, levels) {
       tipMult: fx.tipMult
     });
     earned += res.total;
-    hearts -= res.heartLoss;
+    wasted += res.waste || 0;
 
     /*
      * The rest of the tray, modelled the way deliver() actually pays it.
@@ -756,7 +756,7 @@ function simulateDay(day, skill, rng, levels) {
     if (gotSide) earned += Math.round(Core.SIDES[gotSide].price * (0.45 + skill.cook * 0.55));
     if (gotDrink) earned += Core.drinkById(gotDrink).price;
   }
-  return { earned: earned, hearts: hearts, goal: Core.dayGoal(day) };
+  return { earned: earned - wasted, wasted: wasted, goal: Core.dayGoal(day) };
 }
 
 var PRO = { accuracy: 0.97, cook: 1.00, speed: 0.70, walkout: 0.00 };

@@ -171,7 +171,7 @@
     owned: [], skin: 'classic',
     fx: Core.effects({}),
 
-    hearts: 5, sales: 0, tips: 0, served: 0, walked: 0, perfect: 0,
+    waste: 0, sales: 0, tips: 0, served: 0, walked: 0, perfect: 0,
     lifetime: 0,
     spawned: 0, spawnTimer: 0, cfg: null, rent: 0, menu: [],
     timeLeft: 0, dayLength: 0,   // the shift clock; see Core.dayLength
@@ -1237,9 +1237,16 @@
     renderBoard();
   }
 
+  /*
+   * What the day has actually made: everything taken, less the food thrown
+   * away. This is the only number the shift is judged by now, and the one the
+   * HUD counts up - so a plate that goes back is visible in the same place the
+   * player is already watching.
+   */
+  function till() { return S.sales + S.tips - (S.waste || 0); }
+
   function walkout(t) {
     S.walked++;
-    S.hearts--;
     chefMood('sad', 1.4, S.me || 0);
     dropTicket(t);
     banner('WALKED OUT', t.arch.name + ' gave up waiting', C.alarm);
@@ -1247,7 +1254,6 @@
     Sfx.walkout();
     buzz([30, 40, 60]);
     syncHud();
-    if (S.hearts <= 0) endDay();
   }
 
   /* -------------------------------------------------------------- day loop */
@@ -1321,7 +1327,7 @@
     S.sections = Core.menuSections(day, S.runSeed);
     reserveBoard(day);
 
-    S.hearts = Core.START_HEARTS;
+    S.waste = 0;
     S.sales = 0; S.tips = 0; S.served = 0; S.walked = 0; S.perfect = 0;
     S.spawned = 0; S.spawnTimer = 1.2;
     S.dayLength = Core.dayLength(day);
@@ -1379,9 +1385,17 @@
     S.chef.target = null;
     S.userPaused = false;
     hideModal(el.pause);
-    var total = S.sales + S.tips;
-    var ranOut = S.hearts <= 0;
-    var passed = !ranOut && total >= S.rent;
+    var total = till();
+    /*
+     * One test, at closing: did the day cover its rent.
+     *
+     * There were two before - five mistakes shut the shop on the spot, and the
+     * rent was checked at the end. The hearts are gone; a plate that goes back
+     * costs the food that was on it, so a bad shift shows up as a shortfall in
+     * the same number the day is judged by rather than as a separate life bar.
+     */
+    var ranOut = false;
+    var passed = total >= S.rent;
 
     if (passed) {
       S.money += total - S.rent;
@@ -1423,7 +1437,7 @@
   function paintPause() {
     if (el.pauseRead) {
       el.pauseRead.textContent = 'Paused. Day ' + S.day + ', ' +
-        Core.money(S.sales + S.tips) + ' of ' + Core.money(S.rent) + ' taken, ' +
+        Core.money(till()) + ' of ' + Core.money(S.rent) + ' taken, ' +
         Core.clockText(Math.max(0, Math.ceil(S.timeLeft))) + ' left.';
     }
     if (!el.pauseArt) return;
@@ -1436,7 +1450,7 @@
         sub: 'THE LINE IS HOLDING · NOTHING IS BURNING',
         rows: [
           { k: 'Day ' + S.day + ' · served', v: String(S.served) },
-          { k: 'Till so far', v: Core.money(S.sales + S.tips), col: '#3f7a2a' },
+          { k: 'Till so far', v: Core.money(till()), col: '#3f7a2a' },
           { k: 'Time left', v: Core.clockText(Math.max(0, Math.ceil(S.timeLeft))) }
         ],
         primary: 'BACK TO WORK',
@@ -1883,8 +1897,8 @@
       res.faults = (res.faults || []).concat(ex.faults);
       /*
        * One miss drops it a grade; both drop it two - but never past 'meh',
-       * because 'bad' is the verdict that costs a heart and sends the plate
-       * back, and a correct burger with a forgotten drink is not that.
+       * because 'bad' is the verdict that bins the plate and charges the
+       * shop for it, and a correct burger with a forgotten drink is not that.
        *
        * The ladder is VERDICT's own, and it stops one short of the end. Naming
        * a grade that is not in that table put `undefined.text` on the screen.
@@ -1906,7 +1920,7 @@
      *
      * The tray is deliberately not part of this. A forgotten drink already
      * costs a grade, and the comment on that ladder is explicit that it must
-     * not cost a heart - this is about what went in the burger.
+     * not bin the burger - this is about what went in it.
      */
     var ordered = S.tickets.some(function (tk) {
       return Core.evaluate(tk.items, stack).exact;
@@ -1916,13 +1930,13 @@
       res.pay = 0;
       res.tip = 0;
       res.total = 0;
-      res.heartLoss = Math.max(1, res.heartLoss || 0);
+      res.waste = Math.max(res.waste || 0, Core.wasteOf(stack));
       res.faults = [{ code: 'unordered', label: 'NOBODY ORDERED THAT' }];
     }
 
     S.sales += res.pay;
     S.tips += res.tip;
-    S.hearts -= res.heartLoss;
+    S.waste += res.waste || 0;
     if (res.verdict === 'perfect') { S.perfect++; chefMood('cheer', 1.2, ci || 0); }
     else if (res.verdict === 'bad') chefMood('sad', 1.4, ci || 0);
     if (res.verdict !== 'bad') S.served++;
@@ -2200,7 +2214,7 @@
       if (tk.patience <= 0) walkout(tk);
     }
 
-    if (S.hearts <= 0) { endDay(); return; }
+
 
     // The shift is over when the last customer is gone, however they went.
     // This is the only place that decides it. It used to be checked where a
@@ -3386,7 +3400,7 @@
   var titleFrame = 0;
 
   function paintHud() {
-    var total = S.sales + S.tips;
+    var total = till();
     var running = S.screen === 'service' && S.dayLength > 0;
     var secs = Math.max(0, Math.ceil(S.timeLeft));
 
@@ -3397,7 +3411,7 @@
       el.hudRead.textContent = 'Day ' + S.day +
         (running ? ', ' + Core.clockText(secs) + ' left' : '') +
         ', ' + Core.money(total) + ' of ' + Core.money(S.rent) +
-        ', ' + S.hearts + ' of ' + Core.START_HEARTS + ' mistakes left.';
+        ((S.waste || 0) ? ', ' + Core.money(S.waste) + ' thrown away' : '') + '.';
     }
 
     if (!el.hudArt) return;
@@ -3417,16 +3431,18 @@
         // rate, so this is the number behind the money rather than a second
         // copy of it.
         tip: S.served ? clamp(S.perfect / S.served, 0, 1) : 0,
-        lives: S.hearts,
-        maxLives: Core.START_HEARTS
+        // what is still owed on the day, which is the whole game now that
+        // the hearts are gone
+        need: Math.max(0, S.rent - total) / 100,
+        waste: (S.waste || 0) / 100
       });
     });
     overlay(el.pauseBtn, grow(Art.ui.hudBoxes(0, 0, W, H).pause, MIN_TOUCH));
   }
 
   function syncHud() {
-    var total = S.sales + S.tips;
-    var sig = S.day + '|' + total + '|' + S.rent + '|' + S.hearts + '|' + S.sales + '|' + S.tips;
+    var total = till();
+    var sig = S.day + '|' + total + '|' + S.rent + '|' + S.waste + '|' + S.sales + '|' + S.tips;
     if (hudLast.sig !== sig) { hudLast.sig = sig; paintHud(); }
     syncClock();
   }
@@ -3762,14 +3778,26 @@
 
   function showDayEnd(passed, ranOut, total) {
     if (!passed) {
-      el.overTitle.textContent = ranOut ? 'SHUT DOWN' : 'RENT UNPAID';
-      el.overReason.textContent = ranOut
-        ? 'Five orders blown. The landlord changed the locks.'
-        : (S.closedBy === 'clock'
-          ? 'Closing time came round with ' + Core.money(total) + ' in the till against ' +
-            Core.money(S.rent) + ' of rent. Faster tomorrow.'
-          : 'You took in ' + Core.money(total) + ' against ' + Core.money(S.rent) +
-            ' of rent. The landlord is not sympathetic.');
+      el.overTitle.textContent = 'RENT UNPAID';
+      /*
+       * Name the shortfall, and name the bin if the bin is why.
+       *
+       * SHUT DOWN and "five orders blown" belonged to the hearts. There is one
+       * way to lose now - the till did not cover the rent - so the sheet says
+       * by how much, and calls out the wasted food when it was enough to have
+       * made the difference.
+       */
+      var short = S.rent - total;
+      var binned = S.waste || 0;
+      el.overReason.textContent =
+        (binned >= short
+          ? 'You threw away ' + Core.money(binned) + ' of food and came up ' +
+            Core.money(short) + ' short of the rent. Every plate that goes back is paid for.'
+          : (S.closedBy === 'clock'
+            ? 'Closing time came round ' + Core.money(short) + ' short of the ' +
+              Core.money(S.rent) + ' rent. Faster tomorrow.'
+            : 'You took in ' + Core.money(total) + ' against ' + Core.money(S.rent) +
+              ' of rent. The landlord is not sympathetic.'));
       el.overDay.textContent = S.day;
       el.overBest.textContent = S.bestDay;
       el.retryDay.textContent = S.day;
@@ -4700,7 +4728,7 @@
       type: 'state',
       seq: ++S.snapSeq,
       t: Math.round(nowMs()),
-      day: S.day, hearts: S.hearts, sales: S.sales, tips: S.tips, rent: S.rent,
+      day: S.day, waste: S.waste, sales: S.sales, tips: S.tips, rent: S.rent,
       screen: S.screen, menu: S.menu, concurrent: S.cfg ? S.cfg.concurrent : 3,
       paused: !!S.userPaused,
       left: Math.round(S.timeLeft * 10) / 10, len: S.dayLength,
@@ -4753,7 +4781,7 @@
       S.day !== m.day;
 
     var dayChanged = S.day !== m.day;
-    S.day = m.day; S.hearts = m.hearts; S.sales = m.sales; S.tips = m.tips; S.rent = m.rent;
+    S.day = m.day; S.waste = m.waste || 0; S.sales = m.sales; S.tips = m.tips; S.rent = m.rent;
     S.menu = m.menu;
     if (!S.cfg || S.cfg.day !== m.day) S.cfg = Core.dayConfig(m.day);
     S.cfg.concurrent = m.concurrent;
