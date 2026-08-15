@@ -2420,9 +2420,21 @@ test('a chopped portion survives the trip over the wire', function () {
 /* ------------------------------------------------- the fry line & fountain */
 
 /** Put a basket in, run it to the perfect window, and take it back out. */
-function fryPerfect(well) {
+/*
+ * The fry line starts at the freezer now: a bag comes out of it and goes into
+ * a well by hand, the same way a patty comes out of a crate before the grill.
+ */
+function loadWell(well) {
+  S.chef.holding = null;
+  work(MB.freezerRect());
+  assert.ok(held() && held().kind === 'fryBag', 'the freezer gave out no bag');
   work(MB.fryWellRect(well));
-  assert.ok(S.fryer[well], 'the basket never went in');
+  assert.ok(S.fryer[well], 'the bag never went into the oil');
+  assert.strictEqual(held(), null, 'the bag stayed in his hands');
+}
+
+function fryPerfect(well) {
+  loadWell(well);
   S.fryer[well].t = Core.COOK_TIME;
   work(MB.fryWellRect(well));
 }
@@ -2452,12 +2464,15 @@ test('a machine nobody can use yet takes up no room', function () {
     'the plates grew when the fountain moved in');
 });
 
-test('an empty-handed tap drops a basket; a second one lifts it out', function () {
+test('a bag out of the freezer goes in the oil, and comes out as fries', function () {
   startShift(8);
   S.chef.holding = null;
+
+  // the well will not start itself any more
   work(MB.fryWellRect(0));
-  assert.ok(S.fryer[0], 'nothing went into the oil');
-  assert.strictEqual(held(), null, 'the cook walked off holding something');
+  assert.strictEqual(S.fryer[0], null, 'the well lit itself with no bag in hand');
+
+  loadWell(0);
 
   S.fryer[0].t = Core.COOK_TIME;
   work(MB.fryWellRect(0));
@@ -2468,10 +2483,9 @@ test('an empty-handed tap drops a basket; a second one lifts it out', function (
 
 test('the two wells run independently', function () {
   startShift(8);
-  S.chef.holding = null;
-  work(MB.fryWellRect(0));
-  work(MB.fryWellRect(1));
-  assert.ok(S.fryer[0] && S.fryer[1], 'the second basket did not go in');
+  loadWell(0);
+  loadWell(1);
+  assert.ok(S.fryer[0] && S.fryer[1], 'the second bag did not go in');
   S.fryer[0].t = 5; S.fryer[1].t = 1;
   pump(0.5);
   assert.ok(S.fryer[0].t > S.fryer[1].t, 'the wells share a clock');
@@ -2479,8 +2493,7 @@ test('the two wells run independently', function () {
 
 test('fries left in too long come out burnt', function () {
   startShift(8);
-  S.chef.holding = null;
-  work(MB.fryWellRect(0));
+  loadWell(0);
   S.fryer[0].t = Core.COOK_TIME * 3;
   work(MB.fryWellRect(0));
   assert.strictEqual(held().kind, 'fries');
@@ -2605,8 +2618,7 @@ test('forgetting the drink costs the grade, not a heart', function () {
 
 test('a co-op guest gets the fry line and the fountain too', function () {
   startShift(8);
-  S.chef.holding = null;
-  work(MB.fryWellRect(0));
+  loadWell(0);
   S.plates[0].side = 'fries';
   S.plates[0].drink = S.drinkTaps[0];
   S.tickets.length = 0;
@@ -3413,9 +3425,8 @@ test('taking a basket opens the freezer, and it shuts itself again', function ()
   assert.strictEqual(cold.open, 0, 'the freezer starts shut');
   assert.strictEqual(cold.grab, 0, 'and with nothing in the air');
 
-  S.chef.holding = null;
-  work(MB.fryWellRect(0));
-  assert.ok(S.fryer[0], 'setup: the basket should be in the oil');
+  loadWell(0);
+  assert.ok(S.fryer[0], 'setup: the bag should be in the oil');
 
   assert.ok(S.fryGrab, 'the freezer was never told a bag came out');
 
@@ -3867,6 +3878,55 @@ test('no bench overlaps the machine above it, at any grill or plate count', func
   S.levels = {};
   stage.clientWidth = w0; stage.clientHeight = h0;
   pump(0.3);
+});
+
+/*
+ * The fry line starts at the freezer.
+ *
+ * A well used to light itself on an empty-handed tap, so the potatoes came
+ * from nowhere and the freezer beside it was scenery that animated. It is the
+ * same shape as the patty now: fetch, then cook.
+ */
+test('the fryer will not run without a bag carried over from the freezer', function () {
+  startShift(8);
+  S.chef.holding = null;
+
+  work(MB.fryWellRect(0));
+  assert.strictEqual(S.fryer[0], null, 'an empty-handed tap lit the well');
+
+  work(MB.freezerRect());
+  var bag = held();
+  assert.ok(bag && bag.kind === 'fryBag', 'the freezer handed out ' + JSON.stringify(bag));
+
+  // the freezer will not hand out a second one on top of it
+  work(MB.freezerRect());
+  assert.strictEqual(held().kind, 'fryBag', 'it stacked two bags in one pair of hands');
+
+  // ...and a bag is not a topping
+  work(MB.plateRect(0));
+  assert.ok(held(), 'a bag of frozen chips went onto a plate');
+
+  work(MB.fryWellRect(0));
+  assert.ok(S.fryer[0], 'the bag never went in');
+  assert.strictEqual(held(), null, 'the bag stayed in his hands');
+
+  // a busy well refuses a second bag rather than swallowing it
+  work(MB.freezerRect());
+  work(MB.fryWellRect(0));
+  assert.ok(held() && held().kind === 'fryBag', 'a busy well swallowed a second bag');
+  work(MB.fryWellRect(1));
+  assert.ok(S.fryer[1], 'the free well refused it');
+
+  // and the carry has a size, so the hands close on something
+  var g = makeCtx();
+  var measured = MB.drawCarried(g, 100, 100, 40, 12, { kind: 'fryBag' }, true);
+  var drawn = MB.drawCarried(g, 100, 100, 40, 12, { kind: 'fryBag' }, false);
+  assert.ok(measured > 0 && measured === drawn,
+    'a carried bag measures ' + measured + ' but draws at ' + drawn);
+
+  // over the wire too
+  var back = MB.unpackHold(MB.packHold({ kind: 'fryBag' }));
+  assert.strictEqual(back.kind, 'fryBag', 'a bag came back as ' + JSON.stringify(back));
 });
 
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');

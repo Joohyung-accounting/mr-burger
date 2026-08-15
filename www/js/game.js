@@ -1061,10 +1061,11 @@
       return { x: clamp(r.x + r.w / 2, f.x0, f.x1), y: nearEdge(r, f, 'y') };
     }
     if (t.kind === 'grill' || t.kind === 'plate' || t.kind === 'fryer' ||
-        t.kind === 'board') {
+        t.kind === 'freezer' || t.kind === 'board') {
       r = t.kind === 'grill' ? slotRect(t.i)
         : t.kind === 'plate' ? plateRect(t.i)
-        : t.kind === 'fryer' ? fryerRect() : boardRect();
+        : t.kind === 'fryer' ? fryerRect()
+        : t.kind === 'freezer' ? freezerRect() : boardRect();
       return { x: nearEdge(r, f, 'x'), y: clamp(r.y + r.h / 2, f.y0, f.y1) };
     }
     if (t.kind === 'hatch' || t.kind === 'bin' || t.kind === 'tap') {
@@ -1090,6 +1091,7 @@
     for (i = 0; i < S.grill.length; i++) if (inside(slotRect(i))) return { kind: 'grill', i: i };
     for (i = 0; i < S.plates.length; i++) if (inside(plateRect(i))) return { kind: 'plate', i: i };
     if (L.board && inside(boardRect())) return { kind: 'board' };
+    if (L.freezerH && inside(freezerRect())) return { kind: 'freezer' };
     if (L.fryH && inside(fryerRect())) return { kind: 'fryer', i: fryWellAt(x, y) };
     if (L.tapH && inside(tapRect())) return { kind: 'tap', i: tapColAt(x) };
     if (inside(hatchRect())) return { kind: 'hatch' };
@@ -1696,24 +1698,44 @@
      * clock. Come back at the right moment and you are holding a carton; come
      * back late and you are holding a carton of charcoal.
      */
+    /*
+     * The freezer. Empty hands come out holding a bag of frozen fries, which
+     * is the only thing the fryer will take.
+     *
+     * The fry line used to start with a tap on an empty well and a basket that
+     * came from nowhere - the freezer beside it was scenery that animated. The
+     * potatoes come from somewhere now, the same way a patty comes out of a
+     * crate before it reaches the grill.
+     */
+    if (t.kind === 'freezer') {
+      if (hold) { nope('HANDS FULL', ci); return; }
+      me.holding = { kind: 'fryBag' };
+      S.fryGrab = nowMs();          // the lid slides and a bag comes up
+      var fzr = freezerRect();
+      float('FROZEN FRIES', fzr.x + fzr.w / 2, fzr.y + fzr.h * 0.30, '#2f6b8f', 10);
+      Sfx.lift();
+      buzz(8);
+      return;
+    }
+
     if (t.kind === 'fryer') {
       var w = clamp(t.i || 0, 0, Math.max(0, S.fryer.length - 1));
       var well = S.fryer[w];
-      if (hold) {
+      if (hold && hold.kind !== 'fryBag') {
         nope(hold.kind === 'fries' ? 'ALREADY GOT FRIES' : 'HANDS FULL', ci);
         return;
       }
-      if (!well) {
+      if (hold) {
+        if (well) { nope('THAT WELL IS BUSY', ci); return; }
         S.fryer[w] = { t: 0 };
-        // the basket did not come from nowhere: the freezer beside it opens,
-        // a bag comes up, and the lid slides back
-        S.fryGrab = nowMs();
+        me.holding = null;
         var fr0 = fryWellRect(w);
         Sfx.sizzle();
         buzz(12);
         float('IN THE OIL', fr0.x + fr0.w / 2, fr0.y, C.warm, 10);
         return;
       }
+      if (!well) { nope('BRING A BAG FROM THE FREEZER', ci); return; }
       var fq = Core.cookQuality(well.t, S.fx.perfectWindow);
       var fstage = Core.cookStage(well.t, S.fx.perfectWindow);
       var flook = Core.cookLook(well.t, S.fx.perfectWindow);
@@ -2862,6 +2884,7 @@
     if (hold.kind === 'plate') {
       return setExtras(hold).n ? trayWidth(maxW) / 2 : plateRadius(maxW);
     }
+    if (hold.kind === 'fryBag') return maxW * 0.17;
     if (hold.kind === 'fries') return maxW * 0.20;
     if (hold.kind === 'cup') return maxW * 0.17;
     if (hold.id === 'bun') return Art.layerWidth('bunBottom', bunRollWidth(maxW)) / 2;
@@ -2912,6 +2935,15 @@
     g.shadowColor = 'rgba(80,50,32,0.35)';
     g.shadowBlur = 6;
     g.shadowOffsetY = 3;
+
+    if (hold.kind === 'fryBag') {
+      if (Art.item.fryBag) {
+        Art.item.fryBag(g, cx - maxW * 0.17, baseY - maxH * 0.98, maxW * 0.34, maxH * 0.98,
+                        { frost: 0.9, seed: 1361 });
+      }
+      g.restore();
+      return maxW * 0.17;
+    }
 
     if (hold.kind === 'fries') {
       Art.item.friesBox(g, cx - maxW * 0.20, baseY - maxH * 0.92, maxW * 0.40, maxH * 0.92,
@@ -4561,6 +4593,7 @@
     if (h.kind === 'plate') {
       return { k: 'p', s: h.stack, sd: h.side || null, sc: h.sideCook, dr: h.drink || null };
     }
+    if (h.kind === 'fryBag') return { k: 'b' };
     if (h.kind === 'fries') return { k: 'f', c: h.cook, d: h.done, ch: h.char };
     if (h.kind === 'cup') return { k: 'c', fl: h.flavor };
     return { k: 'i', id: h.id, c: h.cook, d: h.done, ch: h.char, gt: h.grillT, pr: h.prepped ? 1 : 0 };
@@ -4570,6 +4603,7 @@
     if (h.k === 'p') {
       return { kind: 'plate', stack: h.s || [], side: h.sd || null, sideCook: h.sc, drink: h.dr || null };
     }
+    if (h.k === 'b') return { kind: 'fryBag' };
     if (h.k === 'f') return { kind: 'fries', cook: h.c, done: h.d, char: h.ch };
     if (h.k === 'c') return { kind: 'cup', flavor: h.fl };
     return { kind: 'ing', id: h.id, cook: h.c, done: h.d, char: h.ch, grillT: h.gt, prepped: !!h.pr };
@@ -4674,9 +4708,16 @@
      * derive it from the change instead and the guest sees the same freezer
      * open that the host does.
      */
-    var camePacked = (m.fryer || []).some(function (w, i) { return w && !S.fryer[i]; });
+    /*
+     * A local timestamp cannot come over the wire, so derive it: a partner
+     * whose hands just filled with a bag has been at the freezer.
+     */
+    var tookBag = (m.chefs || []).some(function (c, i) {
+      var was = S.chefs[i] && S.chefs[i].holding;
+      return c.h && c.h.k === 'b' && !(was && was.kind === 'fryBag');
+    });
     S.fryer = m.fryer || [];
-    if (camePacked) S.fryGrab = nowMs();
+    if (tookBag) S.fryGrab = nowMs();
     S.drinkTaps = m.taps || [];
     // the guest only knows the day, so the run has to come down the wire or
     // the two kitchens are laid out differently and the taps miss

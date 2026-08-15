@@ -258,22 +258,33 @@ test('cook stages run raw -> perfect -> over -> burnt in order', function () {
  * ratio rather than either constant on its own. It used to land at 42% of a
  * patty's life, which read as "grab it early and then watch it die slowly".
  */
-test('the perfect window sits three quarters of the way through the cook', function () {
+/*
+ * Where the green sits in the patty's life.
+ *
+ * This began at about a third of the way in, which meant the sweet spot
+ * arrived while the player was still walking over. It was moved to three
+ * quarters, then the burnt verdict was pushed out twice, then the green was
+ * pulled forward again - and those last two pull in opposite directions, so
+ * the exact 3/4 has given way. What it was protecting has not: the sweet spot
+ * must stay in the back half of the cook, or the rest of the patty's life is
+ * dead time.
+ */
+test('the perfect window sits in the back half of the cook, not the first', function () {
   var w = Core.BASE_WINDOW;
   var end = Core.COOK_TIME + w / 2;
   var life = end + Core.BURN_TIME;          // raw at 0, written off here
   var mid = Core.COOK_TIME / life;
-  assert.ok(mid > 0.70 && mid < 0.80,
-    'the perfect moment is at ' + (mid * 100).toFixed(0) + '% of the cook, not ~75%');
-  assert.ok((Core.COOK_TIME - w / 2) / life > 0.60,
-    'the window opens too early in the cook');
+  assert.ok(mid > 0.55 && mid < 0.80,
+    'the perfect moment is at ' + (mid * 100).toFixed(0) + '% of the cook');
+  assert.ok((Core.COOK_TIME - w / 2) / life > 0.50,
+    'the window opens in the first half of the cook');
 
   // Widening it with Pro Grill may pull the ratio down, but never back to the
   // old half-way feel - a fully upgraded grill is still a waiting game.
   for (var lvl = 1; lvl <= 3; lvl++) {
     var pw = Core.effects({ grill: lvl }).perfectWindow;
     var l2 = Core.COOK_TIME + pw / 2 + Core.BURN_TIME;
-    assert.ok(Core.COOK_TIME / l2 > 0.65,
+    assert.ok(Core.COOK_TIME / l2 > 0.55,
       'Pro Grill ' + lvl + ' drags the sweet spot back to ' + ((Core.COOK_TIME / l2) * 100).toFixed(0) + '%');
   }
 });
