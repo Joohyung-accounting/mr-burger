@@ -3765,6 +3765,110 @@ test('neither wall leaves a void above or below its fixtures', function () {
   pump(0.3);
 });
 
+test('every dish on the bench sits at the same height, set or no set', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  [[375, 812], [412, 430], [820, 600]].forEach(function (sz) {
+    stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+    startShift(12);
+    pump(0.3);
+    var where = sz.join('x') + ': ';
+    assert.ok(S.plates.length >= 3, where + 'setup: day 12 should have three plates');
+
+    // one bare burger, one with a drink beside it, one with the full tray
+    S.plates.forEach(function (p) { p.stack = [{ id: 'bun', cook: 1 }]; p.side = null; p.drink = null; });
+    S.plates[1].drink = S.drinkTaps[0];
+    S.plates[2].side = 'fries';
+    S.plates[2].drink = S.drinkTaps[0];
+
+    var seen = [], real = Art.scene.plate;
+    Art.scene.plate = function (g, cx, cy) { seen.push(cy); };
+    try { MB.drawPlates(); } finally { Art.scene.plate = real; }
+
+    assert.strictEqual(seen.length, S.plates.length, where + 'not every plate drew a dish');
+    var within = seen.map(function (cy, i) { return cy - MB.plateRect(i).y; });
+    within.forEach(function (d, i) {
+      assert.ok(Math.abs(d - within[0]) < 0.51,
+        where + 'plate ' + i + ' sits ' + (d - within[0]).toFixed(1) +
+        'px off the others - a column of plates should be one line, whatever is on them');
+    });
+
+    // and lifted clear of the slot's floor rather than pinned to it
+    var L2 = MB.layout;
+    if (L2.plateH > 50) {
+      assert.ok(within[0] < L2.plateH - 12,
+        where + 'the dish is pinned to the bottom of its slot');
+    }
+  });
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.3);
+});
+
+/*
+ * The benches, not just the slots.
+ *
+ * drawGrill and drawPlates wrap their slots in a counter that reaches above
+ * the first and below the last, and that chrome was not in the layout's
+ * budget - so the grill bench cut 10-12px into the fryer above it and the
+ * plate bench 3-5px into the board. The rect-level overlap sweep could not see
+ * it, because the benches are drawn outside the rects they belong to.
+ *
+ * The wall pays for as much of the chrome as it can afford without pushing a
+ * station under MIN_TAPPABLE, and the bench is drawn at exactly that size, so
+ * an overlap is impossible rather than merely unlikely.
+ */
+test('no bench overlaps the machine above it, at any grill or plate count', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  var checked = 0;
+
+  [[375, 812], [412, 915], [360, 640], [412, 430], [320, 568], [820, 600]].forEach(function (sz) {
+    [{}, { plate: 2, burner: 2, grill: 3, shoes: 3 }].forEach(function (levels, li) {
+      stage.clientWidth = sz[0]; stage.clientHeight = sz[1];
+      [1, 5, 8, 12, 16, 20, 25].forEach(function (day) {
+        S.levels = JSON.parse(JSON.stringify(levels));
+        MB.startDay(day);
+        pump(0.25);
+        if (S.cramped) return;                 // the room already says it is unusable
+        checked++;
+        var L2 = MB.layout;
+        var where = sz.join('x') + (li ? ' maxed' : ' base') + ' day ' + day + ': ';
+        var gN = S.grill.length, pN = S.plates.length;
+
+        // measure the bench the game actually DRAWS, not the one it budgeted -
+        // the two drifting apart is the whole defect
+        var drawn = [], realCounter = Art.scene.counter;
+        Art.scene.counter = function (g, x, y, w, h) { drawn.push({ y: y, h: h }); };
+        try { MB.drawGrill(); MB.drawPlates(); } finally { Art.scene.counter = realCounter; }
+        assert.strictEqual(drawn.length, 2, where + 'expected one bench each');
+        var benchTop = drawn[0].y;
+        var benchBot = drawn[0].y + drawn[0].h;
+        var above = L2.fryH ? L2.fryTop + L2.fryH : L2.midTop;
+        assert.ok(benchTop >= above - 0.6,
+          where + 'the grill bench cuts ' + (above - benchTop).toFixed(1) + 'px into the fryer');
+        assert.ok(benchBot <= L2.midBottom + 0.6,
+          where + 'the grill bench runs ' + (benchBot - L2.midBottom).toFixed(1) + 'px past the band');
+
+        var pTop = drawn[1].y;
+        var pBot = drawn[1].y + drawn[1].h;
+        var pAbove = L2.board ? L2.board.y + L2.board.h : L2.midTop;
+        assert.ok(pTop >= pAbove - 0.6,
+          where + 'the plate bench cuts ' + (pAbove - pTop).toFixed(1) + 'px into the board');
+        assert.ok(pBot <= L2.midBottom + 0.6,
+          where + 'the plate bench runs ' + (pBot - L2.midBottom).toFixed(1) + 'px past the band');
+
+        // and paying for the chrome must never cost a tappable station
+        assert.ok(L2.slotH >= 22 && L2.plateH >= 22,
+          where + 'a station fell under a thumb: ' +
+          L2.slotH.toFixed(0) + '/' + L2.plateH.toFixed(0));
+      });
+    });
+  });
+
+  assert.ok(checked > 50, 'only ' + checked + ' layouts were actually checked');
+  S.levels = {};
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.3);
+});
+
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');
 
 

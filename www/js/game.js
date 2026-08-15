@@ -751,8 +751,8 @@
     var tapN = 0;   // the fountain moved to the bottom wall; see L.tapX above
     // the board owns the top of the plate band; everything under it divides
     // what is left, which is what makes the plate stack shrink and sit lower
-    var boardBand = S.board ? L.boardH + gap + 4 : 0;
-    var plateSpace = midH - boardBand;
+    var boardFoot = S.board ? (L.cratesBottom + 8 + L.boardH) : L.midTop;
+    var plateSpace = L.midBottom - boardFoot;
     /*
      * The left wall reads top to bottom in the order the food moves: the
      * freezer, the fryer under it, and the grill at the bottom. The freezer
@@ -760,11 +760,25 @@
      * decoration on another machine rather than a place; it has its own band
      * now and is pinned to the top-left corner of the room.
      */
+    // drawGrill and drawPlates wrap their slots in a bench that reaches 16px
+    // above the first and 6px below the last; both walls have to pay for it.
+    var BENCH_TOP = 16, BENCH_BOT = 6, CHROME = BENCH_TOP + BENCH_BOT;
     L.freezerH = fryN ? Math.min(FREEZER_H * k, midH * 0.24) : 0;
     var coldBand = fryN ? L.freezerH + gap : 0;
     var leftSpace = midH - coldBand;
-    L.slotH = Math.min(SLOT_H * k,
-                       (leftSpace - gap * (gN + fryN - 1)) / (gN + fryN * 1.35));
+    /*
+     * The bench's chrome is reserved when the wall can pay for it and given up
+     * when it cannot. Charging it unconditionally pushed a 360x300 kitchen's
+     * burners to 20.9px - under MIN_TAPPABLE - and the room started asking the
+     * player to turn the phone. A bench that overlaps the fryer by a few px is
+     * a smaller sin than a station nobody can hit.
+     */
+    function slotFor(chrome) {
+      return Math.min(SLOT_H * k,
+                      (leftSpace - chrome - gap * (gN + fryN - 1)) / (gN + fryN * 1.35));
+    }
+    var gChrome = afford(CHROME, leftSpace, gap * (gN + fryN - 1), gN + fryN * 1.35);
+    L.slotH = slotFor(gChrome);
     /*
      * The fountain is budgeted at 1.55 slots because that is what it takes -
      * tapH is plateH * 1.55. Dividing by (pN + tapN) gave it one slot and the
@@ -772,9 +786,10 @@
      * before the board moved in above it.
      */
     var tapSlots = 1.55;
+    var pChrome = afford(CHROME, plateSpace, gap * (pN + tapN - 1), pN + tapN * 1.55);
     function plateFor(slots) {
       return Math.min(PLATE_H * k * 0.88,
-                      (plateSpace - gap * (pN + tapN - 1)) / (pN + tapN * slots));
+                      (plateSpace - pChrome - gap * (pN + tapN - 1)) / (pN + tapN * slots));
     }
     L.plateH = plateFor(tapSlots);
     /*
@@ -801,25 +816,42 @@
      * two centres a sparse wall and still walks the burners down to the floor
      * as the wall fills up, which is where they belong when it matters.
      */
+    /*
+     * Both stacks are drawn inside a BENCH, and the bench is bigger than the
+     * slots it holds: drawGrill and drawPlates start their counter 16px above
+     * the first slot and end it 6px below the last. That chrome was not in
+     * the budget, so the grill bench cut 10-12px into the fryer above it and
+     * the plate bench 3-5px into the board. Reserve it here and the gaps are
+     * real gaps.
+     */
     var burners = gN * L.slotH + (gN - 1) * gap;
-    var used = (fryN ? L.freezerH + gap + L.fryH : 0) + burners;
+    var used = (fryN ? L.freezerH + gap + L.fryH : 0) + burners + gChrome;
     var each = Math.max(0, midH - used) / 2;
     L.freezerTop = L.midTop + 2;
     L.fryTop = L.midTop + coldBand;
-    L.grillTop = L.midTop + (fryN ? coldBand + L.fryH : 0) + each;
+    // the reserved chrome is split the way the bench draws it, 16 above to 6
+    // below - offsetting by the full 16 while only reserving 4 ran the stack
+    // out of the band by the difference
     /*
-     * Centred in the space under the board, then nudged down a little further -
-     * a stack pinned right under the board reads as one tall fixture rather
-     * than two stations.
+     * The bench is drawn with the padding that was actually reserved, not a
+     * hard 16/6. On a wall that could only afford four of those pixels the
+     * fixed bench cut 9px into the fryer above it; sized to its budget it
+     * cannot overlap anything by construction.
      */
+    L.gPadTop = gChrome * (BENCH_TOP / CHROME);
+    L.gPadBot = gChrome - L.gPadTop;
+    L.grillTop = L.midTop + (fryN ? coldBand + L.fryH : 0) + each + L.gPadTop;
+
     /*
-     * Centred in what the board leaves, and no lower. It used to take a
-     * further 5% down to stop the stack reading as one tall fixture with the
-     * board; the fountain is tall enough now to separate them on its own, and
-     * the extra drop pushed the whole column into the bottom of the room.
+     * The plate wall, the same shape. The board hangs off the crate shelf
+     * rather than the top of the band, so its underside - not midTop - is
+     * what the stack is measured from.
      */
-    L.plateTop = L.midTop + boardBand - (L.midTop - (L.cratesBottom + 8)) +
-                 Math.max(0, Math.min((plateSpace - pTotal) / 2, plateSpace - pTotal));
+    var stack = pN * L.plateH + (pN - 1) * gap;
+    var pEach = Math.max(0, plateSpace - stack - pChrome) / 2;
+    L.pPadTop = pChrome * (BENCH_TOP / CHROME);
+    L.pPadBot = pChrome - L.pPadTop;
+    L.plateTop = boardFoot + pEach + L.pPadTop;
 
     // --- the walkable floor: whatever is left between the two walls. The board
     // is the widest thing on the plate side, so it sets that edge.
@@ -904,6 +936,20 @@
     var span = a1 - a0;
     if (!(span > 0.001)) return (b0 + b1) / 2;
     return b0 + ((v - a0) / span) * (b1 - b0);
+  }
+
+  /*
+   * How much of a bench's chrome a wall can pay for.
+   *
+   * Charging all 22px unconditionally pushed a 360x300 kitchen's burners to
+   * 20.9px, under MIN_TAPPABLE, and the room started asking the player to turn
+   * the phone. Charging none of it let the bench cut 12px into the fryer above
+   * it. Charge what is left over once every station is still worth tapping,
+   * and the overlap is only ever what the wall genuinely could not afford.
+   */
+  function afford(want, space, gapsTotal, slots) {
+    var spare = space - gapsTotal - MIN_TAPPABLE * slots;
+    return clamp(Math.min(want, spare), 0, want);
   }
 
   function crateRect(i) {
@@ -2286,13 +2332,12 @@
     var n = S.grill.length;
     var last = slotRect(n - 1);
     var body = {
-      x: L.grillX - 3, y: L.grillTop - 16,
-      w: L.colW + 6, h: (last.y + last.h) - L.grillTop + 22
+      x: L.grillX - 3, y: L.grillTop - L.gPadTop,
+      w: L.colW + 6, h: (last.y + last.h) - L.grillTop + L.gPadTop + L.gPadBot
     };
     // the chassis, in the same ink as the counters but in cast-iron colours
     Art.scene.counter(ctx, body.x, body.y, body.w, body.h, DEPTH.grill * (L.k || 1),
       { top: K.grillTop, top2: K.grillTop2, side: K.grillSide });
-    label('GRILL', body.x + body.w / 2, L.grillTop - 8, '#ffc6a5', 8);
 
     var win = S.fx.perfectWindow;
     var tMax = Core.COOK_TIME + win / 2 + Core.BURN_TIME;
@@ -2684,18 +2729,23 @@
     var n = S.plates.length;
     var last = plateRect(n - 1);
     var body = {
-      x: L.plateX - 3, y: L.plateTop - 16,
-      w: L.colW + 6, h: (last.y + last.h) - L.plateTop + 22
+      x: L.plateX - 3, y: L.plateTop - L.pPadTop,
+      w: (L.plateW || L.colW) + 6, h: (last.y + last.h) - L.plateTop + L.pPadTop + L.pPadBot
     };
     Art.scene.counter(ctx, body.x, body.y, body.w, body.h, DEPTH.plate * (L.k || 1),
       { top: K.plateTop, top2: K.plateTop2, side: K.plateSide });
-    label('PLATES', body.x + body.w / 2, L.plateTop - 8, C.sageInk, 8);
 
     for (var i = 0; i < n; i++) {
       var r = plateRect(i);
       var p = S.plates[i];
       var live = targeted('plate', i);
-      var cx = r.x + r.w / 2, py = r.y + r.h - 10;
+      /*
+       * Where the dish sits in its slot. A flat 10px off the bottom pinned it
+       * to the floor of a tall slot; a share of the slot lifts it clear while
+       * still leaving the food room to stack upwards, and the 10px floor keeps
+       * a short slot exactly where it was.
+       */
+      var cx = r.x + r.w / 2, py = r.y + r.h - Math.max(10, r.h * 0.22);
 
       /*
        * Work out what is on the plate before drawing the plate: it lays deli
@@ -2708,7 +2758,7 @@
       var pw = r.w * 0.80;
       var built = inbound('plate', i) ? p.stack.slice(0, -1) : p.stack;
       var shown = built.length ? Core.displayStack(built) : null;
-      var bw = shown ? Art.fitWidth(shown, pw * 0.74, r.h - 16) : 0;
+      var bw = shown ? Art.fitWidth(shown, pw * 0.74, r.h - 22) : 0;
 
       /*
        * The moment a side or a drink joins it, the bench is building a SET and
@@ -2717,8 +2767,15 @@
        */
       var benchEx = setExtras(p);
       if (benchEx.n) {
+        /*
+         * The tray's dish has to land on the same line as a bare plate's, or a
+         * column of four sits at two different heights depending on which of
+         * them happen to have a drink on them. drawSet takes the tray's front
+         * edge, and the dish stands half a tray-height above it.
+         */
+        var trayW = r.w * 0.96;
         drawSet(ctx, { stack: built, side: p.side, sideCook: p.sideCook, drink: p.drink },
-                cx, r.y + r.h - 4, r.w * 0.96, r.h - 16, benchEx, plateGlow(p));
+                cx, py - 2 + trayW * 0.20 * 0.50, trayW, r.h - 22, benchEx, plateGlow(p));
         if (live) {
           Art.rr(ctx, r.x, r.y, r.w, r.h, 11);
           ctx.strokeStyle = K.pick;
@@ -5177,7 +5234,7 @@
     renderBoard: renderBoard, reserveBoard: reserveBoard, orderRows: orderRows,
     syncHud: syncHud, resize: resize,
     chopCurve: chopCurve, drawPrepBoard: drawPrepBoard, drawCarried: drawCarried,
-    drawPlates: drawPlates, drawSet: drawSet, setExtras: setExtras,
+    drawPlates: drawPlates, drawGrill: drawGrill, drawSet: drawSet, setExtras: setExtras,
     dispenserView: dispenserView, freezerPose: freezerPose, drawFryStation: drawFryStation,
     tapColRect: tapColRect, tapColAt: tapColAt, freezerRect: freezerRect,
     drawFountain: drawFountain,
