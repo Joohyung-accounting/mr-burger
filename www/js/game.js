@@ -2671,10 +2671,8 @@
         ctx.stroke();
       }
 
-      if (!shown) {
-        label('EMPTY', cx, r.y + r.h * 0.42, 'rgba(111,74,51,0.35)', 7.5);
-        continue;
-      }
+      // An empty plate is a drawn empty plate; it does not need to be captioned.
+      if (!shown) continue;
       // plateSeat is where the burger rests, rather than the hand-picked
       // offset that used to leave it hovering a pixel or two over the rim.
       var seat = Art.scene.plateSeat(cx, py - 2, pw);
@@ -2714,9 +2712,10 @@
     var b = binRect();
     var bl = targeted('bin');
     // The lid flips up as something goes in. Same recoil timer the crates use.
+    // The bin is drawn as a bin, with a lid that flips. The word under it was
+    // saying what the picture already said.
     Art.scene.bin(ctx, b.x, b.y, b.w, b.h, { open: S.binPop || 0 });
     if (bl) pickRing(b, 14);
-    label('BIN', b.x + b.w / 2, b.y + b.h * 0.99, K.inkSoft, 7);
   }
 
   /**
