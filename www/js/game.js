@@ -244,29 +244,31 @@
    * way somewhere else and his feet are within a body's width of the spot the
    * board is worked from - the same place tapping it would send him.
    */
-  function cookAtBoard() {
-    if (!L.board || !S.chefs.length) return -1;
-    var p = standPoint({ kind: 'board' });
-    var near = (L.chefS || CHEF_S) * 0.80;
+  /*
+   * Which cook is working a station, or -1.
+   *
+   * This used to ask whether anybody was standing NEAR the station, which is
+   * not the same question. The board sits at the top of the plate wall and the
+   * crate row runs along the top of the room, so on a 375px phone the stand
+   * point for two of the crates is 2px from the board's - a cook fetching
+   * cheese was chopping the tomato behind him. Ask what he was sent to
+   * instead; it is exact, and it costs nothing.
+   */
+  function cookAtStation(kind) {
     for (var i = 0; i < S.chefs.length; i++) {
       var c = S.chefs[i];
-      if (c.target) continue;                       // walking somewhere else
-      if (Math.abs(c.x - p.x) <= near && Math.abs(c.y - p.y) <= near) return i;
+      if (!c.target && c.at === kind) return i;
     }
     return -1;
   }
 
-  /** Which cook is standing at the fountain, or -1. Same rule as the board. */
+  function cookAtBoard() {
+    return L.board ? cookAtStation('board') : -1;
+  }
+
+  /** Which cook is at the fountain, or -1. Same rule as the board. */
   function cookAtTap() {
-    if (!L.tapH || !S.chefs.length) return -1;
-    var p = standPoint({ kind: 'tap' });
-    var near = (L.chefS || CHEF_S) * 0.80;
-    for (var i = 0; i < S.chefs.length; i++) {
-      var c = S.chefs[i];
-      if (c.target) continue;
-      if (Math.abs(c.x - p.x) <= near && Math.abs(c.y - p.y) <= near) return i;
-    }
-    return -1;
+    return L.tapH ? cookAtStation('tap') : -1;
   }
 
   /** True if any cook is carrying a finished plate - lights the hatch up. */
@@ -1508,6 +1510,8 @@
   function sendChef(target, ci) {
     if (S.screen !== 'service') return;
     var c = chefAt(ci || 0);
+    // walking away from wherever he was
+    c.at = null;
     c.target = target;
     var p = standPoint(target);
     c.tx = p.x;
@@ -1519,6 +1523,8 @@
     ci = ci || 0;
     var me = chefAt(ci);
     var hold = me.holding;
+    // whatever the tap turns out to do, this is where he now IS
+    me.at = t.kind;
 
     if (t.kind === 'crate') {
       var id = S.menu[t.i];
@@ -1681,18 +1687,17 @@
           // mid-chop is mid-chop; letting the knife be interrupted would make
           // a slow cut free to reroll
           if (!bd.portions) { nope('ONE AT A TIME', ci); return; }
-          // and sweeping a board to make more of what is already on it is not
-          // a change of mind, it is throwing away portions
-          if (hold.id === bd.id) { nope('CLEAR THE BOARD FIRST', ci); return; }
           /*
-           * A board of lettuce when the ticket wants tomato used to cost three
-           * round trips to the bin - the only way to empty it was to carry the
-           * portions off one at a time, 16s of a 190s shift. Sweeping costs the
-           * 3.4s chop instead, which is the price of changing your mind rather
-           * than a punishment for the day's own menu.
+           * A finished portion is never thrown away to make room.
+           *
+           * Loading a different vegetable over a ready board used to sweep it -
+           * which made sense when a board held four portions and emptying it
+           * by hand cost three trips to the bin. It holds ONE now, so sweeping
+           * destroys the whole chop, and it did it silently under a player who
+           * had just watched the knife finish. Take it first; it is one tap.
            */
-          bd.wet = Math.min(1, (bd.wet || 0) + 0.34);
-          float('SWEPT', br.x + br.w / 2, br.y, C.warm, 10);
+          nope('TAKE THAT ONE FIRST', ci);
+          return;
         }
         bd.id = hold.id;
         bd.cut = 0;

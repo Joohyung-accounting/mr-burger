@@ -2413,21 +2413,72 @@ test('the knife cannot be interrupted, but a finished board can be swept', funct
   assert.ok(S.board.portions, 'setup: the board should have finished');
 
   /*
-   * Once it is done, changing your mind costs the 3.4s chop instead of three
-   * round trips to the bin - which is what emptying it used to take, because
-   * the only way off the board was one portion at a time.
+   * A finished portion is never thrown away to make room for another
+   * vegetable. Loading over a ready board used to sweep it, which made sense
+   * when a board held four portions and emptying it by hand cost three trips
+   * to the bin - it holds ONE now, so a sweep destroys the whole chop, and it
+   * did it silently under a player who had just watched the knife finish.
    */
   work(MB.boardRect());
-  assert.strictEqual(S.board.id, veg[1], 'a different vegetable should sweep the board');
-  assert.strictEqual(S.board.portions, 0, 'and start the new one from scratch');
-  assert.ok(!held(), 'it should be on the board, not still in his hands');
+  assert.strictEqual(S.board.id, veg[0], 'a ready portion was swept away to make room');
+  assert.ok(S.board.portions > 0, 'the portion vanished');
+  assert.ok(held() && held().id === veg[1], 'the cook lost what he was carrying');
 
-  // but not to make more of what is already sitting there
-  for (i = 0; i < 400 && !S.board.portions; i++) pump(0.05);
+  // take it first - one tap - and the board comes free
+  work(MB.binRect());
+  assert.strictEqual(held(), null, 'setup: the bin should have emptied his hands');
+  work(MB.boardRect());
+  assert.ok(held() && held().prepped, 'the chopped portion did not come off the board');
+  assert.strictEqual(S.board.id, null, 'the board should be bare once its portion is taken');
+
+  // ...and now the other vegetable goes on
+  work(MB.binRect());
   work(crateOf(veg[1]));
   work(MB.boardRect());
-  assert.ok(S.board.portions > 0, 'sweeping a board to reload the same vegetable wastes it');
-  assert.ok(held(), 'and the cook should still be holding it');
+  assert.strictEqual(S.board.id, veg[1], 'a bare board refused the next vegetable');
+});
+
+/*
+ * "At the board" has to mean he was SENT there, not that he happens to be
+ * near it. The board sits at the top of the plate wall and the crate row runs
+ * along the top of the room, so on a 375px phone two crates have a stand point
+ * 2px from the board's - a cook fetching cheese was chopping the tomato behind
+ * him, and the same held for the fountain.
+ */
+test('a cook at a crate is not secretly working the board', function () {
+  var w0 = stage.clientWidth, h0 = stage.clientHeight;
+  stage.clientWidth = 375; stage.clientHeight = 812;
+  startShift(8);
+  pump(0.3);
+  var veg = S.menu.filter(function (id) { var g = Core.byId(id); return g && g.chop; })[0];
+  assert.ok(veg, 'setup: day 8 should stock something to chop');
+
+  S.chef.holding = null;
+  work(crateOf(veg));
+  work(MB.boardRect());
+  assert.strictEqual(S.board.id, veg, 'setup: the vegetable should be on the board');
+  pump(0.4);
+  assert.ok(S.board.cut > 0, 'setup: standing at the board should chop');
+
+  // find the crate whose stand point is nearest the board's - the one that
+  // used to be mistaken for it
+  var bp = MB.standPoint({ kind: 'board' }), best = 0, bestD = Infinity;
+  for (var i = 0; i < S.menu.length; i++) {
+    var cp = MB.standPoint({ kind: 'crate', i: i });
+    var d = Math.hypot(cp.x - bp.x, cp.y - bp.y);
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  assert.ok(bestD < 90, 'setup: expected a crate close enough to be confused for the board');
+
+  work(MB.crateRect(best));
+  var cut = S.board.cut;
+  pump(2.0);
+  assert.strictEqual(S.board.cut, cut,
+    'the board chopped itself while the cook was ' + bestD.toFixed(0) + 'px away at a crate');
+  assert.strictEqual(S.board.working, false, 'and it should know nobody is on it');
+
+  stage.clientWidth = w0; stage.clientHeight = h0;
+  pump(0.3);
 });
 
 test('the knife only runs while there is something to cut', function () {
