@@ -1895,6 +1895,31 @@
       res.tip = Math.round(res.tip * Math.max(0, 1 - ex.faults.length * 0.5));
     }
 
+    /*
+     * If nobody on the board actually ordered this, it goes back.
+     *
+     * bestMatch picks the CLOSEST ticket and payout grades against it, so a
+     * burger with a filling nobody asked for used to be quietly sold to
+     * whoever wanted the most of it - at a discount, but sold. The board is
+     * the specification: a plate either matches something on it or it is
+     * wrong, and being nearly right is not a thing you can serve.
+     *
+     * The tray is deliberately not part of this. A forgotten drink already
+     * costs a grade, and the comment on that ladder is explicit that it must
+     * not cost a heart - this is about what went in the burger.
+     */
+    var ordered = S.tickets.some(function (tk) {
+      return Core.evaluate(tk.items, stack).exact;
+    });
+    if (!ordered) {
+      res.verdict = 'bad';
+      res.pay = 0;
+      res.tip = 0;
+      res.total = 0;
+      res.heartLoss = Math.max(1, res.heartLoss || 0);
+      res.faults = [{ code: 'unordered', label: 'NOBODY ORDERED THAT' }];
+    }
+
     S.sales += res.pay;
     S.tips += res.tip;
     S.hearts -= res.heartLoss;
@@ -2784,19 +2809,16 @@
     }
 
     /*
-     * The yellow ring, on the lever rather than on the whole machine.
+     * The yellow ring means a lever is BEING WORKED, and nothing else.
      *
-     * It is the same mark the crates and the fry wells wear, and here it does
-     * two jobs with one shape: on an idle machine it sits on the flavour the
-     * board is waiting for, so you know which of the three to press; once one
-     * is pressed it stays on THAT lever until the cup comes off, which is the
-     * only feedback saying the press landed.
+     * It used to sit on the flavour the board was waiting for before anybody
+     * touched the machine, which turned a piece of feedback into an
+     * instruction - the player read the answer off the machine instead of off
+     * the order. It appears when a lever is pressed and stays on that lever
+     * until the cup is taken, which is the one thing it is for: saying the
+     * press landed and the work is happening here.
      */
     if (pr) pickRing(tapColRect(v.active), 6);
-    else if (v.want) {
-      var hint = v.ids.indexOf(v.want);
-      if (hint >= 0) pickRing(tapColRect(hint), 6);
-    }
     if (!pr && !v.want && !(S.drinkTaps || []).length) {
       Art.ui.letters(ctx, 'CLOSED', r.x + r.w / 2, r.y + r.h * 0.70, r.h * 0.055,
         { fill: 'rgba(63,74,80,0.70)', weight: 0.12, track: 0.14, seed: 5520 });

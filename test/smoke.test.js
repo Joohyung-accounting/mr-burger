@@ -3734,6 +3734,28 @@ test('the lever you pressed wears the ring, and the levers do not overlap', func
     }
   });
 
+  /*
+   * The ring means a lever is being worked. An untouched machine wears none -
+   * it used to pre-mark the flavour the board wanted, which read as the game
+   * answering the order for you.
+   */
+  stage.clientWidth = 412; stage.clientHeight = 915;
+  startShift(12);
+  pump(0.3);
+  S.pour = null;
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].drink = S.drinkTaps[0];
+  var idle = [], rr0 = Art.rr;
+  Art.rr = function (g, x, y, w, h) { idle.push({ x: x, y: y, w: w, h: h }); };
+  try { MB.drawFountain(); } finally { Art.rr = rr0; }
+  var levers = [0, 1, 2].map(function (i) { return MB.tapColRect(i); });
+  var marked = idle.filter(function (q) {
+    return levers.some(function (L) { return Math.abs(q.x - L.x) < 1 && Math.abs(q.w - L.w) < 1; });
+  });
+  assert.strictEqual(marked.length, 0,
+    'an untouched fountain pre-marked a lever - the ring is feedback, not an instruction');
+
   // the ring follows the press
   stage.clientWidth = 412; stage.clientHeight = 915;
   startShift(12);
@@ -4027,6 +4049,60 @@ test('a basket in the oil shows how done it is, the way a patty does', function 
 
   stage.clientWidth = w0; stage.clientHeight = h0;
   pump(0.3);
+});
+
+/*
+ * The board is the specification.
+ *
+ * bestMatch picks the CLOSEST ticket and payout grades against it, so a burger
+ * with a filling nobody asked for used to be quietly sold to whoever wanted
+ * the most of it - at a discount, but sold. A plate either matches something
+ * on the board or it goes back.
+ */
+test('a burger nobody ordered goes back, however close it was', function () {
+  startShift(10);
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  var want = S.tickets[0].items.slice();
+  S.tickets[0].side = null;
+  S.tickets[0].drink = null;
+
+  function serve(items) {
+    var sales = S.sales, tips = S.tips, hearts = S.hearts, served = S.served;
+    MB.deliver(items.map(function (id) { return { id: id, cook: 1 }; }), {}, 0);
+    return { pay: S.sales - sales, tip: S.tips - tips,
+             heart: hearts - S.hearts, served: S.served - served };
+  }
+
+  // exactly what was asked for: paid, and counted
+  var right = serve(want);
+  assert.ok(right.pay > 0, 'the right burger paid nothing');
+  assert.strictEqual(right.heart, 0, 'the right burger cost a heart');
+  assert.strictEqual(right.served, 1, 'the right burger was not counted as served');
+
+  // one filling too many - as close as a wrong plate gets
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].items = want.slice();
+  S.tickets[0].side = null;
+  S.tickets[0].drink = null;
+  var extra = want.concat(['cheese']);
+  var near = serve(extra);
+  assert.strictEqual(near.pay, 0,
+    'a burger with a filling nobody ordered still sold for ' + near.pay);
+  assert.strictEqual(near.tip, 0, 'it was tipped for');
+  assert.strictEqual(near.heart, 1, 'it cost ' + near.heart + ' hearts, not one');
+  assert.strictEqual(near.served, 0, 'it was counted as served');
+
+  // ...and one filling short is no better
+  S.tickets.length = 0;
+  MB.spawnTicket();
+  S.tickets[0].items = want.slice();
+  S.tickets[0].side = null;
+  S.tickets[0].drink = null;
+  var short = serve(want.slice(0, want.length - 1));
+  assert.strictEqual(short.pay, 0, 'a burger missing a filling sold for ' + short.pay);
+  assert.strictEqual(short.heart, 1, 'a short burger cost ' + short.heart + ' hearts');
 });
 
 console.log('\n' + passed + ' passed' + (process.exitCode ? ', with failures' : '') + '\n');
